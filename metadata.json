@@ -1,0 +1,6 @@
+{
+  "name": "فصيح | تعليم وتقييم النطق العربي",
+  "description": "منصة ذكية لتعليم النطق العربي الصحيح، الاستماع للأصوات والكلمات، وتقييم نطق الطالب صوتياً بالذكاء الاصطناعي",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
