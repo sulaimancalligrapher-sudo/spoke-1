@@ -14,15 +14,19 @@ import {
   Layers,
   Zap,
   User,
+  Image as ImageIcon,
+  BookOpen,
 } from 'lucide-react';
 import {
   speakArabicBrowser,
   speakArabicGemini,
+  playCustomAudio,
   createSpeechRecognizer,
   isSpeechRecognitionSupported,
   blobToBase64,
   stopAllAudio,
 } from '../utils/arabicAudio';
+import { normalizeMediaUrl } from '../utils/mediaUrl';
 import { evaluateArabicLocal } from '../utils/arabicMatcher';
 import { AudioWaveform } from './AudioWaveform';
 
@@ -98,7 +102,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     onUpdateSettings({ studentName: val });
   };
 
-  // Handle Listen Audio
+  // Handle Listen Audio: plays custom audio if provided, otherwise browser TTS
   const handlePlayAudio = (slow = false) => {
     if (isPlayingAudio) {
       stopAllAudio();
@@ -108,7 +112,16 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
     setIsPlayingAudio(true);
 
-    if (settings.engine === 'gemini') {
+    if (wordItem.audioUrl) {
+      // Play custom audio file
+      playCustomAudio(
+        wordItem.audioUrl,
+        wordItem.word,
+        slow ? 0.7 : settings.speed,
+        () => setIsPlayingAudio(true),
+        () => setIsPlayingAudio(false)
+      );
+    } else if (settings.engine === 'gemini') {
       speakArabicGemini(
         wordItem.word,
         slow,
@@ -237,7 +250,6 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
     // If Mode is LOCAL (Primary / Default)
     if (activeEvalMode === 'local') {
-      // Fast instantaneous client-side evaluation
       const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate);
       const evalResult: PronunciationEvaluation = {
         ...localEval,
@@ -269,7 +281,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           spokenText: textToEvaluate,
           audioBase64: audioBase64 || undefined,
           audioMimeType: mimeType,
-          notes: `المستوى ${wordItem.level} - فئة: ${wordItem.category}`,
+          notes: `الدرس: ${wordItem.lessonSubject} - الفئة: ${wordItem.category}`,
         }),
       });
 
@@ -317,26 +329,16 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-50/60 rounded-full blur-3xl -z-10 pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-80 h-80 bg-sky-50/60 rounded-full blur-3xl -z-10 pointer-events-none" />
 
-      {/* Header: Progress, Level & Student Name */}
+      {/* Header: Lesson Subject, Category & Student Name */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-slate-100">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-xs font-bold flex items-center gap-1.5">
-            <Layers className="w-3.5 h-3.5" />
-            المستوى {wordItem.level}: {
-              wordItem.category === 'letters'
-                ? 'الحروف والمخارج'
-                : wordItem.category === 'words'
-                ? 'كلمات ثلاثية'
-                : wordItem.category === 'minimal-pairs'
-                ? 'مقارنة الحروف'
-                : 'جمل فصيحة'
-            }
+          <span className="px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200/80 rounded-full text-xs font-bold flex items-center gap-1.5">
+            <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
+            {wordItem.lessonSubject || 'الدرس الحالي'}
           </span>
-          {wordItem.lessonName && (
-            <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-semibold">
-              {wordItem.lessonName}
-            </span>
-          )}
+          <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-semibold">
+            {wordItem.category}
+          </span>
         </div>
 
         {/* Student Name Input */}
@@ -368,7 +370,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             }`}
           >
             <Zap className="w-3.5 h-3.5" />
-            <span>التقييم الداخلي (الأساسي - مجاني وفوري)</span>
+            <span>التقييم الداخلي (الأساسي)</span>
           </button>
 
           <button
@@ -381,13 +383,29 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>الذكاء الاصطناعي (Gemini)</span>
+            <span>الذكاء الاصطناعي</span>
           </button>
         </div>
       </div>
 
-      {/* Main Arabic Display Stage */}
-      <div className="text-center py-6 sm:py-8 border-b border-slate-100">
+      {/* Main Arabic Display Stage with Optional Image */}
+      <div className="text-center py-4 sm:py-6 border-b border-slate-100">
+        {/* Attached Picture if available */}
+        {wordItem.imageUrl && (
+          <div className="mb-4 flex justify-center">
+            <div className="relative group overflow-hidden rounded-2xl border-2 border-slate-100 shadow-md">
+              <img
+                src={normalizeMediaUrl(wordItem.imageUrl)}
+                alt={wordItem.word}
+                className="w-36 h-36 sm:w-44 sm:h-44 object-cover hover:scale-105 transition-transform duration-300"
+                onError={(e) => {
+                  (e.target as any).style.display = 'none';
+                }}
+              />
+            </div>
+          </div>
+        )}
+
         <div className="inline-block relative">
           <h2
             className="font-amiri text-5xl sm:text-7xl font-bold text-slate-900 tracking-wider mb-3 select-all hover:scale-[1.02] transition-transform duration-300"
@@ -456,18 +474,26 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             }`}
           >
             <Volume2 className="w-5 h-5 text-emerald-600" />
-            <span>{isPlayingAudio ? 'جاري الاستماع...' : 'استمع للصوت الطبيعي'}</span>
+            <span>
+              {isPlayingAudio
+                ? 'جاري الاستماع...'
+                : wordItem.audioUrl
+                ? 'استمع لصوت المعلم'
+                : 'استمع للنطق النموذجي'}
+            </span>
           </button>
 
-          <button
-            onClick={() => handlePlayAudio(true)}
-            disabled={isRecording || isEvaluating || isPlayingAudio}
-            className="flex items-center gap-2 px-4 py-3 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/80 rounded-2xl text-xs font-semibold transition-all cursor-pointer"
-            title="نطق بطيء للمبتدئين وللتدرب على التشكيل"
-          >
-            <Volume1 className="w-4 h-4 text-slate-500" />
-            <span>نطق بطيء (0.7x)</span>
-          </button>
+          {!wordItem.audioUrl && (
+            <button
+              onClick={() => handlePlayAudio(true)}
+              disabled={isRecording || isEvaluating || isPlayingAudio}
+              className="flex items-center gap-2 px-4 py-3 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/80 rounded-2xl text-xs font-semibold transition-all cursor-pointer"
+              title="نطق بطيء للمبتدئين وللتدرب على التشكيل"
+            >
+              <Volume1 className="w-4 h-4 text-slate-500" />
+              <span>نطق بطيء (0.7x)</span>
+            </button>
+          )}
         </div>
 
         {/* Microphone Speaking Stage */}

@@ -201,6 +201,40 @@ app.post('/api/tts', async (req, res) => {
   }
 });
 
+/**
+ * Proxy Google Drive audio to bypass browser CORS / redirect issues
+ */
+app.get('/api/proxy-audio', async (req, res) => {
+  try {
+    const fileId = req.query.id as string;
+    if (!fileId) {
+      return res.status(400).send('Missing file ID');
+    }
+
+    const driveUrl = `https://docs.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
+    const response = await fetch(driveUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      },
+    });
+
+    if (!response.ok) {
+      return res.status(response.status).send('Failed to fetch from Google Drive');
+    }
+
+    const contentType = response.headers.get('content-type') || 'audio/mpeg';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    return res.send(buffer);
+  } catch (err: any) {
+    console.warn('Error in /api/proxy-audio:', err);
+    return res.status(500).send('Proxy error: ' + err.message);
+  }
+});
+
 // Setup Vite development server or static serving in production
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {

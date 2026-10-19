@@ -8,12 +8,15 @@ import {
   StudentSubmissionRecord,
   EvaluationMode,
 } from './types';
-import { ALL_CURRICULUM } from './data/arabicCurriculum';
+import {
+  ALL_CURRICULUM,
+  INITIAL_CATEGORIES,
+  INITIAL_LESSON_SUBJECTS,
+} from './data/arabicCurriculum';
 import { Navbar } from './components/Navbar';
 import { PracticeCard } from './components/PracticeCard';
 import { EvaluationCard } from './components/EvaluationCard';
 import { CurriculumDrawer } from './components/CurriculumDrawer';
-import { CustomWordModal } from './components/CustomWordModal';
 import { StatsModal } from './components/StatsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { GuideModal } from './components/GuideModal';
@@ -24,17 +27,22 @@ import {
   ChevronRight,
   ChevronLeft,
   Sliders,
+  BookOpen,
 } from 'lucide-react';
 
 const STORAGE_KEY_HISTORY = 'faseeh_pronunciation_history_v1';
 const STORAGE_KEY_SCORES = 'faseeh_pronunciation_scores_v1';
-const STORAGE_KEY_CUSTOM = 'faseeh_custom_words_v1';
+const STORAGE_KEY_CUSTOM = 'faseeh_custom_words_v2';
 const STORAGE_KEY_SETTINGS = 'faseeh_audio_settings_v1';
 const STORAGE_KEY_SHEETS = 'faseeh_sheets_config_v1';
 const STORAGE_KEY_SUBMISSIONS = 'faseeh_submissions_v1';
+const STORAGE_KEY_CATEGORIES = 'faseeh_categories_v2';
+const STORAGE_KEY_SUBJECTS = 'faseeh_subjects_v2';
 
 export default function App() {
   const [curriculum, setCurriculum] = useState<WordItem[]>(ALL_CURRICULUM);
+  const [categories, setCategories] = useState<string[]>(INITIAL_CATEGORIES);
+  const [subjects, setSubjects] = useState<string[]>(INITIAL_LESSON_SUBJECTS);
   const [selectedItem, setSelectedItem] = useState<WordItem>(ALL_CURRICULUM[0]);
   const [evaluation, setEvaluation] = useState<PronunciationEvaluation | null>(null);
   const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
@@ -44,11 +52,15 @@ export default function App() {
   // Separate Admin View routing (supports URL: #admin or pathname /admin)
   const [isAdminView, setIsAdminView] = useState(false);
 
+  // Student View: Active Lesson Subject
+  const [studentSubject, setStudentSubject] = useState<string>(
+    ALL_CURRICULUM[0]?.lessonSubject || INITIAL_LESSON_SUBJECTS[0]
+  );
+
   // Modals
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
-  const [isCustomOpen, setIsCustomOpen] = useState(false);
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(true);
 
   // Scores map: wordId -> score
@@ -105,8 +117,18 @@ export default function App() {
       const savedCustom = localStorage.getItem(STORAGE_KEY_CUSTOM);
       if (savedCustom) {
         const customItems: WordItem[] = JSON.parse(savedCustom);
-        setCurriculum([...ALL_CURRICULUM, ...customItems]);
+        setCurriculum(customItems);
+        if (customItems.length > 0) {
+          setSelectedItem(customItems[0]);
+          setStudentSubject(customItems[0].lessonSubject || INITIAL_LESSON_SUBJECTS[0]);
+        }
       }
+
+      const savedCategories = localStorage.getItem(STORAGE_KEY_CATEGORIES);
+      if (savedCategories) setCategories(JSON.parse(savedCategories));
+
+      const savedSubjects = localStorage.getItem(STORAGE_KEY_SUBJECTS);
+      if (savedSubjects) setSubjects(JSON.parse(savedSubjects));
 
       const savedSettings = localStorage.getItem(STORAGE_KEY_SETTINGS);
       if (savedSettings) setSettings(JSON.parse(savedSettings));
@@ -160,35 +182,175 @@ export default function App() {
     });
   };
 
-  // Add custom or admin word
+  // Category Management
+  const handleAddCategory = (newCategory: string) => {
+    setCategories((prev) => {
+      if (prev.includes(newCategory)) return prev;
+      const next = [...prev, newCategory];
+      try {
+        localStorage.setItem(STORAGE_KEY_CATEGORIES, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const handleRenameCategory = (oldCat: string, newCat: string) => {
+    setCategories((prev) => {
+      const next = prev.map((c) => (c === oldCat ? newCat : c));
+      try {
+        localStorage.setItem(STORAGE_KEY_CATEGORIES, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+
+    setCurriculum((prev) => {
+      const next = prev.map((item) =>
+        item.category === oldCat ? { ...item, category: newCat } : item
+      );
+      try {
+        localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const handleDeleteCategory = (catToDelete: string) => {
+    setCategories((prev) => {
+      const next = prev.filter((c) => c !== catToDelete);
+      try {
+        localStorage.setItem(STORAGE_KEY_CATEGORIES, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+
+    const fallbackCat = categories.find((c) => c !== catToDelete) || 'الكلمة';
+    setCurriculum((prev) => {
+      const next = prev.map((item) =>
+        item.category === catToDelete ? { ...item, category: fallbackCat } : item
+      );
+      try {
+        localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  // Subject Management
+  const handleAddSubject = (newSubject: string) => {
+    setSubjects((prev) => {
+      if (prev.includes(newSubject)) return prev;
+      const next = [...prev, newSubject];
+      try {
+        localStorage.setItem(STORAGE_KEY_SUBJECTS, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const handleRenameSubject = (oldSubj: string, newSubj: string) => {
+    setSubjects((prev) => {
+      const next = prev.map((s) => (s === oldSubj ? newSubj : s));
+      try {
+        localStorage.setItem(STORAGE_KEY_SUBJECTS, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+
+    setCurriculum((prev) => {
+      const next = prev.map((item) =>
+        item.lessonSubject === oldSubj ? { ...item, lessonSubject: newSubj } : item
+      );
+      try {
+        localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+
+    if (studentSubject === oldSubj) {
+      setStudentSubject(newSubj);
+    }
+  };
+
+  const handleDeleteSubject = (subjToDelete: string) => {
+    setSubjects((prev) => {
+      const next = prev.filter((s) => s !== subjToDelete);
+      try {
+        localStorage.setItem(STORAGE_KEY_SUBJECTS, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+
+    setCurriculum((prev) => {
+      const next = prev.filter((item) => item.lessonSubject !== subjToDelete);
+      try {
+        localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+
+    const remainingSubjects = subjects.filter((s) => s !== subjToDelete);
+    if (remainingSubjects.length > 0) {
+      setStudentSubject(remainingSubjects[0]);
+    }
+  };
+
+  // Add word
   const handleAddWord = (newWord: WordItem) => {
     setCurriculum((prev) => {
       const next = [newWord, ...prev];
-      const customOnly = next.filter(
-        (item) => item.id.startsWith('admin-') || item.id.startsWith('custom-')
-      );
       try {
-        localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(customOnly));
+        localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(next));
       } catch (e) {}
       return next;
     });
     setSelectedItem(newWord);
+    setStudentSubject(newWord.lessonSubject);
+    handleAddSubject(newWord.lessonSubject);
   };
 
-  // Delete custom or admin word
+  // Update existing word
+  const handleUpdateWord = (updatedWord: WordItem) => {
+    setCurriculum((prev) => {
+      const next = prev.map((item) => (item.id === updatedWord.id ? updatedWord : item));
+      try {
+        localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+    if (selectedItem.id === updatedWord.id) {
+      setSelectedItem(updatedWord);
+    }
+    handleAddSubject(updatedWord.lessonSubject);
+  };
+
+  // Delete word
   const handleDeleteWord = (id: string) => {
     setCurriculum((prev) => {
       const next = prev.filter((item) => item.id !== id);
-      const customOnly = next.filter(
-        (item) => item.id.startsWith('admin-') || item.id.startsWith('custom-')
-      );
       try {
-        localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(customOnly));
+        localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(next));
       } catch (e) {}
       return next;
     });
     if (selectedItem.id === id) {
+      const remaining = curriculum.filter((item) => item.id !== id);
+      if (remaining.length > 0) setSelectedItem(remaining[0]);
+    }
+  };
+
+  // Reset curriculum to default
+  const handleResetCurriculum = () => {
+    if (confirm('هل أنت متأكد من استعادة المنهج الافتراضي؟')) {
+      setCurriculum(ALL_CURRICULUM);
+      setCategories(INITIAL_CATEGORIES);
+      setSubjects(INITIAL_LESSON_SUBJECTS);
       setSelectedItem(ALL_CURRICULUM[0]);
+      setStudentSubject(ALL_CURRICULUM[0].lessonSubject);
+      try {
+        localStorage.removeItem(STORAGE_KEY_CUSTOM);
+        localStorage.removeItem(STORAGE_KEY_CATEGORIES);
+        localStorage.removeItem(STORAGE_KEY_SUBJECTS);
+      } catch (e) {}
     }
   };
 
@@ -238,7 +400,6 @@ export default function App() {
       syncedToSheets: false,
     };
 
-    // Save submission locally
     setSubmissions((prev) => {
       const next = [submissionRecord, ...prev].slice(0, 200);
       try {
@@ -247,11 +408,10 @@ export default function App() {
       return next;
     });
 
-    // If Google Sheets auto-sync is active, send to sheet
+    // Google Sheets Auto-sync
     if (sheetsConfig.enabled && sheetsConfig.webhookUrl && sheetsConfig.autoSync) {
       try {
         await sendScoreToGoogleSheets(sheetsConfig.webhookUrl, submissionRecord);
-        // Mark as synced
         setSubmissions((prev) =>
           prev.map((s) => (s.id === submissionRecord.id ? { ...s, syncedToSheets: true } : s))
         );
@@ -261,8 +421,21 @@ export default function App() {
     }
   };
 
-  // Navigation handlers
-  const currentIndex = curriculum.findIndex((item) => item.id === selectedItem.id);
+  // Distinct subjects
+  const allSubjects = Array.from(
+    new Set([
+      ...subjects,
+      ...curriculum.map((c) => c.lessonSubject || 'دروس عامة'),
+    ])
+  );
+
+  // Words currently available under the student's selected subject
+  const currentSubjectWords = curriculum.filter(
+    (item) => !studentSubject || item.lessonSubject === studentSubject
+  );
+  const activeSubjectWords = currentSubjectWords.length > 0 ? currentSubjectWords : curriculum;
+
+  const currentIndex = activeSubjectWords.findIndex((item) => item.id === selectedItem.id);
 
   const handleSelectWord = (item: WordItem) => {
     setSelectedItem(item);
@@ -271,15 +444,15 @@ export default function App() {
   };
 
   const handleNextWord = () => {
-    const nextIdx = (currentIndex + 1) % curriculum.length;
-    setSelectedItem(curriculum[nextIdx]);
+    const nextIdx = (currentIndex + 1) % activeSubjectWords.length;
+    setSelectedItem(activeSubjectWords[nextIdx]);
     setEvaluation(null);
     setRecordedAudioUrl(null);
   };
 
   const handlePrevWord = () => {
-    const prevIdx = (currentIndex - 1 + curriculum.length) % curriculum.length;
-    setSelectedItem(curriculum[prevIdx]);
+    const prevIdx = (currentIndex - 1 + activeSubjectWords.length) % activeSubjectWords.length;
+    setSelectedItem(activeSubjectWords[prevIdx]);
     setEvaluation(null);
     setRecordedAudioUrl(null);
   };
@@ -316,12 +489,13 @@ export default function App() {
     setIsAdminView(false);
   };
 
-  // IF ADMIN VIEW IS ACTIVE: Render Dedicated Admin Section
+  // IF ADMIN VIEW IS ACTIVE: Render Revamped Admin Section
   if (isAdminView) {
     return (
       <AdminPanel
         curriculum={curriculum}
         onAddWord={handleAddWord}
+        onUpdateWord={handleUpdateWord}
         onDeleteWord={handleDeleteWord}
         sheetsConfig={sheetsConfig}
         onUpdateSheetsConfig={handleUpdateSheetsConfig}
@@ -332,6 +506,15 @@ export default function App() {
         onUpdateDefaultEvalMode={(mode: EvaluationMode) =>
           handleUpdateSettings({ preferredEvaluationMode: mode })
         }
+        categories={categories}
+        onAddCategory={handleAddCategory}
+        onRenameCategory={handleRenameCategory}
+        onDeleteCategory={handleDeleteCategory}
+        subjects={allSubjects}
+        onAddSubject={handleAddSubject}
+        onRenameSubject={handleRenameSubject}
+        onDeleteSubject={handleDeleteSubject}
+        onResetCurriculum={handleResetCurriculum}
       />
     );
   }
@@ -346,14 +529,14 @@ export default function App() {
         onOpenStats={() => setIsStatsOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenGuide={() => setIsGuideOpen(true)}
-        onOpenCustom={() => setIsCustomOpen(true)}
+        onOpenCustom={handleOpenAdmin}
         onOpenAdmin={handleOpenAdmin}
         isSheetsActive={sheetsConfig.enabled && !!sheetsConfig.webhookUrl}
       />
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col">
-        {/* Answer to user discussion question banner */}
+        {/* Banner */}
         {showWelcomeBanner && (
           <div className="mb-6 p-4 sm:p-5 bg-linear-to-r from-emerald-600 to-teal-700 text-white rounded-3xl shadow-lg shadow-emerald-700/10 flex flex-col sm:flex-row items-center justify-between gap-4 relative overflow-hidden">
             <div className="flex items-center gap-3.5 z-10">
@@ -362,10 +545,10 @@ export default function App() {
               </div>
               <div>
                 <h2 className="text-base sm:text-lg font-bold">
-                  فَصِيح: نظام التقييم الداخلي الفوري + ربط Google Sheets ولوحة الإدارة
+                  فَصِيح: نظام المناهج والدروس المرن + دعم الصور والأصوات
                 </h2>
                 <p className="text-xs sm:text-sm text-emerald-100 max-w-2xl leading-relaxed">
-                  النظام الأساسي يعمل مجاناً داخل المتصفح بدون إنترنت، ودرجات الطلاب تُسجل تلقائياً في Google Sheets، مع وجود لوحة إدارة منفصلة لإضافة الدروس.
+                  يمكنك إدارة وتعديل وحذف الدروس والفئات من لوحة الإدارة (#admin)، وإرفاق صور وأصوات من Google Drive أو رفع مباشر، والاستماع للصوت بسلاسة.
                 </p>
               </div>
             </div>
@@ -390,7 +573,7 @@ export default function App() {
 
         {/* 2-Column Responsive Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start flex-1">
-          {/* Main Practice & Evaluation Arena (Left / 7 cols) */}
+          {/* Main Practice Arena (Left / 7 cols) */}
           <div className="lg:col-span-7 flex flex-col gap-6 order-1 lg:order-1">
             {/* Navigation Bar between Words */}
             <div className="flex items-center justify-between px-2">
@@ -403,7 +586,7 @@ export default function App() {
               </button>
 
               <div className="text-xs font-bold text-slate-500">
-                {selectedItem.word}
+                {selectedItem.word} ({currentIndex + 1} من {activeSubjectWords.length})
               </div>
 
               <button
@@ -423,7 +606,7 @@ export default function App() {
               isEvaluating={isEvaluating}
               setIsEvaluating={setIsEvaluating}
               currentIndex={currentIndex}
-              totalCount={curriculum.length}
+              totalCount={activeSubjectWords.length}
               onUpdateSettings={handleUpdateSettings}
             />
 
@@ -450,7 +633,9 @@ export default function App() {
               selectedItem={selectedItem}
               onSelectItem={handleSelectWord}
               scoresMap={scoresMap}
-              onOpenCustomModal={() => setIsCustomOpen(true)}
+              selectedSubject={studentSubject}
+              onSelectSubject={setStudentSubject}
+              subjectsList={allSubjects}
             />
           </div>
         </div>
@@ -462,7 +647,7 @@ export default function App() {
           <div className="flex items-center gap-2">
             <span className="font-bold text-slate-600">فَصِيح</span>
             <span>—</span>
-            <span>منصة تعليم النطق العربي مع لوحة الإدارة وربط Google Sheets</span>
+            <span>نظام إدارة الدروس والكلمات وتقييم النطق العربي</span>
           </div>
           <div className="flex items-center gap-3 text-[11px] text-slate-500">
             <button
@@ -472,18 +657,12 @@ export default function App() {
               رابط لوحة الإدارة (#admin)
             </button>
             <span>•</span>
-            <span>يدعم النشر المجاني على GitHub و Vercel</span>
+            <span>يدعم Google Drive و Dropbox و GitHub و Vercel</span>
           </div>
         </div>
       </footer>
 
       {/* Modals */}
-      <CustomWordModal
-        isOpen={isCustomOpen}
-        onClose={() => setIsCustomOpen(false)}
-        onAddWord={handleAddWord}
-      />
-
       <StatsModal
         isOpen={isStatsOpen}
         onClose={() => setIsStatsOpen(false)}

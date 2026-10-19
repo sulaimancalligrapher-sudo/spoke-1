@@ -1,20 +1,19 @@
-export type PracticeCategory = 'letters' | 'words' | 'minimal-pairs' | 'sentences' | 'custom';
-
 export type EvaluationMode = 'local' | 'ai';
 
 export interface WordItem {
   id: string;
   word: string; // with Tashkeel
   plainWord: string; // stripped of Tashkeel
-  meaning: string;
-  category: PracticeCategory;
-  level: number;
-  makhrajTip: string;
+  meaning: string; // المعنى والتوضيح
+  category: string; // 'الحرف' | 'الكلمة' | 'الجملة' أو أي فئة مخصصة
+  lessonSubject: string; // موضوع الدرس
+  level?: number;
+  imageUrl?: string; // رابط الصورة
+  audioUrl?: string; // رابط الصوت
+  makhrajTip: string; // إرشادات المخرج الصوتي
   letterFocus?: string;
   harakat?: string;
   transliteration?: string;
-  audioExampleUrl?: string;
-  lessonName?: string;
 }
 
 export interface LetterPhoneme {
@@ -51,7 +50,7 @@ export interface PracticeHistoryItem {
 }
 
 export interface AudioSettings {
-  speed: number; // 0.7 | 0.9 | 1.1
+  speed: number;
   engine: 'browser' | 'gemini';
   autoPlayTarget: boolean;
   repeatTargetTwice: boolean;

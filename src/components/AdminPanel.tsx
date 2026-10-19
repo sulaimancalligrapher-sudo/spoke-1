@@ -1,11 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   WordItem,
   GoogleSheetsConfig,
   StudentSubmissionRecord,
   EvaluationMode,
-  PracticeCategory,
 } from '../types';
+import {
+  INITIAL_LESSON_SUBJECTS,
+  INITIAL_CATEGORIES,
+} from '../data/arabicCurriculum';
 import {
   BookOpen,
   Plus,
@@ -30,6 +33,16 @@ import {
   ShieldCheck,
   Send,
   Sliders,
+  Edit3,
+  Image as ImageIcon,
+  Play,
+  RotateCcw,
+  Layers,
+  FolderPlus,
+  Mic,
+  MicOff,
+  Settings2,
+  X,
 } from 'lucide-react';
 import { removeTashkeel } from '../utils/arabicMatcher';
 import {
@@ -37,11 +50,13 @@ import {
   exportRecordsToCSV,
   GOOGLE_APPS_SCRIPT_TEMPLATE,
 } from '../utils/googleSheets';
-import { speakArabicBrowser } from '../utils/arabicAudio';
+import { speakArabicBrowser, playCustomAudio, stopAllAudio, blobToBase64 } from '../utils/arabicAudio';
+import { normalizeMediaUrl, getDirectImageUrl, getDirectAudioUrl } from '../utils/mediaUrl';
 
 interface AdminPanelProps {
   curriculum: WordItem[];
   onAddWord: (word: WordItem) => void;
+  onUpdateWord: (word: WordItem) => void;
   onDeleteWord: (id: string) => void;
   sheetsConfig: GoogleSheetsConfig;
   onUpdateSheetsConfig: (config: Partial<GoogleSheetsConfig>) => void;
@@ -50,6 +65,15 @@ interface AdminPanelProps {
   onBackToApp: () => void;
   defaultEvalMode: EvaluationMode;
   onUpdateDefaultEvalMode: (mode: EvaluationMode) => void;
+  categories: string[];
+  onAddCategory: (newCategory: string) => void;
+  onRenameCategory: (oldCat: string, newCat: string) => void;
+  onDeleteCategory: (cat: string) => void;
+  subjects: string[];
+  onAddSubject: (newSubject: string) => void;
+  onRenameSubject: (oldSubj: string, newSubj: string) => void;
+  onDeleteSubject: (subj: string) => void;
+  onResetCurriculum: () => void;
 }
 
 const TASHKEEL_BUTTONS = [
@@ -67,6 +91,7 @@ const TASHKEEL_BUTTONS = [
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   curriculum,
   onAddWord,
+  onUpdateWord,
   onDeleteWord,
   sheetsConfig,
   onUpdateSheetsConfig,
@@ -75,47 +100,212 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onBackToApp,
   defaultEvalMode,
   onUpdateDefaultEvalMode,
+  categories,
+  onAddCategory,
+  onRenameCategory,
+  onDeleteCategory,
+  subjects,
+  onAddSubject,
+  onRenameSubject,
+  onDeleteSubject,
+  onResetCurriculum,
 }) => {
   const [activeTab, setActiveTab] = useState<'lessons' | 'sheets' | 'system' | 'submissions'>('lessons');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
 
-  // New Word Form State
-  const [newWord, setNewWord] = useState('');
-  const [newMeaning, setNewMeaning] = useState('');
-  const [newCategory, setNewCategory] = useState<PracticeCategory>('words');
-  const [newLevel, setNewLevel] = useState<number>(2);
-  const [newLessonName, setNewLessonName] = useState('');
-  const [newLetterFocus, setNewLetterFocus] = useState('');
-  const [newMakhrajTip, setNewMakhrajTip] = useState('');
+  // Modals for Subject and Category Management
+  const [showSubjectManager, setShowSubjectManager] = useState(false);
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
 
+  // Subject Manager Temporary Inputs
+  const [newSubjInput, setNewSubjInput] = useState('');
+  const [editingSubjName, setEditingSubjName] = useState<{ old: string; new: string } | null>(null);
+
+  // Category Manager Temporary Inputs
+  const [newCatInput, setNewCatInput] = useState('');
+  const [editingCatName, setEditingCatName] = useState<{ old: string; new: string } | null>(null);
+
+  // Editing state (null = add new, string = id being edited)
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Form Fields (8 exact fields in order requested by user)
+  const [lessonSubject, setLessonSubject] = useState(subjects[0] || INITIAL_LESSON_SUBJECTS[0]);
+  const [customSubjectInput, setCustomSubjectInput] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState(categories[0] || 'الكلمة');
+  const [newCategoryInput, setNewCategoryInput] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [audioUrl, setAudioUrl] = useState('');
+  const [wordText, setWordText] = useState('');
+  const [meaning, setMeaning] = useState('');
+  const [makhrajTip, setMakhrajTip] = useState('');
+
+  // Teacher Voice Recording State
+  const [isRecordingTeacher, setIsRecordingTeacher] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  // Selected Lesson in View/Filter
+  const [viewSelectedSubject, setViewSelectedSubject] = useState(subjects[0] || '');
+  const [viewSelectedCategory, setViewSelectedCategory] = useState<string>('الكل');
+
+  // Insert Tashkeel character
   const handleInsertTashkeel = (char: string) => {
-    setNewWord((prev) => prev + char);
+    setWordText((prev) => prev + char);
   };
 
-  const handleAddNewWord = (e: React.FormEvent) => {
+  // Add new dynamic category directly from form
+  const handleAddNewCategory = () => {
+    const trimmed = newCategoryInput.trim();
+    if (!trimmed) return;
+    if (!categories.includes(trimmed)) {
+      onAddCategory(trimmed);
+    }
+    setSelectedCategory(trimmed);
+    setNewCategoryInput('');
+  };
+
+  // Handle Edit Click on an existing word item
+  const handleStartEdit = (item: WordItem) => {
+    setEditingId(item.id);
+    setLessonSubject(item.lessonSubject || subjects[0]);
+    setSelectedCategory(item.category || categories[0] || 'الكلمة');
+    setImageUrl(item.imageUrl || '');
+    setAudioUrl(item.audioUrl || '');
+    setWordText(item.word);
+    setMeaning(item.meaning || '');
+    setMakhrajTip(item.makhrajTip || '');
+
+    window.scrollTo({ top: 120, behavior: 'smooth' });
+  };
+
+  // Cancel Edit
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setWordText('');
+    setMeaning('');
+    setMakhrajTip('');
+    setImageUrl('');
+    setAudioUrl('');
+  };
+
+  // Handle Local File Upload for Image
+  const handleImageFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setImageUrl(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Handle Local File Upload for Audio
+  const handleAudioFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setAudioUrl(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Teacher Microphone Recording
+  const startTeacherRecording = async () => {
+    audioChunksRef.current = [];
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const base64 = await blobToBase64(audioBlob);
+        setAudioUrl(`data:audio/webm;base64,${base64}`);
+        stream.getTracks().forEach((track) => track.stop());
+        setIsRecordingTeacher(false);
+      };
+
+      mediaRecorder.start();
+      setIsRecordingTeacher(true);
+    } catch (err) {
+      console.error('Microphone error:', err);
+      alert('يرجى السماح بالوصول للميكروفون لتسجيل صوت المعلم.');
+    }
+  };
+
+  const stopTeacherRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  // Handle Form Submit (Add or Edit)
+  const handleSubmitForm = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newWord.trim()) return;
+    if (!wordText.trim()) {
+      alert('يرجى إدخال الكلمة أو الحرف');
+      return;
+    }
+
+    let finalSubject = lessonSubject;
+    if (customSubjectInput.trim()) {
+      finalSubject = customSubjectInput.trim();
+      onAddSubject(finalSubject);
+    }
 
     const wordItem: WordItem = {
-      id: `admin-${Date.now()}`,
-      word: newWord.trim(),
-      plainWord: removeTashkeel(newWord.trim()),
-      meaning: newMeaning.trim() || 'كلمة أضافها المعلم في الإدارة',
-      category: newCategory,
-      level: newLevel,
-      makhrajTip: newMakhrajTip.trim() || 'انطق الكلمة بوضوح مع مراعاة الحركات المشكّلة.',
-      letterFocus: newLetterFocus.trim() || newWord.trim()[0],
-      lessonName: newLessonName.trim() || 'درس جديد',
+      id: editingId || `custom-${Date.now()}`,
+      word: wordText.trim(),
+      plainWord: removeTashkeel(wordText.trim()),
+      meaning: meaning.trim() || 'كلمة تعليمية',
+      category: selectedCategory,
+      lessonSubject: finalSubject,
+      imageUrl: imageUrl.trim() || undefined,
+      audioUrl: audioUrl.trim() || undefined,
+      makhrajTip: makhrajTip.trim() || 'انطق الكلمة بوضوح مع مراعاة الحركات المشكّلة.',
+      letterFocus: wordText.trim()[0],
     };
 
-    onAddWord(wordItem);
-    setNewWord('');
-    setNewMeaning('');
-    setNewLetterFocus('');
-    setNewMakhrajTip('');
-    alert('تمت إضافة الكلمة إلى منهج التطبيق بنجاح!');
+    if (editingId) {
+      onUpdateWord(wordItem);
+      alert('تم حفظ التعديلات بنجاح!');
+      setEditingId(null);
+    } else {
+      onAddWord(wordItem);
+      alert('تمت إضافة الكلمة إلى الدرس بنجاح!');
+    }
+
+    // Reset fields
+    setWordText('');
+    setMeaning('');
+    setMakhrajTip('');
+    setImageUrl('');
+    setAudioUrl('');
+    setCustomSubjectInput('');
+  };
+
+  // Test play audio from field
+  const handleTestAudio = () => {
+    if (audioUrl.trim()) {
+      playCustomAudio(audioUrl, wordText || 'مَرْحَبًا', 0.85);
+    } else {
+      speakArabicBrowser(wordText || 'مَرْحَبًا بِكُمْ', 0.85);
+    }
   };
 
   const handleCopyScriptCode = () => {
@@ -153,14 +343,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     });
   };
 
-  // Filtered curriculum items
-  const filteredCurriculum = curriculum.filter(
-    (c) =>
-      c.word.includes(searchQuery) ||
-      c.plainWord.includes(searchQuery) ||
-      c.meaning.includes(searchQuery) ||
-      (c.lessonName && c.lessonName.includes(searchQuery))
-  );
+  // Export curriculum as JSON for GitHub backup
+  const handleExportJSON = () => {
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(curriculum, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute('href', dataStr);
+    downloadAnchor.setAttribute('download', 'faseeh_curriculum.json');
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  // Filter items in the list view by selected subject and category
+  const filteredCurriculum = curriculum.filter((item) => {
+    const matchSubject = !viewSelectedSubject || item.lessonSubject === viewSelectedSubject;
+    const matchCategory = viewSelectedCategory === 'الكل' || item.category === viewSelectedCategory;
+    const matchSearch =
+      !searchQuery.trim() ||
+      item.word.includes(searchQuery) ||
+      item.plainWord.includes(searchQuery) ||
+      item.meaning.includes(searchQuery);
+    return matchSubject && matchCategory && matchSearch;
+  });
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-cairo flex flex-col">
@@ -177,22 +381,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   لوحة إدارة المعلم والدروس
                 </h1>
                 <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full text-[10px] font-bold">
-                  رابط إداري مخصص
+                  الرابط: /#admin
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 hidden sm:block">
-                إدارة الكلمات، ربط Google Sheets، والتحكم بأنظمة التقييم
+                إدارة الكلمات، تعديل وحذف الدروس، ربط Google Sheets، والتحكم بالتقييم
               </p>
             </div>
           </div>
 
-          <button
-            onClick={onBackToApp}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
-          >
-            <span>العودة لصفحة الطالب</span>
-            <ArrowRight className="w-4 h-4 rotate-180" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportJSON}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
+              title="تصدير المنهج كملف JSON لمستودع GitHub"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>نسخ احتياطي (JSON)</span>
+            </button>
+
+            <button
+              onClick={onBackToApp}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+            >
+              <span>صفحة الطالب</span>
+              <ArrowRight className="w-4 h-4 rotate-180" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -254,38 +469,259 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
         {/* TAB 1: LESSONS & WORDS MANAGEMENT */}
         {activeTab === 'lessons' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Add Word Form (5 cols) */}
-            <div className="lg:col-span-5 bg-white rounded-3xl p-6 shadow-md border border-slate-100">
-              <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
-                <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
-                  <Plus className="w-4 h-4" />
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* The 8-Field Form (5 cols) */}
+            <div className="lg:col-span-5 bg-white rounded-3xl p-6 shadow-md border border-slate-100 sticky top-20">
+              <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold ${
+                      editingId ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                    }`}
+                  >
+                    {editingId ? <Edit3 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      {editingId ? 'تعديل الكلمة أو الدرس' : 'إضافة كلمة أو تدريب جديد'}
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      وفق الحقول الثمانية المرتبة
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">إضافة كلمة أو تدريب جديد</h3>
-                  <p className="text-[11px] text-slate-500">ستظهر مباشرة في قائمة تدريب الطلاب</p>
-                </div>
+
+                {editingId && (
+                  <button
+                    onClick={handleCancelEdit}
+                    className="text-xs text-rose-500 hover:text-rose-700 font-semibold cursor-pointer"
+                  >
+                    إلغاء التعديل
+                  </button>
+                )}
               </div>
 
-              <form onSubmit={handleAddNewWord} className="space-y-4">
+              <form onSubmit={handleSubmitForm} className="space-y-4">
+                {/* 1. حقل نص موضوع الدرس مع زر الإدارة والتعديل والحذف */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700">
+                      1- موضوع الدرس:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowSubjectManager(true)}
+                      className="text-[11px] text-emerald-700 hover:text-emerald-900 font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Settings2 className="w-3.5 h-3.5" />
+                      <span>إدارة/تعديل/حذف الدروس</span>
+                    </button>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <select
+                      value={lessonSubject}
+                      onChange={(e) => {
+                        setLessonSubject(e.target.value);
+                        setCustomSubjectInput('');
+                      }}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-hidden focus:border-emerald-500"
+                    >
+                      {subjects.map((subj) => (
+                        <option key={subj} value={subj}>
+                          {subj}
+                        </option>
+                      ))}
+                    </select>
+
+                    <input
+                      type="text"
+                      value={customSubjectInput}
+                      onChange={(e) => setCustomSubjectInput(e.target.value)}
+                      placeholder="أو اكتب اسم موضوع درس جديد هنا..."
+                      className="w-full px-3 py-1.5 bg-slate-50 border border-dashed border-slate-300 rounded-xl text-xs focus:outline-hidden focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {/* 2. الفئة مع زر الإدارة والتعديل والحذف */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700">
+                      2- الفئة:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowCategoryManager(true)}
+                      className="text-[11px] text-emerald-700 hover:text-emerald-900 font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Settings2 className="w-3.5 h-3.5" />
+                      <span>إدارة/تعديل/حذف الفئات</span>
+                    </button>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedCategory}
+                      onChange={(e) => setSelectedCategory(e.target.value)}
+                      className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-hidden focus:border-emerald-500"
+                    >
+                      {categories.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* إضافة فئة جديدة فوراً */}
+                  <div className="mt-2 flex gap-1.5">
+                    <input
+                      type="text"
+                      value={newCategoryInput}
+                      onChange={(e) => setNewCategoryInput(e.target.value)}
+                      placeholder="إضافة فئة جديدة..."
+                      className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-hidden focus:border-emerald-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddNewCategory}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
+                    >
+                      + إضافة فئة
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. إضافة حقل رابط صورة (مع معاينة ورفع مباشر من الجهاز) */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700">
+                      3- رابط الصورة:
+                    </label>
+                    <label className="text-[11px] text-emerald-700 hover:text-emerald-900 font-bold flex items-center gap-1 cursor-pointer">
+                      <Upload className="w-3 h-3" />
+                      <span>رفع صورة من جهازي</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleImageFileUpload}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={imageUrl}
+                      onChange={(e) => setImageUrl(e.target.value)}
+                      placeholder="https://... أو /images/word.png"
+                      className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono dir-ltr text-left focus:outline-hidden focus:border-emerald-500"
+                    />
+                    {imageUrl && (
+                      <div className="relative group">
+                        <img
+                          src={getDirectImageUrl(imageUrl)}
+                          alt="معاينة"
+                          className="w-10 h-10 rounded-xl object-cover border border-slate-200 shrink-0"
+                          onError={(e) => {
+                            (e.target as any).style.display = 'none';
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    يدعم روابط Google Drive و Dropbox ومجلدات GitHub والرفع المباشر.
+                  </span>
+                </div>
+
+                {/* 4. إضافة حقل رابط صوت (مع زر التسجيل والرفع المباشر) */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700">
+                      4- رابط الصوت:
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleTestAudio}
+                        className="text-[11px] text-emerald-700 hover:text-emerald-900 font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <Volume2 className="w-3 h-3" />
+                        <span>تجربة الصوت</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <input
+                    type="text"
+                    value={audioUrl}
+                    onChange={(e) => setAudioUrl(e.target.value)}
+                    placeholder="https://... أو /audio/word.mp3 (اتركه فارغاً للقراءة الآلية)"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono dir-ltr text-left focus:outline-hidden focus:border-emerald-500"
+                  />
+
+                  {/* أزرار مساعدة سريعة للصوت: رفع ملف أو تسجيل صوت المعلم بالميكروفون */}
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <label className="flex-1 flex items-center justify-center gap-1 py-1 px-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-[11px] font-bold text-slate-700 cursor-pointer transition-colors">
+                      <Upload className="w-3 h-3" />
+                      <span>رفع صوت من جهازي (MP3)</span>
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        className="hidden"
+                        onChange={handleAudioFileUpload}
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={isRecordingTeacher ? stopTeacherRecording : startTeacherRecording}
+                      className={`flex-1 flex items-center justify-center gap-1 py-1 px-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                        isRecordingTeacher
+                          ? 'bg-rose-500 text-white animate-pulse'
+                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      }`}
+                    >
+                      {isRecordingTeacher ? (
+                        <>
+                          <MicOff className="w-3 h-3" />
+                          <span>إيقاف وحفظ صوتي</span>
+                        </>
+                      ) : (
+                        <>
+                          <Mic className="w-3 h-3" />
+                          <span>سجل صوتك كمعلم</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    إذا تركته فارغاً سيقرأ المتصفح الكلمة تلقائياً مجاناً بدون أي ملف.
+                  </span>
+                </div>
+
+                {/* 5. إضافة حقل الكلمة او الحرف او جملة */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    الكلمة أو الجملة (بالتشكيل الكامل):
+                    5- الكلمة أو الحرف أو الجملة:
                   </label>
                   <input
                     type="text"
                     required
-                    value={newWord}
-                    onChange={(e) => setNewWord(e.target.value)}
-                    placeholder="مثال: الْقَمَرُ، كَتَبَ، قَلْبٌ..."
+                    value={wordText}
+                    onChange={(e) => setWordText(e.target.value)}
+                    placeholder="مثال: قَمَرٌ، كَتَبَ، السَّلَامُ عَلَيْكُمْ..."
                     className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-amiri text-2xl text-slate-900 focus:outline-hidden focus:border-emerald-500 focus:bg-white"
                   />
                 </div>
 
-                {/* Quick Tashkeel Toolbar */}
-                <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl">
+                {/* 6. شريط التشكيل السريع */}
+                <div className="p-2.5 bg-slate-50 border border-slate-200/80 rounded-2xl">
                   <span className="block text-[11px] font-bold text-slate-600 mb-1.5">
-                    شريط حركات التشكيل السريع:
+                    6- شريط التشكيل السريع (اضغط لإضافة الحركة):
                   </span>
                   <div className="flex flex-wrap gap-1">
                     {TASHKEEL_BUTTONS.map((t) => (
@@ -302,102 +738,104 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      المستوى:
-                    </label>
-                    <select
-                      value={newLevel}
-                      onChange={(e) => setNewLevel(Number(e.target.value))}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-hidden"
-                    >
-                      <option value={1}>المستوى 1: حروف ومخارج</option>
-                      <option value={2}>المستوى 2: كلمات ثلاثية</option>
-                      <option value={3}>المستوى 3: مقارنة الحروف</option>
-                      <option value={4}>المستوى 4: جمل فصيحة</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      الفئة:
-                    </label>
-                    <select
-                      value={newCategory}
-                      onChange={(e) => setNewCategory(e.target.value as any)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-hidden"
-                    >
-                      <option value="words">كلمات</option>
-                      <option value="letters">حروف ومخارج</option>
-                      <option value="minimal-pairs">مقارنة حروف متقاربة</option>
-                      <option value="sentences">جمل</option>
-                    </select>
-                  </div>
-                </div>
-
+                {/* 7. حقل نص .. المعنى و التوضيح */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    اسم الدرس أو الوحدة التعليمية:
+                    7- المعنى والتوضيح:
                   </label>
                   <input
                     type="text"
-                    value={newLessonName}
-                    onChange={(e) => setNewLessonName(e.target.value)}
-                    placeholder="مثال: درس حرف الضاد، كلمات الفتحة..."
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-hidden focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    المعنى أو التوضيح:
-                  </label>
-                  <input
-                    type="text"
-                    value={newMeaning}
-                    onChange={(e) => setNewMeaning(e.target.value)}
+                    value={meaning}
+                    onChange={(e) => setMeaning(e.target.value)}
                     placeholder="مثال: اسم يدل على جرم سماوي منير..."
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-hidden focus:border-emerald-500"
                   />
                 </div>
 
+                {/* 8. ارشادات المخرج الصوتي */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    إرشاد المخرج الصوتي (نصيحة للطالب):
+                    8- إرشادات المخرج الصوتي:
                   </label>
                   <textarea
                     rows={2}
-                    value={newMakhrajTip}
-                    onChange={(e) => setNewMakhrajTip(e.target.value)}
-                    placeholder="مثال: احرص على ملامسة حافة اللسان للأضراس العليا لتفخيم الضاد..."
+                    value={makhrajTip}
+                    onChange={(e) => setMakhrajTip(e.target.value)}
+                    placeholder="مثال: القاف من أقصى اللسان مع الحنك اللحمي..."
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-hidden focus:border-emerald-500 resize-none"
                   />
                 </div>
 
-                <button
-                  type="submit"
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>إضافة الكلمة للمنهج</span>
-                </button>
+                {/* Submit button */}
+                <div className="flex gap-2 pt-1">
+                  {editingId && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEdit}
+                      className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+                    >
+                      إلغاء
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    className={`flex-1 py-2.5 text-white rounded-xl text-xs font-bold shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      editingId
+                        ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/20'
+                        : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'
+                    }`}
+                  >
+                    {editingId ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>حفظ التعديلات</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4" />
+                        <span>إضافة الكلمة للمنهج</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </form>
             </div>
 
-            {/* Existing Words Table (7 cols) */}
-            <div className="lg:col-span-7 bg-white rounded-3xl p-6 shadow-md border border-slate-100 flex flex-col">
-              <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    قائمة الكلمات والدروس الحالية ({curriculum.length})
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    يمكنك البحث، الاستماع للنطق، أو حذف الكلمات المخصصة
-                  </p>
+            {/* List & Management of Lessons & Words (7 cols) */}
+            <div className="lg:col-span-7 bg-white rounded-3xl p-6 shadow-md border border-slate-100 flex flex-col space-y-4">
+              {/* Header with Lesson Subject Dropdown selector */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-400 block mb-0.5">
+                      تصفية حسب موضوع الدرس:
+                    </span>
+                    <select
+                      value={viewSelectedSubject}
+                      onChange={(e) => {
+                        setViewSelectedSubject(e.target.value);
+                        setViewSelectedCategory('الكل');
+                      }}
+                      className="px-3 py-1.5 bg-slate-100 font-bold text-slate-800 border border-slate-200 rounded-xl text-xs focus:outline-hidden"
+                    >
+                      {subjects.map((subj) => (
+                        <option key={subj} value={subj}>
+                          {subj}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button
+                    onClick={() => setShowSubjectManager(true)}
+                    className="mt-4 p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                    title="تعديل أو حذف أسماء الدروس"
+                  >
+                    <Settings2 className="w-4 h-4" />
+                  </button>
                 </div>
 
-                <div className="relative w-48">
+                <div className="relative w-44">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5" />
                   <input
                     type="text"
@@ -409,55 +847,126 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto max-h-[520px] space-y-2 pr-1">
-                {filteredCurriculum.map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-3 bg-slate-50 border border-slate-200/70 rounded-2xl flex items-center justify-between gap-3 hover:bg-slate-100/70 transition-colors"
+              {/* Category tabs for the selected lesson */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                <button
+                  onClick={() => setViewSelectedCategory('الكل')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    viewSelectedCategory === 'الكل'
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  الكل
+                </button>
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setViewSelectedCategory(cat)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      viewSelectedCategory === cat
+                        ? 'bg-slate-900 text-white'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <button
-                        onClick={() => speakArabicBrowser(item.word, 0.85)}
-                        className="w-9 h-9 rounded-xl bg-white border border-slate-200 text-emerald-700 hover:bg-emerald-50 flex items-center justify-center shrink-0 cursor-pointer shadow-2xs"
-                        title="استمع للكلمة"
-                      >
-                        <Volume2 className="w-4 h-4" />
-                      </button>
+                    {cat}
+                  </button>
+                ))}
+              </div>
 
-                      <div className="min-w-0">
-                        <div className="font-amiri text-xl font-bold text-slate-900 truncate">
-                          {item.word}
-                        </div>
-                        <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                          <span className="px-2 py-0.5 bg-slate-200/80 rounded-md text-[10px]">
-                            المستوى {item.level}
-                          </span>
-                          <span className="truncate max-w-[200px]">{item.meaning}</span>
+              {/* Items Cards */}
+              <div className="flex-1 overflow-y-auto max-h-[560px] space-y-2 pr-1">
+                {filteredCurriculum.length === 0 ? (
+                  <div className="text-center py-16 text-xs text-slate-400">
+                    لا توجد كلمات تحت هذا التصنيف في هذا الدرس حالياً.
+                  </div>
+                ) : (
+                  filteredCurriculum.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-3.5 bg-slate-50 border border-slate-200/70 rounded-2xl flex items-center justify-between gap-3 hover:bg-slate-100/70 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {/* Image Thumbnail if available */}
+                        {item.imageUrl ? (
+                          <img
+                            src={getDirectImageUrl(item.imageUrl)}
+                            alt={item.word}
+                            className="w-12 h-12 rounded-xl object-cover border border-slate-200 shrink-0"
+                            onError={(e) => {
+                              (e.target as any).style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 text-emerald-700 flex items-center justify-center font-amiri text-xl font-bold shrink-0">
+                            {item.word[0] || 'ك'}
+                          </div>
+                        )}
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-amiri text-2xl font-bold text-slate-900">
+                              {item.word}
+                            </span>
+                            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-[10px] font-bold">
+                              {item.category}
+                            </span>
+                            {item.audioUrl && (
+                              <span className="text-[10px] text-emerald-600 font-bold" title="يحتوي على صوت مخصص">
+                                🎙️ صوت
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate max-w-[260px] mt-0.5">
+                            {item.meaning}
+                          </div>
+                          {item.makhrajTip && (
+                            <div className="text-[10px] text-slate-400 truncate max-w-[260px]">
+                              💡 {item.makhrajTip}
+                            </div>
+                          )}
                         </div>
                       </div>
-                    </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      {item.id.startsWith('admin-') || item.id.startsWith('custom-') ? (
+                      {/* Controls: Play Audio, Edit, Delete */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => {
+                            if (item.audioUrl) {
+                              playCustomAudio(item.audioUrl, item.word, 0.85);
+                            } else {
+                              speakArabicBrowser(item.word, 0.85);
+                            }
+                          }}
+                          className="p-2 bg-white text-emerald-700 hover:bg-emerald-50 border border-slate-200 rounded-xl transition-all cursor-pointer shadow-2xs"
+                          title="استمع للصوت"
+                        >
+                          <Volume2 className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          onClick={() => handleStartEdit(item)}
+                          className="p-2 bg-white text-amber-700 hover:bg-amber-50 border border-slate-200 rounded-xl transition-all cursor-pointer shadow-2xs"
+                          title="تعديل الحقول"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+
                         <button
                           onClick={() => {
                             if (confirm(`هل أنت متأكد من حذف "${item.word}"؟`)) {
                               onDeleteWord(item.id);
                             }
                           }}
-                          className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                          title="حذف هذه الكلمة"
+                          className="p-2 bg-white text-rose-600 hover:bg-rose-50 border border-slate-200 rounded-xl transition-all cursor-pointer shadow-2xs"
+                          title="حذف"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
-                      ) : (
-                        <span className="text-[10px] text-slate-400 font-semibold">
-                          أساسي
-                        </span>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -551,7 +1060,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
             </div>
 
-            {/* Quick 2-Minute Setup Instructions */}
+            {/* Setup Instructions */}
             <div className="border border-slate-200 rounded-2xl p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
@@ -585,7 +1094,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <li>انسخ رابط الويب الناتج والصقه في خانة الرابط أعلاه! انتهى الربط بنجاح.</li>
               </ol>
 
-              {/* Code preview box */}
               <div className="relative mt-2">
                 <pre className="p-3 bg-slate-900 text-slate-200 rounded-xl text-[11px] font-mono overflow-x-auto max-h-36 dir-ltr text-left">
                   {GOOGLE_APPS_SCRIPT_TEMPLATE}
@@ -608,7 +1116,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Mode 1: Local / Internal */}
               <div
                 onClick={() => onUpdateDefaultEvalMode('local')}
                 className={`p-5 rounded-2xl border-2 transition-all cursor-pointer relative ${
@@ -638,7 +1145,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </ul>
               </div>
 
-              {/* Mode 2: AI Gemini */}
               <div
                 onClick={() => onUpdateDefaultEvalMode('ai')}
                 className={`p-5 rounded-2xl border-2 transition-all cursor-pointer relative ${
@@ -667,10 +1173,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <li>✓ يستطيع الطالب اختياره عند الحاجة بضغطة زر</li>
                 </ul>
               </div>
-            </div>
-
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 text-xs text-slate-600 leading-relaxed">
-              <strong>💡 نصيحة للمعلم:</strong> يُفضل ترك <strong>"التقييم الداخلي"</strong> هو الأساسي لضمان سرعة فائقة للطلاب ومجانية أبدية بدون استهلاك أي باقة، مع إمكانية تحويل أي نطق إلى الذكاء الاصطناعي بنقرة واحدة عند رغبة الطالب.
             </div>
           </div>
         )}
@@ -770,6 +1272,258 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         )}
       </main>
+
+      {/* MODAL 1: SUBJECTS MANAGER (تعديل وحذف وإضافة مواضيع الدروس) */}
+      {showSubjectManager && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative max-h-[85vh] flex flex-col">
+            <button
+              onClick={() => setShowSubjectManager(false)}
+              className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-slate-100">
+              <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                <BookOpen className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">إدارة مواضيع الدروس</h3>
+                <p className="text-[11px] text-slate-400">تعديل الاسم أو حذف الدرس بالكامل</p>
+              </div>
+            </div>
+
+            {/* Add new subject input */}
+            <div className="flex gap-2 mb-4">
+              <input
+                type="text"
+                value={newSubjInput}
+                onChange={(e) => setNewSubjInput(e.target.value)}
+                placeholder="اسم درس جديد..."
+                className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-hidden focus:border-emerald-500"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (newSubjInput.trim()) {
+                    onAddSubject(newSubjInput.trim());
+                    setNewSubjInput('');
+                  }
+                }}
+                className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+              >
+                + إضافة
+              </button>
+            </div>
+
+            {/* Subjects List with Rename and Delete */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {subjects.map((subj) => {
+                const count = curriculum.filter((c) => c.lessonSubject === subj).length;
+                const isEditing = editingSubjName?.old === subj;
+
+                return (
+                  <div
+                    key={subj}
+                    className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl flex items-center justify-between gap-2"
+                  >
+                    {isEditing ? (
+                      <div className="flex-1 flex gap-1.5">
+                        <input
+                          type="text"
+                          value={editingSubjName.new}
+                          onChange={(e) =>
+                            setEditingSubjName({ ...editingSubjName, new: e.target.value })
+                          }
+                          className="flex-1 px-2 py-1 bg-white border border-emerald-400 rounded-lg text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (editingSubjName.new.trim()) {
+                              onRenameSubject(editingSubjName.old, editingSubjName.new.trim());
+                              setEditingSubjName(null);
+                            }
+                          }}
+                          className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-bold cursor-pointer"
+                        >
+                          حفظ
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingSubjName(null)}
+                          className="px-2 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs cursor-pointer"
+                        >
+                          إلغاء
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <div className="text-xs font-bold text-slate-800">{subj}</div>
+                          <div className="text-[10px] text-slate-400">({count} كلمات)</div>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setEditingSubjName({ old: subj, new: subj })}
+                            className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg cursor-pointer"
+                            title="تعديل الاسم"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (
+                                confirm(
+                                  `هل أنت متأكد من حذف درس "${subj}"؟ سيتم حذف جميع كلماته التابعة له (${count} كلمات).`
+                                )
+                              ) {
+                                onDeleteSubject(subj);
+                              }
+                            }}
+                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                            title="حذف الدرس بالكامل"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: CATEGORIES MANAGER (تعديل وحذف وإضافة الفئات) */}
+      {showCategoryManager && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative max-h-[85vh] flex flex-col">
+            <button
+              onClick={() => setShowCategoryManager(false)}
+              className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-slate-100">
+              <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold">
+                <Layers className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">إدارة الفئات</h3>
+                <p className="text-[11px] text-slate-400">تعديل الاسم أو حذف الفئة</p>
+              </div>
+            </div>
+
+            {/* Add new category input */}
+            <div className="flex gap-2 mb-4">
+              <input
+                type="text"
+                value={newCatInput}
+                onChange={(e) => setNewCatInput(e.target.value)}
+                placeholder="اسم فئة جديدة..."
+                className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-hidden focus:border-indigo-500"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (newCatInput.trim()) {
+                    onAddCategory(newCatInput.trim());
+                    setNewCatInput('');
+                  }
+                }}
+                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+              >
+                + إضافة
+              </button>
+            </div>
+
+            {/* Categories List with Rename and Delete */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {categories.map((cat) => {
+                const count = curriculum.filter((c) => c.category === cat).length;
+                const isEditing = editingCatName?.old === cat;
+
+                return (
+                  <div
+                    key={cat}
+                    className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl flex items-center justify-between gap-2"
+                  >
+                    {isEditing ? (
+                      <div className="flex-1 flex gap-1.5">
+                        <input
+                          type="text"
+                          value={editingCatName.new}
+                          onChange={(e) =>
+                            setEditingCatName({ ...editingCatName, new: e.target.value })
+                          }
+                          className="flex-1 px-2 py-1 bg-white border border-indigo-400 rounded-lg text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (editingCatName.new.trim()) {
+                              onRenameCategory(editingCatName.old, editingCatName.new.trim());
+                              setEditingCatName(null);
+                            }
+                          }}
+                          className="px-2.5 py-1 bg-indigo-600 text-white rounded-lg text-xs font-bold cursor-pointer"
+                        >
+                          حفظ
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingCatName(null)}
+                          className="px-2 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs cursor-pointer"
+                        >
+                          إلغاء
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <div className="text-xs font-bold text-slate-800">{cat}</div>
+                          <div className="text-[10px] text-slate-400">({count} كلمات)</div>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setEditingCatName({ old: cat, new: cat })}
+                            className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg cursor-pointer"
+                            title="تعديل الاسم"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`هل أنت متأكد من حذف فئة "${cat}"؟`)) {
+                                onDeleteCategory(cat);
+                              }
+                            }}
+                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                            title="حذف الفئة"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
