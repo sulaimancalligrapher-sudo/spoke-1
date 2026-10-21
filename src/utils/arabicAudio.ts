@@ -434,10 +434,18 @@ export function createSpeechRecognizer(
   }
 
   const recognizer = new SpeechRec();
-  // continuous: true prevents Android Chrome and mobile browsers from stopping after a tiny initial silence
+  // continuous mode: prevents premature shutdown on mobile
   recognizer.continuous = true;
   recognizer.interimResults = true;
-  recognizer.lang = 'ar-SA';
+
+  // Use device's Arabic dialect if available, otherwise default to ar-SA
+  const deviceArabicLang =
+    typeof navigator !== 'undefined' &&
+    navigator.language &&
+    navigator.language.toLowerCase().startsWith('ar')
+      ? navigator.language
+      : 'ar-SA';
+  recognizer.lang = deviceArabicLang;
   recognizer.maxAlternatives = 3;
 
   recognizer.onresult = (event: any) => {
@@ -446,14 +454,16 @@ export function createSpeechRecognizer(
 
     for (let i = 0; i < event.results.length; ++i) {
       const res = event.results[i];
-      if (res.isFinal) {
-        finalTranscript += res[0].transcript + ' ';
-      } else {
-        interimTranscript += res[0].transcript;
+      if (res && res[0] && res[0].transcript) {
+        if (res.isFinal) {
+          finalTranscript += res[0].transcript + ' ';
+        } else {
+          interimTranscript += res[0].transcript;
+        }
       }
     }
 
-    const transcript = (finalTranscript + interimTranscript).trim();
+    const transcript = (finalTranscript + interimTranscript).trim().replace(/[.,!؟]/g, '');
     if (transcript) {
       onResult(transcript, !!finalTranscript);
     }
@@ -461,15 +471,20 @@ export function createSpeechRecognizer(
 
   recognizer.onerror = (event: any) => {
     console.warn('SpeechRecognition event error:', event.error);
-    // Ignore harmless 'no-speech' events in continuous mode so recognizer stays listening
-    if (event.error === 'no-speech') {
+    // Ignore harmless 'no-speech' or 'aborted' events so recognizer stays alive
+    if (event.error === 'no-speech' || event.error === 'aborted') {
       return;
     }
-    // If dialect ar-SA is not downloaded on phone, try general 'ar'
+    // If dialect is not installed on mobile, try fallback general 'ar'
     if (event.error === 'language-not-supported' && recognizer.lang !== 'ar') {
       try {
-        recognizer.lang = 'ar';
-        recognizer.start();
+        recognizer.abort();
+        setTimeout(() => {
+          try {
+            recognizer.lang = 'ar';
+            recognizer.start();
+          } catch (e) {}
+        }, 80);
         return;
       } catch (e) {}
     }

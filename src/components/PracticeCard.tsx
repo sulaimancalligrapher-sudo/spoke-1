@@ -74,23 +74,20 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     settings.preferredEvaluationMode || 'local'
   );
   const [studentName, setStudentName] = useState(settings.studentName || '');
-  const [mobileReviewPending, setMobileReviewPending] = useState<{
-    audioBlob: Blob;
-    recordedAudioUrl: string;
-  } | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const speechRecognizerRef = useRef<any>(null);
   const timerIntervalRef = useRef<any>(null);
   const liveTranscriptRef = useRef<string>('');
+  const isRecordingRef = useRef<boolean>(false);
 
   // Auto-play audio when wordItem changes if autoPlayTarget is enabled
   useEffect(() => {
     setIsRecording(false);
+    isRecordingRef.current = false;
     setLiveTranscript('');
     liveTranscriptRef.current = '';
-    setMobileReviewPending(null);
     setRecordDuration(0);
 
     if (settings.autoPlayTarget) {
@@ -171,13 +168,69 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     liveTranscriptRef.current = '';
     setRecordDuration(0);
     audioChunksRef.current = [];
-    setMobileReviewPending(null);
+    isRecordingRef.current = true;
+    setIsRecording(true);
 
+    // 1. CRITICAL: Start SpeechRecognition SYNCHRONOUSLY inside the user gesture handler!
+    // This allows iOS Safari and Android Chrome to immediately grant speech dictation permissions.
+    if (isSpeechRecognitionSupported()) {
+      try {
+        const recognizer = createSpeechRecognizer(
+          (transcript) => {
+            liveTranscriptRef.current = transcript;
+            setLiveTranscript(transcript);
+          },
+          (error) => {
+            console.warn('Speech recognition notice:', error);
+          },
+          () => {
+            // If recording is still active and recognizer stopped on brief silence, restart it!
+            if (isRecordingRef.current && speechRecognizerRef.current) {
+              try {
+                speechRecognizerRef.current.start();
+              } catch (e) {}
+            }
+          }
+        );
+        speechRecognizerRef.current = recognizer;
+        recognizer.start();
+      } catch (e) {
+        console.warn('SpeechRecognizer synchronous start failed:', e);
+      }
+    }
+
+    // 2. Start duration timer
+    timerIntervalRef.current = setInterval(() => {
+      setRecordDuration((prev) => {
+        if (prev >= 12) {
+          stopRecording();
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, 1000);
+
+    // 3. Audio stream handling:
+    // On iOS Safari / iPad, opening a getUserMedia stream locks AVAudioSession and forcibly terminates SpeechRecognition!
+    // So on Apple mobile devices with SpeechRecognition, we let native SpeechRecognition handle the mic without stream conflict.
+    const isAppleMobile = typeof navigator !== 'undefined' && (
+      /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    );
+
+    if (isAppleMobile && isSpeechRecognitionSupported()) {
+      return;
+    }
+
+    // On Android / Desktop / PC, initialize MediaRecorder for waveform and audio capture
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!isRecordingRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       setRecordingStream(stream);
 
-      // Detect supported mimeType for this browser (audio/webm on Android/PC, audio/mp4 on Safari/iOS)
       const mimeType = getSupportedAudioMimeType();
       let mediaRecorder: MediaRecorder;
       try {
@@ -193,48 +246,16 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         }
       };
 
-      mediaRecorder.start(100);
-      setIsRecording(true);
-
-      timerIntervalRef.current = setInterval(() => {
-        setRecordDuration((prev) => {
-          if (prev >= 12) {
-            stopRecording();
-            return prev;
-          }
-          return prev + 1;
-        });
-      }, 1000);
-
-      // Web Speech Recognition (Voice to text)
-      if (isSpeechRecognitionSupported()) {
-        try {
-          const recognizer = createSpeechRecognizer(
-            (transcript) => {
-              liveTranscriptRef.current = transcript;
-              setLiveTranscript(transcript);
-            },
-            (error) => {
-              console.warn('Speech recognition notice:', error);
-            },
-            () => {}
-          );
-          if (recognizer) {
-            speechRecognizerRef.current = recognizer;
-            recognizer.start();
-          }
-        } catch (e) {
-          console.warn('SpeechRecognizer start failed:', e);
-        }
-      }
+      mediaRecorder.start(250);
     } catch (err: any) {
-      console.error('Microphone access error:', err);
-      alert('يرجى السماح بالوصول إلى الميكروفون لتسجيل ونطق الكلمة.');
+      console.warn('MediaRecorder audio stream notice:', err);
     }
   };
 
   // Stop Recording and Evaluate
   const stopRecording = () => {
+    isRecordingRef.current = false;
+
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
@@ -266,7 +287,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
         const currentSpoken = (liveTranscriptRef.current || liveTranscript).trim();
 
-        // 1. If text was captured by speech recognition: evaluate right away!
+        // 1. If text was captured by speech recognition: evaluate the actual spoken word!
         if (currentSpoken) {
           await evaluateStudentAttempt(audioBlob, currentSpoken, recordedAudioUrl);
           return;
@@ -278,17 +299,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           return;
         }
 
-        // 3. On Mobile/Tablet where local Web Speech didn't transcribe text:
-        // Offer quick 1-tap evaluation so the student is never given a 0% error!
-        if (audioChunksRef.current.length > 0) {
-          setMobileReviewPending({
-            audioBlob,
-            recordedAudioUrl,
-          });
-          return;
-        }
-
-        // 4. Truly empty recording
+        // 3. In local mode without captured speech: perform honest evaluation (no fake 95% scores)
         await evaluateStudentAttempt(audioBlob, '', recordedAudioUrl);
       };
     } else {
@@ -297,6 +308,8 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         recordingStream.getTracks().forEach((track) => track.stop());
         setRecordingStream(null);
       }
+      const currentSpoken = (liveTranscriptRef.current || liveTranscript).trim();
+      evaluateStudentAttempt(undefined, currentSpoken, undefined);
     }
   };
 
@@ -627,86 +640,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             </div>
           )}
 
-          {/* Mobile & Tablet Friendly Review Banner (shown if browser mic recorded audio but web speech didn't transcribe) */}
-          {mobileReviewPending && (
-            <div className="mt-4 w-full p-4 bg-amber-50/90 border border-amber-200/80 rounded-2xl text-center shadow-xs animate-in fade-in duration-200">
-              <div className="text-amber-900 font-bold text-xs mb-1.5 flex items-center justify-center gap-1.5">
-                <span>🎙️ تم تسجيل صوتك بنجاح!</span>
-              </div>
-              <p className="text-[11px] text-amber-800/90 leading-relaxed mb-3">
-                متصفح الجوال التقط صوتك ولكن لم يقم بتحويله لنص تلقائياً. يمكنك الاستماع لنطقك المسجل أو اعتماد تقييم نطقك بنقرة زر:
-              </p>
 
-              {/* Play recorded voice button */}
-              <div className="flex items-center justify-center gap-2 mb-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const audio = new Audio(mobileReviewPending.recordedAudioUrl);
-                    audio.play().catch((e) => console.warn('Audio play error:', e));
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-amber-100 border border-amber-300 text-amber-900 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
-                >
-                  <Play className="w-3.5 h-3.5 text-amber-700" />
-                  <span>استمع لتسجيل صوتك</span>
-                </button>
-              </div>
-
-              {/* 1-Tap Evaluation choices */}
-              <div className="grid grid-cols-2 gap-2 mb-2.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const pending = mobileReviewPending;
-                    setMobileReviewPending(null);
-                    evaluateStudentAttempt(pending.audioBlob, wordItem.word, pending.recordedAudioUrl);
-                  }}
-                  className="p-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer text-center flex items-center justify-center gap-1"
-                >
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  <span>نطقت الكلمة بشكل سليم (95%)</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const pending = mobileReviewPending;
-                    setMobileReviewPending(null);
-                    evaluateStudentAttempt(pending.audioBlob, wordItem.plainWord, pending.recordedAudioUrl);
-                  }}
-                  className="p-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer text-center"
-                >
-                  <span>نطقت الكلمة مع تدرب (80%)</span>
-                </button>
-              </div>
-
-              <div className="flex items-center justify-center gap-3 text-[11px] pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setManualInputMode(true);
-                    setManualText(wordItem.plainWord);
-                    setMobileReviewPending(null);
-                  }}
-                  className="text-amber-900 font-bold hover:underline cursor-pointer"
-                >
-                  كتابة ما نطقته يدوياً
-                </button>
-                <span className="text-amber-300">•</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMobileReviewPending(null);
-                    startRecording();
-                  }}
-                  className="text-slate-600 hover:text-slate-800 cursor-pointer flex items-center gap-1 font-semibold"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>إعادة التسجيل</span>
-                </button>
-              </div>
-            </div>
-          )}
 
           {isEvaluating && (
             <div className="mt-5 flex items-center gap-2.5 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-xs font-bold animate-pulse">
