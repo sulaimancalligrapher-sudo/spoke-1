@@ -20,6 +20,7 @@ import {
 import {
   speakArabicBrowser,
   speakArabicGemini,
+  playUniversalArabicStream,
   playCustomAudio,
   createSpeechRecognizer,
   isSpeechRecognitionSupported,
@@ -102,7 +103,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     onUpdateSettings({ studentName: val });
   };
 
-  // Handle Listen Audio: plays custom audio if provided, otherwise browser TTS
+  // Handle Listen Audio: plays custom audio if provided, otherwise automated Arabic TTS
   const handlePlayAudio = (slow = false) => {
     if (isPlayingAudio) {
       stopAllAudio();
@@ -112,31 +113,42 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
     setIsPlayingAudio(true);
 
-    if (wordItem.audioUrl) {
-      // Play custom audio file
+    // Text to read: prioritize autoReadText if provided, otherwise the word itself
+    const speechTargetText =
+      (wordItem.autoReadText && wordItem.autoReadText.trim()) || wordItem.word;
+
+    if (wordItem.audioUrl && wordItem.audioUrl.trim()) {
+      // Play custom audio file (mic recording, uploaded mp3, or google drive / web link)
       playCustomAudio(
         wordItem.audioUrl,
-        wordItem.word,
+        speechTargetText,
         slow ? 0.7 : settings.speed,
         () => setIsPlayingAudio(true),
         () => setIsPlayingAudio(false)
       );
     } else if (settings.engine === 'gemini') {
       speakArabicGemini(
-        wordItem.word,
+        speechTargetText,
         slow,
         () => setIsPlayingAudio(true),
         () => setIsPlayingAudio(false)
       );
     } else {
-      speakArabicBrowser(
-        wordItem.word,
-        slow ? 0.7 : settings.speed,
+      // High-quality automated Arabic audio stream with browser speech synthesis fallback
+      playUniversalArabicStream(
+        speechTargetText,
+        slow ? 0.75 : settings.speed,
         () => setIsPlayingAudio(true),
         () => setIsPlayingAudio(false),
         (err) => {
-          console.warn('SpeechSynthesis error:', err);
-          setIsPlayingAudio(false);
+          console.warn('TTS Stream playback failed, falling back to speech synthesis:', err);
+          speakArabicBrowser(
+            speechTargetText,
+            slow ? 0.75 : settings.speed,
+            () => setIsPlayingAudio(true),
+            () => setIsPlayingAudio(false),
+            () => setIsPlayingAudio(false)
+          );
         }
       );
     }

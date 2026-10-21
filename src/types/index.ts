@@ -10,6 +10,7 @@ export interface WordItem {
   level?: number;
   imageUrl?: string; // رابط الصورة
   audioUrl?: string; // رابط الصوت
+  autoReadText?: string; // نص مخصص للقراءة الآلية في حال عدم وجود ملف صوتي
   makhrajTip: string; // إرشادات المخرج الصوتي
   letterFocus?: string;
   harakat?: string;

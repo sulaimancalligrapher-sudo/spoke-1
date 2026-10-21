@@ -13,7 +13,7 @@ import {
   Info,
   Volume2,
 } from 'lucide-react';
-import { speakArabicBrowser, speakArabicGemini, playCustomAudio } from '../utils/arabicAudio';
+import { speakArabicBrowser, speakArabicGemini, playUniversalArabicStream, playCustomAudio } from '../utils/arabicAudio';
 
 interface EvaluationCardProps {
   evaluation: PronunciationEvaluation;
@@ -57,27 +57,38 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
     if (isPlayingTarget) return;
     setIsPlayingTarget(true);
 
+    const speechTargetText =
+      (targetWordItem.autoReadText && targetWordItem.autoReadText.trim()) || targetWordItem.word;
+
     if (targetWordItem.audioUrl) {
       playCustomAudio(
         targetWordItem.audioUrl,
-        targetWordItem.word,
+        speechTargetText,
         0.85,
         () => setIsPlayingTarget(true),
         () => setIsPlayingTarget(false)
       );
     } else if (audioEngine === 'gemini') {
       speakArabicGemini(
-        targetWordItem.word,
+        speechTargetText,
         false,
         () => setIsPlayingTarget(true),
         () => setIsPlayingTarget(false)
       );
     } else {
-      speakArabicBrowser(
-        targetWordItem.word,
+      playUniversalArabicStream(
+        speechTargetText,
         0.85,
         () => setIsPlayingTarget(true),
-        () => setIsPlayingTarget(false)
+        () => setIsPlayingTarget(false),
+        () => {
+          speakArabicBrowser(
+            speechTargetText,
+            0.85,
+            () => setIsPlayingTarget(true),
+            () => setIsPlayingTarget(false)
+          );
+        }
       );
     }
   };

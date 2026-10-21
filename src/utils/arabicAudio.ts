@@ -36,8 +36,8 @@ export function getArabicVoices(): SpeechSynthesisVoice[] {
 }
 
 /**
- * Universal Free Online Arabic Audio Stream (Google TTS Web)
- * No API key required, 100% free, crystal-clear Arabic pronunciation.
+ * Universal Arabic Audio Stream endpoint
+ * Proxies Google TTS server-side without CORS or Referer blocks.
  * Works on any browser (Chrome, Safari, iPhone, Android, Firefox, Edge, PC, Mac).
  */
 export function playUniversalArabicStream(
@@ -48,13 +48,14 @@ export function playUniversalArabicStream(
   onError?: (err: any) => void
 ): () => void {
   stopAllAudio();
-  const cleanText = text.replace(/↔/g, 'ثم قارن مع').replace(/[-_]/g, ' ').trim();
+  const cleanText = text.replace(/↔/g, ' ثم ').replace(/[-_]/g, ' ').trim();
   if (!cleanText) {
     if (onEnd) onEnd();
     return () => {};
   }
 
-  const streamUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ar&client=tw-ob&q=${encodeURIComponent(cleanText)}`;
+  // 1. First choice: Use local server proxy endpoint to avoid CORS / Referer issues
+  const streamUrl = `/api/tts-stream?text=${encodeURIComponent(cleanText)}`;
   const audio = new Audio(streamUrl);
   currentAudioElement = audio;
 
@@ -81,18 +82,18 @@ export function playUniversalArabicStream(
   };
 
   audio.onerror = (e) => {
-    console.warn('Universal Arabic Stream playback error:', e);
+    console.warn('API TTS Stream error, falling back to browser speech synthesis:', e);
     currentAudioElement = null;
-    if (onError) onError(e);
-    if (onEnd) onEnd();
+    // Fall back to Web Speech API
+    speakArabicBrowser(cleanText, rate, onStart, onEnd, onError);
   };
 
   const playPromise = audio.play();
   if (playPromise !== undefined) {
     playPromise.catch((err) => {
-      console.warn('Audio play() promise rejected:', err);
+      console.warn('Audio play() error, falling back to browser speech synthesis:', err);
       currentAudioElement = null;
-      if (onEnd) onEnd();
+      speakArabicBrowser(cleanText, rate, onStart, onEnd, onError);
     });
   }
 
@@ -158,7 +159,9 @@ export function speakArabicBrowser(
       arabicVoices.find((v) => v.lang === 'ar-SA') ||
       arabicVoices.find((v) => v.name.toLowerCase().includes('maged') || v.name.toLowerCase().includes('google')) ||
       arabicVoices[0];
-    utterance.voice = preferred;
+    if (preferred) {
+      utterance.voice = preferred;
+    }
 
     utterance.onstart = () => {
       if (onStart) onStart();
@@ -168,16 +171,25 @@ export function speakArabicBrowser(
       finish();
     };
 
-    utterance.onerror = (e) => {
+    utterance.onerror = (e: any) => {
+      if (e?.error === 'interrupted' || e?.error === 'canceled') {
+        return;
+      }
       console.warn('SpeechSynthesis error, falling back to universal stream:', e);
       playUniversalArabicStream(cleanText, rate, onStart, finish);
     };
 
-    synth.speak(utterance);
-
-    if (synth.paused) {
-      synth.resume();
-    }
+    // Small delay prevents Chrome from aborting immediately after synth.cancel()
+    setTimeout(() => {
+      try {
+        synth.speak(utterance);
+        if (synth.paused) {
+          synth.resume();
+        }
+      } catch (e) {
+        playUniversalArabicStream(cleanText, rate, onStart, finish);
+      }
+    }, 40);
 
     // Safety timeout: if browser speech synthesis hangs without starting within 800ms
     const safetyCheck = setTimeout(() => {

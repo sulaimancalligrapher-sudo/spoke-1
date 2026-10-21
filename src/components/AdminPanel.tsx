@@ -57,7 +57,7 @@ import {
   exportRecordsToCSV,
   GOOGLE_APPS_SCRIPT_TEMPLATE,
 } from '../utils/googleSheets';
-import { speakArabicBrowser, playCustomAudio, stopAllAudio, blobToBase64 } from '../utils/arabicAudio';
+import { speakArabicBrowser, playUniversalArabicStream, playCustomAudio, stopAllAudio, blobToBase64 } from '../utils/arabicAudio';
 import { normalizeMediaUrl, getDirectImageUrl, getDirectAudioUrl } from '../utils/mediaUrl';
 
 interface AdminPanelProps {
@@ -162,6 +162,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [newCategoryInput, setNewCategoryInput] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
+  const [autoReadText, setAutoReadText] = useState('');
   const [wordText, setWordText] = useState('');
   const [meaning, setMeaning] = useState('');
   const [makhrajTip, setMakhrajTip] = useState('');
@@ -198,6 +199,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setSelectedCategory(item.category || categories[0] || 'الكلمة');
     setImageUrl(item.imageUrl || '');
     setAudioUrl(item.audioUrl || '');
+    setAutoReadText(item.autoReadText || '');
     setWordText(item.word);
     setMeaning(item.meaning || '');
     setMakhrajTip(item.makhrajTip || '');
@@ -213,6 +215,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setMakhrajTip('');
     setImageUrl('');
     setAudioUrl('');
+    setAutoReadText('');
   };
 
   // Handle Local File Upload for Image
@@ -302,6 +305,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       lessonSubject: finalSubject,
       imageUrl: imageUrl.trim() || undefined,
       audioUrl: audioUrl.trim() || undefined,
+      autoReadText: autoReadText.trim() || undefined,
       makhrajTip: makhrajTip.trim() || 'انطق الكلمة بوضوح مع مراعاة الحركات المشكّلة.',
       letterFocus: wordText.trim()[0],
     };
@@ -321,15 +325,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setMakhrajTip('');
     setImageUrl('');
     setAudioUrl('');
+    setAutoReadText('');
     setCustomSubjectInput('');
   };
 
   // Test play audio from field
   const handleTestAudio = () => {
+    const textToPlay = autoReadText.trim() || wordText.trim() || 'مَرْحَبًا بِكُمْ';
     if (audioUrl.trim()) {
-      playCustomAudio(audioUrl, wordText || 'مَرْحَبًا', 0.85);
+      playCustomAudio(audioUrl, textToPlay, 0.85);
     } else {
-      speakArabicBrowser(wordText || 'مَرْحَبًا بِكُمْ', 0.85);
+      playUniversalArabicStream(textToPlay, 0.85);
     }
   };
 
@@ -878,11 +884,11 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                   </span>
                 </div>
 
-                {/* 4. إضافة حقل رابط صوت (مع زر التسجيل والرفع المباشر) */}
+                {/* 4. إضافة حقل رابط صوت (مع زر التسجيل والرفع المباشر وقراءة آلية) */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-bold text-slate-700">
-                      4- رابط الصوت:
+                      4- خيارات الصوت (تسجيل مباشر / رفع ملف / وضع رابط):
                     </label>
                     <div className="flex items-center gap-2">
                       <button
@@ -962,9 +968,51 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                     ) : (
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-lg">
                         <Volume2 className="w-3 h-3 text-emerald-600" />
-                        <span>الحقل فارغ: سيتم تشغيل القراءة الآلية الفصيحة تلقائياً مجاناً دون ملف.</span>
+                        <span>الحقل فارغ: سيقوم النظام بقراءة النص المخصص أدناه آلياً بصوت فصيح.</span>
                       </span>
                     )}
+                  </div>
+
+                  {/* الحقل المخصص للقراءة الآلية في حال عدم توفر تسجيل أو ملف أو رابط */}
+                  <div className="mt-2.5 p-2.5 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-emerald-950 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-emerald-600" />
+                        <span>نص مخصص للقراءة الآلية (عند عدم وجود تسجيل/ملف/رابط):</span>
+                      </label>
+                      {wordText && (
+                        <button
+                          type="button"
+                          onClick={() => setAutoReadText(wordText)}
+                          className="text-[10px] text-emerald-700 hover:text-emerald-900 font-bold hover:underline cursor-pointer"
+                        >
+                          نسخ الكلمة إلى هنا
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={autoReadText}
+                      onChange={(e) => setAutoReadText(e.target.value)}
+                      placeholder="اكتب هنا النص المشكول للقراءة الآلية (اتركه فارغاً لينطق الكلمة أعلاه تلقائياً)"
+                      className="w-full px-3 py-1.5 bg-white border border-emerald-300 rounded-lg font-amiri text-lg text-slate-900 focus:outline-hidden focus:border-emerald-600"
+                    />
+                    <div className="text-[10px] text-emerald-800 flex items-center justify-between pt-0.5">
+                      <span>
+                        إذا لم يتوفر صوت مرفوع أو مسجل، سيقرأ النظام هذا النص آلياً بصوت فصيح.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const t = autoReadText.trim() || wordText.trim() || 'مَرْحَبًا';
+                          playUniversalArabicStream(t, 0.85);
+                        }}
+                        className="text-[10px] font-bold text-emerald-700 hover:text-emerald-900 flex items-center gap-0.5 cursor-pointer shrink-0 ml-1"
+                      >
+                        <Volume2 className="w-3 h-3" />
+                        <span>استمع للنص الآلي</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -1176,9 +1224,17 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                             <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-[10px] font-bold">
                               {item.category}
                             </span>
-                            {item.audioUrl && (
+                            {item.audioUrl ? (
                               <span className="text-[10px] text-emerald-600 font-bold" title="يحتوي على صوت مخصص">
                                 🎙️ صوت
+                              </span>
+                            ) : item.autoReadText ? (
+                              <span className="text-[10px] text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.2 rounded-md font-bold" title={`نص قراءة آلية: ${item.autoReadText}`}>
+                                🤖 قراءة: {item.autoReadText}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 font-medium" title="قراءة آلية للكلمة">
+                                🔊 آلي
                               </span>
                             )}
                           </div>
@@ -1197,10 +1253,11 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           onClick={() => {
+                            const textToSpeak = item.autoReadText || item.word;
                             if (item.audioUrl) {
-                              playCustomAudio(item.audioUrl, item.word, 0.85);
+                              playCustomAudio(item.audioUrl, textToSpeak, 0.85);
                             } else {
-                              speakArabicBrowser(item.word, 0.85);
+                              playUniversalArabicStream(textToSpeak, 0.85);
                             }
                           }}
                           className="p-2 bg-white text-emerald-700 hover:bg-emerald-50 border border-slate-200 rounded-xl transition-all cursor-pointer shadow-2xs"
