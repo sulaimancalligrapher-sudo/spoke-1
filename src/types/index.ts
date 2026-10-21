@@ -58,6 +58,7 @@ export interface AudioSettings {
   repeatTargetTwice: boolean;
   preferredEvaluationMode: EvaluationMode;
   studentName: string;
+  geminiApiKey?: string;
 }
 
 export interface GoogleSheetsConfig {

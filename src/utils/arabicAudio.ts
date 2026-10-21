@@ -395,7 +395,32 @@ export function isSpeechRecognitionSupported(): boolean {
 }
 
 /**
- * Create Arabic Speech Recognizer
+ * Get best audio mime type supported by the current device/browser (iOS Safari, Android Chrome, etc.)
+ */
+export function getSupportedAudioMimeType(): string {
+  if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') {
+    return '';
+  }
+  const candidateTypes = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4;codecs=mp4a.40.2',
+    'audio/mp4',
+    'audio/aac',
+    'audio/ogg;codecs=opus',
+  ];
+  for (const t of candidateTypes) {
+    try {
+      if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) {
+        return t;
+      }
+    } catch (e) {}
+  }
+  return '';
+}
+
+/**
+ * Create Arabic Speech Recognizer optimized for mobile, tablet, and desktop
  */
 export function createSpeechRecognizer(
   onResult: (transcript: string, isFinal: boolean) => void,
@@ -409,7 +434,8 @@ export function createSpeechRecognizer(
   }
 
   const recognizer = new SpeechRec();
-  recognizer.continuous = false;
+  // continuous: true prevents Android Chrome and mobile browsers from stopping after a tiny initial silence
+  recognizer.continuous = true;
   recognizer.interimResults = true;
   recognizer.lang = 'ar-SA';
   recognizer.maxAlternatives = 3;
@@ -418,20 +444,35 @@ export function createSpeechRecognizer(
     let interimTranscript = '';
     let finalTranscript = '';
 
-    for (let i = event.resultIndex; i < event.results.length; ++i) {
-      if (event.results[i].isFinal) {
-        finalTranscript += event.results[i][0].transcript;
+    for (let i = 0; i < event.results.length; ++i) {
+      const res = event.results[i];
+      if (res.isFinal) {
+        finalTranscript += res[0].transcript + ' ';
       } else {
-        interimTranscript += event.results[i][0].transcript;
+        interimTranscript += res[0].transcript;
       }
     }
 
-    const transcript = finalTranscript || interimTranscript;
-    onResult(transcript.trim(), !!finalTranscript);
+    const transcript = (finalTranscript + interimTranscript).trim();
+    if (transcript) {
+      onResult(transcript, !!finalTranscript);
+    }
   };
 
   recognizer.onerror = (event: any) => {
-    console.warn('SpeechRecognition error:', event.error);
+    console.warn('SpeechRecognition event error:', event.error);
+    // Ignore harmless 'no-speech' events in continuous mode so recognizer stays listening
+    if (event.error === 'no-speech') {
+      return;
+    }
+    // If dialect ar-SA is not downloaded on phone, try general 'ar'
+    if (event.error === 'language-not-supported' && recognizer.lang !== 'ar') {
+      try {
+        recognizer.lang = 'ar';
+        recognizer.start();
+        return;
+      } catch (e) {}
+    }
     onError(event.error);
   };
 

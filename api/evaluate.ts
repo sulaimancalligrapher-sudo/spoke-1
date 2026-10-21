@@ -1,19 +1,10 @@
 import { GoogleGenAI, Type } from '@google/genai';
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    },
-  },
-});
-
 export default async function handler(req: any, res: any) {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-gemini-key');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -24,7 +15,28 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { targetWord, spokenText, audioBase64, audioMimeType, notes } = req.body || {};
+    const { targetWord, spokenText, audioBase64, audioMimeType, notes, apiKey: bodyApiKey } = req.body || {};
+    const effectiveApiKey =
+      (req.headers['x-gemini-key'] as string) ||
+      bodyApiKey ||
+      process.env.GEMINI_API_KEY;
+
+    if (!effectiveApiKey) {
+      return res.status(400).json({
+        success: false,
+        error:
+          'مفتاح Gemini API غير متوفر في السيرفر. يمكنك إضافة مفتاحك بسهولة من نافذة الإعدادات لتفعيل الذكاء الاصطناعي.',
+      });
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey: effectiveApiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
 
     if (!targetWord) {
       return res.status(400).json({ error: 'Target word is required' });

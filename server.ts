@@ -31,7 +31,28 @@ const ai = new GoogleGenAI({
  */
 app.post('/api/evaluate', async (req, res) => {
   try {
-    const { targetWord, spokenText, audioBase64, audioMimeType, notes } = req.body;
+    const { targetWord, spokenText, audioBase64, audioMimeType, notes, apiKey: bodyApiKey } = req.body;
+    const effectiveApiKey =
+      (req.headers['x-gemini-key'] as string) ||
+      bodyApiKey ||
+      process.env.GEMINI_API_KEY;
+
+    if (!effectiveApiKey) {
+      return res.status(400).json({
+        success: false,
+        error:
+          'مفتاح Gemini API غير متوفر في السيرفر. يمكنك إضافة مفتاحك بسهولة من نافذة الإعدادات لتفعيل الذكاء الاصطناعي.',
+      });
+    }
+
+    const aiInstance = new GoogleGenAI({
+      apiKey: effectiveApiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
 
     if (!targetWord) {
       return res.status(400).json({ error: 'Target word is required' });
@@ -69,7 +90,7 @@ ${notes ? `ملاحظات إضافية: ${notes}` : ''}
 
     contents.push({ text: promptText });
 
-    const response = await ai.models.generateContent({
+    const response = await aiInstance.models.generateContent({
       model: 'gemini-3.8-flash',
       contents: contents.length === 1 ? contents[0].text : { parts: contents },
       config: {

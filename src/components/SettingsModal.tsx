@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { AudioSettings } from '../types';
-import { X, Settings, Volume2, Sparkles, Mic, Gauge } from 'lucide-react';
+import { X, Settings, Volume2, Sparkles, Mic, Gauge, Key, CheckCircle2 } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -15,14 +15,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
   onUpdateSettings,
 }) => {
+  const [apiKeyInput, setApiKeyInput] = useState(settings.geminiApiKey || '');
+  const [keySaved, setKeySaved] = useState(false);
+
   if (!isOpen) return null;
+
+  const handleSaveKey = () => {
+    onUpdateSettings({ geminiApiKey: apiKeyInput.trim() });
+    setKeySaved(true);
+    setTimeout(() => setKeySaved(false), 2000);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative">
+      <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
         <button
           onClick={onClose}
-          className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors"
+          className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
@@ -32,12 +41,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <Settings className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-slate-900">إعدادات الصوت والنطق</h3>
-            <p className="text-xs text-slate-500">تخصيص تجربة الاستماع والتقييم الصوتي</p>
+            <h3 className="text-base font-bold text-slate-900">إعدادات الصوت والنطق والذكاء الاصطناعي</h3>
+            <p className="text-xs text-slate-500">تخصيص تجربة الاستماع والتقييم الصوتي عبر الأجهزة</p>
           </div>
         </div>
 
         <div className="space-y-4">
+          {/* Gemini API Key */}
+          <div className="p-3.5 bg-indigo-50/70 border border-indigo-200/80 rounded-2xl">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                <Key className="w-4 h-4 text-indigo-600" />
+                <span>مفتاح Gemini API (لتفعيل الذكاء الاصطناعي على Vercel):</span>
+              </label>
+              {settings.geminiApiKey && (
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                  مُفعّل
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-indigo-700/80 leading-relaxed mb-2.5">
+              إذا نشرت الموقع على Vercel، يمكنك لصق مفتاح Gemini هنا ليعمل تقييم الصوت بالذكاء الاصطناعي والاستماع الفصيح فوراً على جهازك وجوالك.
+            </p>
+            <div className="flex gap-1.5">
+              <input
+                type="password"
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                placeholder="AIzaSy..."
+                className="flex-1 px-3 py-2 text-xs bg-white border border-indigo-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-mono text-left dir-ltr"
+              />
+              <button
+                type="button"
+                onClick={handleSaveKey}
+                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                {keySaved ? 'تم الحفظ!' : 'حفظ'}
+              </button>
+            </div>
+          </div>
+
           {/* Audio Engine */}
           <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl">
             <label className="block text-xs font-bold text-slate-800 mb-2 flex items-center gap-1.5">

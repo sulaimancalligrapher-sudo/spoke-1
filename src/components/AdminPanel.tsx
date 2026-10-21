@@ -50,6 +50,8 @@ import {
   CheckCheck,
   Globe,
   Cpu,
+  QrCode,
+  Smartphone,
 } from 'lucide-react';
 import { removeTashkeel } from '../utils/arabicMatcher';
 import {
@@ -128,6 +130,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [showSubjectManager, setShowSubjectManager] = useState(false);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
   const [showSyncGuideModal, setShowSyncGuideModal] = useState(false);
+  const [showQrSyncModal, setShowQrSyncModal] = useState(false);
+  const [copiedSyncUrl, setCopiedSyncUrl] = useState(false);
 
   // Curriculum Code & Sync Statuses
   const [saveFileStatus, setSaveFileStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -440,6 +444,24 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
     setTimeout(() => setCopiedCurriculumCode(false), 2500);
   };
 
+  // Generate Mobile/Tablet Sync URL
+  const getSyncUrl = () => {
+    if (typeof window === 'undefined') return '';
+    const payload = {
+      curriculum,
+      subjects,
+      categories,
+    };
+    return `${window.location.origin}/#sync=${encodeURIComponent(JSON.stringify(payload))}`;
+  };
+
+  const handleCopySyncUrl = () => {
+    const url = getSyncUrl();
+    navigator.clipboard.writeText(url);
+    setCopiedSyncUrl(true);
+    setTimeout(() => setCopiedSyncUrl(false), 2500);
+  };
+
   // AI Diagnostic Check Handler
   const handleCheckAIStatus = async () => {
     setAiDiagnostic({ checked: true, loading: true });
@@ -593,14 +615,24 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+            {/* Quick Mobile Sync via QR Code or Link */}
+            <button
+              onClick={() => setShowQrSyncModal(true)}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-md cursor-pointer animate-pulse"
+              title="مزامنة فورية للدروس مع الجوال أو التابليت بكود QR أو رابط"
+            >
+              <QrCode className="w-4 h-4 text-slate-950" />
+              <span>مزامنة للجوال والتابليت (رمز QR)</span>
+            </button>
+
             <button
               onClick={handleSaveToServer}
               disabled={saveFileStatus?.loading}
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-sm cursor-pointer"
+              className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-sm cursor-pointer"
               title="حفظ التعديلات في كود المشروع مباشرة"
             >
               <Save className="w-4 h-4" />
-              <span>{saveFileStatus?.loading ? 'جاري الحفظ...' : 'حفظ في ملفات المشروع'}</span>
+              <span>{saveFileStatus?.loading ? 'جاري الحفظ...' : 'حفظ بالملفات'}</span>
             </button>
 
             <button
@@ -2075,6 +2107,102 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                 className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl cursor-pointer"
               >
                 فهمت، إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Instant QR & URL Sync Modal for Mobile / Tablet */}
+      {showQrSyncModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setShowQrSyncModal(false)}
+              className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                <Smartphone className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  مزامنة الدروس للجوال والتابليت فوراً
+                </h3>
+                <p className="text-xs text-slate-500">
+                  انقل جميع الدروس والكلمات الجديدة ({curriculum.length} كلمة) مباشرة لهاتفك
+                </p>
+              </div>
+            </div>
+
+            {/* QR Code Presentation */}
+            <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl text-center mb-4">
+              <div className="bg-white p-3 rounded-2xl inline-block border-2 border-amber-200 shadow-sm mb-3">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(getSyncUrl())}`}
+                  alt="QR Code"
+                  className="w-48 h-48 sm:w-56 sm:h-56 mx-auto object-contain"
+                  loading="lazy"
+                />
+              </div>
+
+              <div className="space-y-1 text-xs text-slate-700">
+                <p className="font-bold text-slate-900 flex items-center justify-center gap-1.5">
+                  <span>📱 وجّه كاميرا الجوال نحو رمز الاستجابة السريعة (QR)</span>
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  أو انسخ الرابط المباشر وأرسله في واتساب/تليجرام لفتحه على الجوال
+                </p>
+              </div>
+
+              {/* Copy Direct Sync URL Button */}
+              <div className="mt-3.5 flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopySyncUrl}
+                  className="flex-1 py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {copiedSyncUrl ? (
+                    <>
+                      <CheckCheck className="w-4 h-4 text-slate-950" />
+                      <span>تم نسخ رابط المزامنة للجوال!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4 text-slate-950" />
+                      <span>نسخ رابط المزامنة المباشر للجوال</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Important Info: Permanent GitHub / Vercel Baking */}
+            <div className="p-4 bg-emerald-50 border border-emerald-200/90 rounded-2xl text-xs text-emerald-950 space-y-2">
+              <div className="font-bold flex items-center gap-1.5 text-emerald-900">
+                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>لتثبيت الدروس نهائياً لجميع الزوار على Vercel:</span>
+              </div>
+              <p className="text-[11px] text-emerald-800 leading-relaxed">
+                رمز QR والرابط يقوم بنقل الدروس لجهازك فوراً. ولكن لجعل الدروس الجديدة هي الافتراضية لأي طالب يفتح الموقع من أي مكان:
+              </p>
+              <ol className="list-decimal list-inside text-[11px] text-emerald-900 space-y-1 pr-1 font-medium">
+                <li>اضغط على زر <strong>"تحميل ملف المنهج (.ts)"</strong> من الشريط العلوي.</li>
+                <li>استبدل الملف في مشروعك بمجلد: <code className="bg-white/80 px-1 py-0.5 rounded font-mono">src/data/arabicCurriculum.ts</code>.</li>
+                <li>ارفع التعديل إلى مستودع GitHub (git push) وسيقوم Vercel بنشره لجميع الهواتف تلقائياً!</li>
+              </ol>
+            </div>
+
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowQrSyncModal(false)}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl cursor-pointer"
+              >
+                إغلاق
               </button>
             </div>
           </div>

@@ -62,6 +62,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(true);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
   // Scores map: wordId -> score
   const [scoresMap, setScoresMap] = useState<Record<string, number>>({});
@@ -88,12 +89,45 @@ export default function App() {
     studentName: '',
   });
 
-  // Check URL hash for admin routing on mount and hashchange
+  // Check URL hash for admin routing and device sync on mount and hashchange
   useEffect(() => {
     const checkHash = () => {
-      const hash = window.location.hash.toLowerCase();
+      const hash = window.location.hash;
       const path = window.location.pathname.toLowerCase();
-      if (hash === '#admin' || path === '/admin') {
+
+      // Check for mobile/tablet sync payload (#sync=...)
+      if (hash.startsWith('#sync=')) {
+        try {
+          const raw = decodeURIComponent(hash.substring(6));
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.curriculum)) {
+            setCurriculum(parsed.curriculum);
+            localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(parsed.curriculum));
+
+            if (Array.isArray(parsed.categories)) {
+              setCategories(parsed.categories);
+              localStorage.setItem(STORAGE_KEY_CATEGORIES, JSON.stringify(parsed.categories));
+            }
+            if (Array.isArray(parsed.subjects)) {
+              setSubjects(parsed.subjects);
+              localStorage.setItem(STORAGE_KEY_SUBJECTS, JSON.stringify(parsed.subjects));
+            }
+            if (parsed.curriculum.length > 0) {
+              setSelectedItem(parsed.curriculum[0]);
+              setStudentSubject(parsed.curriculum[0].lessonSubject || parsed.subjects?.[0] || '');
+            }
+
+            setSyncNotice(`🎉 تمت مزامنة ${parsed.curriculum.length} كلمة ودرس بنجاح إلى هذا الجهاز!`);
+            window.history.replaceState(null, '', window.location.pathname);
+            setTimeout(() => setSyncNotice(null), 6000);
+            return;
+          }
+        } catch (e) {
+          console.warn('Sync payload parse error:', e);
+        }
+      }
+
+      if (hash.toLowerCase() === '#admin' || path === '/admin') {
         setIsAdminView(true);
       } else {
         setIsAdminView(false);
@@ -532,7 +566,15 @@ export default function App() {
 
   // STANDARD STUDENT PRACTICE VIEW
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-cairo text-slate-800">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-cairo text-slate-800 relative">
+      {/* Device Sync Celebratory Notification */}
+      {syncNotice && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-2xl border border-emerald-400 flex items-center gap-2.5 text-xs sm:text-sm font-bold animate-in fade-in slide-in-from-top-4 duration-300">
+          <Sparkles className="w-5 h-5 text-emerald-200 shrink-0" />
+          <span>{syncNotice}</span>
+        </div>
+      )}
+
       {/* Navbar */}
       <Navbar
         streak={streak}

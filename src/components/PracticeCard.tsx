@@ -16,6 +16,9 @@ import {
   User,
   Image as ImageIcon,
   BookOpen,
+  CheckCircle,
+  Play,
+  RotateCcw,
 } from 'lucide-react';
 import {
   speakArabicBrowser,
@@ -24,6 +27,7 @@ import {
   playCustomAudio,
   createSpeechRecognizer,
   isSpeechRecognitionSupported,
+  getSupportedAudioMimeType,
   blobToBase64,
   stopAllAudio,
 } from '../utils/arabicAudio';
@@ -70,16 +74,23 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     settings.preferredEvaluationMode || 'local'
   );
   const [studentName, setStudentName] = useState(settings.studentName || '');
+  const [mobileReviewPending, setMobileReviewPending] = useState<{
+    audioBlob: Blob;
+    recordedAudioUrl: string;
+  } | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const speechRecognizerRef = useRef<any>(null);
   const timerIntervalRef = useRef<any>(null);
+  const liveTranscriptRef = useRef<string>('');
 
   // Auto-play audio when wordItem changes if autoPlayTarget is enabled
   useEffect(() => {
     setIsRecording(false);
     setLiveTranscript('');
+    liveTranscriptRef.current = '';
+    setMobileReviewPending(null);
     setRecordDuration(0);
 
     if (settings.autoPlayTarget) {
@@ -157,14 +168,23 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   // Start Voice Recording
   const startRecording = async () => {
     setLiveTranscript('');
+    liveTranscriptRef.current = '';
     setRecordDuration(0);
     audioChunksRef.current = [];
+    setMobileReviewPending(null);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setRecordingStream(stream);
 
-      const mediaRecorder = new MediaRecorder(stream);
+      // Detect supported mimeType for this browser (audio/webm on Android/PC, audio/mp4 on Safari/iOS)
+      const mimeType = getSupportedAudioMimeType();
+      let mediaRecorder: MediaRecorder;
+      try {
+        mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      } catch (e) {
+        mediaRecorder = new MediaRecorder(stream);
+      }
       mediaRecorderRef.current = mediaRecorder;
 
       mediaRecorder.ondataavailable = (e) => {
@@ -186,15 +206,16 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         });
       }, 1000);
 
-      // Web Speech Recognition
+      // Web Speech Recognition (Voice to text)
       if (isSpeechRecognitionSupported()) {
         try {
           const recognizer = createSpeechRecognizer(
             (transcript) => {
+              liveTranscriptRef.current = transcript;
               setLiveTranscript(transcript);
             },
             (error) => {
-              console.warn('Recognition error:', error);
+              console.warn('Speech recognition notice:', error);
             },
             () => {}
           );
@@ -229,8 +250,10 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.onstop = async () => {
+        const detectedMime =
+          mediaRecorderRef.current?.mimeType || getSupportedAudioMimeType() || 'audio/mp4';
         const audioBlob = new Blob(audioChunksRef.current, {
-          type: mediaRecorderRef.current?.mimeType || 'audio/webm',
+          type: detectedMime,
         });
         const recordedAudioUrl = URL.createObjectURL(audioBlob);
 
@@ -240,7 +263,33 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         }
 
         setIsRecording(false);
-        await evaluateStudentAttempt(audioBlob, liveTranscript, recordedAudioUrl);
+
+        const currentSpoken = (liveTranscriptRef.current || liveTranscript).trim();
+
+        // 1. If text was captured by speech recognition: evaluate right away!
+        if (currentSpoken) {
+          await evaluateStudentAttempt(audioBlob, currentSpoken, recordedAudioUrl);
+          return;
+        }
+
+        // 2. If Gemini AI is active or key is provided: Gemini directly evaluates the audio!
+        if (activeEvalMode === 'ai' || !!settings.geminiApiKey) {
+          await evaluateStudentAttempt(audioBlob, '', recordedAudioUrl);
+          return;
+        }
+
+        // 3. On Mobile/Tablet where local Web Speech didn't transcribe text:
+        // Offer quick 1-tap evaluation so the student is never given a 0% error!
+        if (audioChunksRef.current.length > 0) {
+          setMobileReviewPending({
+            audioBlob,
+            recordedAudioUrl,
+          });
+          return;
+        }
+
+        // 4. Truly empty recording
+        await evaluateStudentAttempt(audioBlob, '', recordedAudioUrl);
       };
     } else {
       setIsRecording(false);
@@ -258,7 +307,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     recordedAudioUrl?: string
   ) => {
     setIsEvaluating(true);
-    const textToEvaluate = spokenText || liveTranscript || manualText || '';
+    const textToEvaluate = spokenText || liveTranscriptRef.current || liveTranscript || manualText || '';
 
     // If Mode is LOCAL (Primary / Default)
     if (activeEvalMode === 'local') {
@@ -275,24 +324,30 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
     // If Mode is AI (Gemini)
     let audioBase64 = '';
-    let mimeType = 'audio/webm';
+    let mimeType = getSupportedAudioMimeType() || 'audio/webm';
 
     if (audioBlob) {
       try {
         audioBase64 = await blobToBase64(audioBlob);
-        mimeType = audioBlob.type || 'audio/webm';
+        mimeType = audioBlob.type || mimeType;
       } catch (e) {}
     }
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (settings.geminiApiKey) {
+        headers['x-gemini-key'] = settings.geminiApiKey;
+      }
+
       const response = await fetch('/api/evaluate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           targetWord: wordItem.word,
           spokenText: textToEvaluate,
           audioBase64: audioBase64 || undefined,
           audioMimeType: mimeType,
+          apiKey: settings.geminiApiKey || undefined,
           notes: `الدرس: ${wordItem.lessonSubject} - الفئة: ${wordItem.category}`,
         }),
       });
@@ -326,7 +381,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         recordedAudioUrl,
         engineUsed: 'local',
         engineNotice:
-          'تنبيه: تعذر الاتصال بمحرك الذكاء الاصطناعي على السيرفر (قد يكون مفتاح GEMINI_API_KEY غير مضاف في إعدادات Vercel). تم إتمام التقييم بنجاح بواسطة المحرك الصوتي الداخلي.',
+          'تنبيه: تعذر الاتصال بمحرك الذكاء الاصطناعي على السيرفر (يمكنك إضافة مفتاح Gemini من أيقونة الإعدادات لتفعيله فوراً على Vercel). تم إتمام التقييم بنجاح بواسطة المحرك الصوتي الداخلي.',
       },
       recordedAudioUrl,
       studentName
@@ -558,10 +613,97 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           {(liveTranscript || isRecording) && (
             <div className="mt-4 w-full bg-slate-50 border border-slate-200/80 rounded-2xl p-3 text-center animate-in fade-in duration-200">
               <span className="text-[11px] font-semibold text-slate-400 block mb-0.5">
-                ما يُسمع الآن:
+                {liveTranscript ? 'ما تم رصده صوتياً:' : 'حالة الميكروفون:'}
               </span>
               <div className="text-base font-bold font-amiri text-emerald-800">
-                {liveTranscript || 'في انتظار نطقك...'}
+                {liveTranscript ? (
+                  <span>{liveTranscript}</span>
+                ) : (
+                  <span className="text-slate-500 text-xs font-semibold flex items-center justify-center gap-1.5 animate-pulse">
+                    <span>🎙️ يستمع إليك... انطق الكلمة الآن بوضوح</span>
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Mobile & Tablet Friendly Review Banner (shown if browser mic recorded audio but web speech didn't transcribe) */}
+          {mobileReviewPending && (
+            <div className="mt-4 w-full p-4 bg-amber-50/90 border border-amber-200/80 rounded-2xl text-center shadow-xs animate-in fade-in duration-200">
+              <div className="text-amber-900 font-bold text-xs mb-1.5 flex items-center justify-center gap-1.5">
+                <span>🎙️ تم تسجيل صوتك بنجاح!</span>
+              </div>
+              <p className="text-[11px] text-amber-800/90 leading-relaxed mb-3">
+                متصفح الجوال التقط صوتك ولكن لم يقم بتحويله لنص تلقائياً. يمكنك الاستماع لنطقك المسجل أو اعتماد تقييم نطقك بنقرة زر:
+              </p>
+
+              {/* Play recorded voice button */}
+              <div className="flex items-center justify-center gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const audio = new Audio(mobileReviewPending.recordedAudioUrl);
+                    audio.play().catch((e) => console.warn('Audio play error:', e));
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-amber-100 border border-amber-300 text-amber-900 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5 text-amber-700" />
+                  <span>استمع لتسجيل صوتك</span>
+                </button>
+              </div>
+
+              {/* 1-Tap Evaluation choices */}
+              <div className="grid grid-cols-2 gap-2 mb-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pending = mobileReviewPending;
+                    setMobileReviewPending(null);
+                    evaluateStudentAttempt(pending.audioBlob, wordItem.word, pending.recordedAudioUrl);
+                  }}
+                  className="p-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer text-center flex items-center justify-center gap-1"
+                >
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  <span>نطقت الكلمة بشكل سليم (95%)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pending = mobileReviewPending;
+                    setMobileReviewPending(null);
+                    evaluateStudentAttempt(pending.audioBlob, wordItem.plainWord, pending.recordedAudioUrl);
+                  }}
+                  className="p-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer text-center"
+                >
+                  <span>نطقت الكلمة مع تدرب (80%)</span>
+                </button>
+              </div>
+
+              <div className="flex items-center justify-center gap-3 text-[11px] pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManualInputMode(true);
+                    setManualText(wordItem.plainWord);
+                    setMobileReviewPending(null);
+                  }}
+                  className="text-amber-900 font-bold hover:underline cursor-pointer"
+                >
+                  كتابة ما نطقته يدوياً
+                </button>
+                <span className="text-amber-300">•</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileReviewPending(null);
+                    startRecording();
+                  }}
+                  className="text-slate-600 hover:text-slate-800 cursor-pointer flex items-center gap-1 font-semibold"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>إعادة التسجيل</span>
+                </button>
               </div>
             </div>
           )}
