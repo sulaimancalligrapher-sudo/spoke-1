@@ -11,7 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = 3000;
 
 app.use(express.json({ limit: '15mb' }));
 
@@ -211,27 +211,139 @@ app.get('/api/proxy-audio', async (req, res) => {
       return res.status(400).send('Missing file ID');
     }
 
-    const driveUrl = `https://docs.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
-    const response = await fetch(driveUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      },
-    });
+    const driveEndpoints = [
+      `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=download&authuser=0`,
+      `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`,
+    ];
 
-    if (!response.ok) {
-      return res.status(response.status).send('Failed to fetch from Google Drive');
+    let finalResponse: any = null;
+
+    for (const endpoint of driveEndpoints) {
+      try {
+        let r = await fetch(endpoint, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            Accept: '*/*',
+          },
+          redirect: 'follow',
+        });
+
+        if (r.ok) {
+          const contentType = (r.headers.get('content-type') || '').toLowerCase();
+          if (contentType.includes('text/html')) {
+            const html = await r.text();
+            const confirmMatch = html.match(/confirm=([0-9A-Za-z_-]+)/);
+            if (confirmMatch && confirmMatch[1]) {
+              const confirmedUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}&confirm=${confirmMatch[1]}`;
+              const rConfirm = await fetch(confirmedUrl, {
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                },
+                redirect: 'follow',
+              });
+              if (rConfirm.ok) {
+                finalResponse = rConfirm;
+                break;
+              }
+            }
+          } else {
+            finalResponse = r;
+            break;
+          }
+        }
+      } catch (e) {
+        console.warn('Drive proxy try failed:', e);
+      }
     }
 
-    const contentType = response.headers.get('content-type') || 'audio/mpeg';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    if (!finalResponse || !finalResponse.ok) {
+      return res.status(404).send('Could not retrieve audio from Google Drive. Ensure file is shared as Public ("Anyone with the link").');
+    }
 
-    const arrayBuffer = await response.arrayBuffer();
+    const contentType = finalResponse.headers.get('content-type') || 'audio/mpeg';
+    res.setHeader('Content-Type', contentType.includes('html') ? 'audio/mpeg' : contentType);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    const arrayBuffer = await finalResponse.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     return res.send(buffer);
   } catch (err: any) {
     console.warn('Error in /api/proxy-audio:', err);
     return res.status(500).send('Proxy error: ' + err.message);
+  }
+});
+
+/**
+ * API: Save updated curriculum directly to src/data/arabicCurriculum.ts
+ * Enables persistent saving so exporting to GitHub bakes in all newly added lessons
+ */
+app.post('/api/save-curriculum', async (req, res) => {
+  try {
+    const { curriculum, subjects, categories } = req.body;
+    if (!Array.isArray(curriculum)) {
+      return res.status(400).json({ success: false, error: 'Curriculum array is required' });
+    }
+
+    const fs = await import('fs/promises');
+    const curriculumPath = path.resolve(__dirname, 'src/data/arabicCurriculum.ts');
+
+    const fileContent = `import { WordItem } from '../types';
+
+export const INITIAL_LESSON_SUBJECTS = ${JSON.stringify(subjects || [], null, 2)};
+
+export const INITIAL_CATEGORIES = ${JSON.stringify(categories || [], null, 2)};
+
+export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)};
+`;
+
+    await fs.writeFile(curriculumPath, fileContent, 'utf-8');
+    return res.json({
+      success: true,
+      message: 'تم حفظ الدروس والمنهج في ملفات المشروع بنجاح!',
+      count: curriculum.length,
+    });
+  } catch (err: any) {
+    console.error('Error saving curriculum to file:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'تعذر الحفظ في الملف: ' + (err?.message || 'خطأ غير متوقع'),
+    });
+  }
+});
+
+/**
+ * API: Diagnostic AI Status check
+ */
+app.get('/api/ai-status', async (_req, res) => {
+  const hasKey = !!process.env.GEMINI_API_KEY;
+  if (!hasKey) {
+    return res.json({
+      configured: false,
+      model: 'gemini-3.8-flash',
+      message: 'مفتاح GEMINI_API_KEY غير موجود في متغيرات البيئة.',
+    });
+  }
+
+  try {
+    const testResp = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: 'قل كلمة واحدة: متصل',
+    });
+    return res.json({
+      configured: true,
+      model: 'gemini-3.8-flash',
+      status: 'active',
+      sample: testResp.text?.trim() || 'متصل',
+    });
+  } catch (err: any) {
+    return res.json({
+      configured: true,
+      model: 'gemini-3.8-flash',
+      status: 'error',
+      error: err?.message || 'فشل الاتصال',
+    });
   }
 });
 

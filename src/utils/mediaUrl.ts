@@ -12,6 +12,11 @@ export function extractDriveFileId(url: string | undefined): string | null {
   const match2 = trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
   if (match2 && match2[1]) return match2[1];
 
+  // Raw ID passed directly (alphanumeric with hyphens/underscores >= 25 chars)
+  if (/^[a-zA-Z0-9_-]{25,}$/.test(trimmed)) {
+    return trimmed;
+  }
+
   return null;
 }
 
@@ -35,15 +40,13 @@ export function normalizeMediaUrl(
   const driveId = extractDriveFileId(trimmed);
   if (driveId) {
     if (type === 'image') {
-      // High-res public Google Drive thumbnail (works 100% in <img> without CORS issues)
+      // High-res Google Drive thumbnail / CDN endpoint (works 100% in <img> without CORS issues)
       return `https://drive.google.com/thumbnail?id=${driveId}&sz=w1000`;
     }
     if (type === 'audio') {
-      // Use proxy endpoint if available to handle redirects and CORS
-      return `/api/proxy-audio?id=${driveId}`;
+      return `/api/proxy-audio?id=${encodeURIComponent(driveId)}`;
     }
-    // Auto: default to thumbnail for images, proxy for audio
-    return `https://drive.google.com/thumbnail?id=${driveId}&sz=w1000`;
+    return `/api/proxy-audio?id=${encodeURIComponent(driveId)}`;
   }
 
   // 2. Dropbox share link converter
@@ -57,7 +60,7 @@ export function normalizeMediaUrl(
     return trimmed.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/');
   }
 
-  // 4. Local or relative paths (e.g., /audio/test.mp3 or /images/test.png)
+  // 4. Local or relative paths (e.g., /audio/test.mp3 or images/test.png)
   return trimmed;
 }
 
@@ -74,3 +77,20 @@ export function getDirectImageUrl(url: string | undefined): string {
 export function getDirectAudioUrl(url: string | undefined): string {
   return normalizeMediaUrl(url, 'audio');
 }
+
+/**
+ * Alternative fallback URLs for Google Drive audio in case one CDN mirror fails
+ */
+export function getAlternativeAudioUrls(url: string | undefined): string[] {
+  if (!url) return [];
+  const driveId = extractDriveFileId(url);
+  if (driveId) {
+    return [
+      `/api/proxy-audio?id=${encodeURIComponent(driveId)}`,
+      `https://drive.usercontent.google.com/download?id=${encodeURIComponent(driveId)}&export=download&authuser=0`,
+      `https://drive.google.com/uc?export=download&id=${encodeURIComponent(driveId)}`,
+    ];
+  }
+  return [normalizeMediaUrl(url, 'audio')];
+}
+

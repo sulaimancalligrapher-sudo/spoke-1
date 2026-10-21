@@ -298,6 +298,9 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           setIsEvaluating(false);
           return;
         }
+      } else {
+        const errJson = await response.json().catch(() => null);
+        console.warn('Gemini server returned error status:', response.status, errJson);
       }
     } catch (err) {
       console.warn('Gemini server evaluation error, falling back to local matcher:', err);
@@ -310,6 +313,8 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         ...fallbackLocal,
         recordedAudioUrl,
         engineUsed: 'local',
+        engineNotice:
+          'تنبيه: تعذر الاتصال بمحرك الذكاء الاصطناعي على السيرفر (قد يكون مفتاح GEMINI_API_KEY غير مضاف في إعدادات Vercel). تم إتمام التقييم بنجاح بواسطة المحرك الصوتي الداخلي.',
       },
       recordedAudioUrl,
       studentName
@@ -473,7 +478,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
                 : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 hover:border-emerald-300'
             }`}
           >
-            <Volume2 className="w-5 h-5 text-emerald-600" />
+            <Volume2 className={`w-5 h-5 ${isPlayingAudio ? 'text-white' : 'text-emerald-600'}`} />
             <span>
               {isPlayingAudio
                 ? 'جاري الاستماع...'

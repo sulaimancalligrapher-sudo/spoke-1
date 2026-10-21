@@ -36,7 +36,75 @@ export function getArabicVoices(): SpeechSynthesisVoice[] {
 }
 
 /**
- * Speak Arabic text using browser's Web Speech API with automatic Gemini fallback
+ * Universal Free Online Arabic Audio Stream (Google TTS Web)
+ * No API key required, 100% free, crystal-clear Arabic pronunciation.
+ * Works on any browser (Chrome, Safari, iPhone, Android, Firefox, Edge, PC, Mac).
+ */
+export function playUniversalArabicStream(
+  text: string,
+  rate = 1.0,
+  onStart?: () => void,
+  onEnd?: () => void,
+  onError?: (err: any) => void
+): () => void {
+  stopAllAudio();
+  const cleanText = text.replace(/↔/g, 'ثم قارن مع').replace(/[-_]/g, ' ').trim();
+  if (!cleanText) {
+    if (onEnd) onEnd();
+    return () => {};
+  }
+
+  const streamUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ar&client=tw-ob&q=${encodeURIComponent(cleanText)}`;
+  const audio = new Audio(streamUrl);
+  currentAudioElement = audio;
+
+  if (rate < 0.85) {
+    audio.playbackRate = 0.75;
+  } else {
+    audio.playbackRate = 1.0;
+  }
+
+  let started = false;
+  const startHandler = () => {
+    if (!started) {
+      started = true;
+      if (onStart) onStart();
+    }
+  };
+
+  audio.onplay = startHandler;
+  audio.onplaying = startHandler;
+
+  audio.onended = () => {
+    currentAudioElement = null;
+    if (onEnd) onEnd();
+  };
+
+  audio.onerror = (e) => {
+    console.warn('Universal Arabic Stream playback error:', e);
+    currentAudioElement = null;
+    if (onError) onError(e);
+    if (onEnd) onEnd();
+  };
+
+  const playPromise = audio.play();
+  if (playPromise !== undefined) {
+    playPromise.catch((err) => {
+      console.warn('Audio play() promise rejected:', err);
+      currentAudioElement = null;
+      if (onEnd) onEnd();
+    });
+  }
+
+  return () => {
+    audio.pause();
+    currentAudioElement = null;
+    if (onEnd) onEnd();
+  };
+}
+
+/**
+ * Speak Arabic text using browser's Web Speech API with automatic fallback to universal online stream
  */
 export function speakArabicBrowser(
   text: string,
@@ -50,7 +118,6 @@ export function speakArabicBrowser(
     return () => {};
   }
 
-  // Stop any currently playing audio
   stopAllAudio();
 
   const cleanText = text.replace(/↔/g, 'ثم قارن مع').replace(/[-_]/g, ' ').trim();
@@ -59,16 +126,14 @@ export function speakArabicBrowser(
     return () => {};
   }
 
-  // Check if speech synthesis is supported and available
   const synth = window.speechSynthesis;
-  if (!synth) {
-    console.warn('SpeechSynthesis not supported, falling back to Gemini TTS');
-    speakArabicGemini(cleanText, rate < 0.8, onStart, onEnd);
-    return () => {};
-  }
+  const arabicVoices = getArabicVoices();
 
-  // Chrome bugfix: cancel and wait 50ms before speaking
-  synth.cancel();
+  // If browser has no speech synthesis OR no Arabic voices installed (very common on Windows/Android/Linux)
+  // Fall back immediately to the universal high-quality Arabic audio stream!
+  if (!synth || arabicVoices.length === 0) {
+    return playUniversalArabicStream(cleanText, rate, onStart, onEnd, onError);
+  }
 
   let hasEnded = false;
   const finish = () => {
@@ -78,66 +143,64 @@ export function speakArabicBrowser(
     }
   };
 
-  const timeoutId = setTimeout(() => {
-    try {
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.lang = 'ar-SA';
-      utterance.rate = rate;
-      utterance.pitch = 1.0;
-
-      const arabicVoices = getArabicVoices();
-      if (arabicVoices.length > 0) {
-        // Prefer higher quality Saudi or standard voices if available
-        const preferred =
-          arabicVoices.find((v) => v.lang === 'ar-SA') ||
-          arabicVoices.find((v) => v.name.toLowerCase().includes('maged') || v.name.toLowerCase().includes('google')) ||
-          arabicVoices[0];
-        utterance.voice = preferred;
-      }
-
-      utterance.onstart = () => {
-        if (onStart) onStart();
-      };
-
-      utterance.onend = () => {
-        finish();
-      };
-
-      utterance.onerror = (e) => {
-        console.warn('SpeechSynthesis utterance error, falling back to Gemini TTS:', e);
-        // Seamless fallback to Gemini API if browser speech synthesis fails
-        speakArabicGemini(cleanText, rate < 0.8, onStart, finish);
-      };
-
-      synth.speak(utterance);
-
-      // Safety timeout: if browser speech synthesis hangs without starting (common on some OS)
-      const safetyCheck = setTimeout(() => {
-        if (!synth.speaking && !hasEnded) {
-          console.warn('SpeechSynthesis did not start, falling back to Gemini TTS');
-          speakArabicGemini(cleanText, rate < 0.8, onStart, finish);
-        }
-      }, 1200);
-
-      utterance.onstart = () => {
-        clearTimeout(safetyCheck);
-        if (onStart) onStart();
-      };
-    } catch (err) {
-      console.warn('SpeechSynthesis invocation failed, falling back to Gemini TTS:', err);
-      speakArabicGemini(cleanText, rate < 0.8, onStart, finish);
+  try {
+    if (synth.paused) {
+      synth.resume();
     }
-  }, 60);
+    synth.cancel();
 
-  return () => {
-    clearTimeout(timeoutId);
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
-    finish();
-  };
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = 'ar-SA';
+    utterance.rate = rate;
+    utterance.pitch = 1.0;
+
+    const preferred =
+      arabicVoices.find((v) => v.lang === 'ar-SA') ||
+      arabicVoices.find((v) => v.name.toLowerCase().includes('maged') || v.name.toLowerCase().includes('google')) ||
+      arabicVoices[0];
+    utterance.voice = preferred;
+
+    utterance.onstart = () => {
+      if (onStart) onStart();
+    };
+
+    utterance.onend = () => {
+      finish();
+    };
+
+    utterance.onerror = (e) => {
+      console.warn('SpeechSynthesis error, falling back to universal stream:', e);
+      playUniversalArabicStream(cleanText, rate, onStart, finish);
+    };
+
+    synth.speak(utterance);
+
+    if (synth.paused) {
+      synth.resume();
+    }
+
+    // Safety timeout: if browser speech synthesis hangs without starting within 800ms
+    const safetyCheck = setTimeout(() => {
+      if (!synth.speaking && !hasEnded) {
+        console.warn('SpeechSynthesis did not start, falling back to universal stream');
+        playUniversalArabicStream(cleanText, rate, onStart, finish);
+      }
+    }, 800);
+
+    return () => {
+      clearTimeout(safetyCheck);
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      finish();
+    };
+  } catch (err) {
+    console.warn('SpeechSynthesis invocation failed, falling back to universal stream:', err);
+    return playUniversalArabicStream(cleanText, rate, onStart, finish);
+  }
 }
 
 /**
  * Speak Arabic text via Gemini Studio Voice backend API
+ * Automatically falls back to universal stream if Gemini key is missing or fails.
  */
 export async function speakArabicGemini(
   text: string,
@@ -157,7 +220,7 @@ export async function speakArabicGemini(
     });
 
     if (!res.ok) {
-      throw new Error('فشل استجابة خادم الصوت');
+      throw new Error('فشل خادم تحويل النص إلى صوت (قد لا يتوفر مفتاح Gemini في Vercel)');
     }
 
     const data = await res.json();
@@ -176,13 +239,13 @@ export async function speakArabicGemini(
 
     audio.onerror = () => {
       currentAudioElement = null;
-      if (onEnd) onEnd();
+      playUniversalArabicStream(text, slow ? 0.75 : 1.0, onStart, onEnd);
     };
 
     await audio.play();
   } catch (err) {
-    console.warn('Gemini TTS failed:', err);
-    if (onEnd) onEnd();
+    console.warn('Gemini TTS failed, falling back to universal stream:', err);
+    playUniversalArabicStream(text, slow ? 0.75 : 1.0, onStart, onEnd);
   }
 }
 
@@ -200,8 +263,11 @@ export function stopAllAudio(): void {
 }
 
 /**
- * Play custom audio URL (Google Drive, Dropbox, GitHub, or direct link)
- * Falls back to browser speech synthesis if URL cannot be played
+ * Play custom audio URL with fallback chain:
+ * 1. Base64 / Blob direct audio (mic recording / uploaded file)
+ * 2. API Proxy endpoint (for Google Drive with CORS/redirect handling)
+ * 3. Direct Google Usercontent CDN
+ * 4. Automatic fallback to universal Arabic stream if custom audio fails
  */
 export function playCustomAudio(
   url: string,
@@ -212,38 +278,100 @@ export function playCustomAudio(
 ): void {
   stopAllAudio();
 
-  const directUrl = getDirectAudioUrl(url);
-  if (!directUrl) {
-    speakArabicBrowser(fallbackText, rate, onStart, onEnd);
-    return;
+  const trimmed = url.trim();
+
+  // If it's a data URL or blob URL (from microphone recording or uploaded file), play immediately!
+  if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+    try {
+      const audio = new Audio(trimmed);
+      currentAudioElement = audio;
+      if (rate < 0.85) audio.playbackRate = 0.75;
+      if (onStart) onStart();
+      audio.onended = () => {
+        currentAudioElement = null;
+        if (onEnd) onEnd();
+      };
+      audio.onerror = () => {
+        currentAudioElement = null;
+        playUniversalArabicStream(fallbackText, rate, onStart, onEnd);
+      };
+      audio.play().catch(() => {
+        playUniversalArabicStream(fallbackText, rate, onStart, onEnd);
+      });
+      return;
+    } catch (e) {
+      playUniversalArabicStream(fallbackText, rate, onStart, onEnd);
+      return;
+    }
   }
 
-  try {
-    const audio = new Audio(directUrl);
-    currentAudioElement = audio;
+  const driveIdMatch = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  const driveId = driveIdMatch ? driveIdMatch[1] : null;
 
-    if (onStart) onStart();
-
-    audio.onended = () => {
-      currentAudioElement = null;
-      if (onEnd) onEnd();
-    };
-
-    audio.onerror = (e) => {
-      console.warn('Custom audio playback failed, falling back to TTS:', e);
-      currentAudioElement = null;
-      speakArabicBrowser(fallbackText, rate, onStart, onEnd);
-    };
-
-    audio.play().catch((err) => {
-      console.warn('Audio play() rejected, falling back to TTS:', err);
-      currentAudioElement = null;
-      speakArabicBrowser(fallbackText, rate, onStart, onEnd);
-    });
-  } catch (err) {
-    console.warn('Custom audio initialization error, falling back to TTS:', err);
-    speakArabicBrowser(fallbackText, rate, onStart, onEnd);
+  const candidateUrls: string[] = [];
+  if (driveId) {
+    // 1. API proxy endpoint handles Google Drive cookies & CORS seamlessly
+    candidateUrls.push(`/api/proxy-audio?id=${encodeURIComponent(driveId)}`);
+    // 2. Direct Google Drive usercontent download endpoint
+    candidateUrls.push(`https://drive.usercontent.google.com/download?id=${encodeURIComponent(driveId)}&export=download&authuser=0`);
+    // 3. Drive UC download
+    candidateUrls.push(`https://drive.google.com/uc?export=download&id=${encodeURIComponent(driveId)}`);
+  } else {
+    candidateUrls.push(getDirectAudioUrl(trimmed));
   }
+
+  let attemptIndex = 0;
+
+  const tryPlayCandidate = () => {
+    if (attemptIndex >= candidateUrls.length) {
+      console.warn('All custom audio URLs failed, playing universal reading for:', fallbackText);
+      playUniversalArabicStream(fallbackText, rate, onStart, onEnd);
+      return;
+    }
+
+    const currentUrl = candidateUrls[attemptIndex];
+    attemptIndex++;
+
+    try {
+      const audio = new Audio(currentUrl);
+      currentAudioElement = audio;
+
+      if (rate < 0.85) {
+        audio.playbackRate = 0.75;
+      }
+
+      let started = false;
+      audio.onplay = () => {
+        if (!started) {
+          started = true;
+          if (onStart) onStart();
+        }
+      };
+
+      audio.onended = () => {
+        currentAudioElement = null;
+        if (onEnd) onEnd();
+      };
+
+      audio.onerror = () => {
+        console.warn(`Audio attempt ${attemptIndex} failed for URL ${currentUrl}, trying next...`);
+        tryPlayCandidate();
+      };
+
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn(`Audio play() failed for attempt ${attemptIndex}:`, err);
+          tryPlayCandidate();
+        });
+      }
+    } catch (err) {
+      console.warn(`Audio instantiation failed for attempt ${attemptIndex}:`, err);
+      tryPlayCandidate();
+    }
+  };
+
+  tryPlayCandidate();
 }
 
 /**

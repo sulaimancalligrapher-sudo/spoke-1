@@ -34,6 +34,7 @@ export interface PronunciationEvaluation {
   timestamp: number;
   recordedAudioUrl?: string;
   engineUsed: EvaluationMode;
+  engineNotice?: string;
 }
 
 export interface PracticeHistoryItem {

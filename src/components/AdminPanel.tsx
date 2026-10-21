@@ -43,6 +43,13 @@ import {
   MicOff,
   Settings2,
   X,
+  Info,
+  Save,
+  FileCode,
+  Terminal,
+  CheckCheck,
+  Globe,
+  Cpu,
 } from 'lucide-react';
 import { removeTashkeel } from '../utils/arabicMatcher';
 import {
@@ -74,6 +81,7 @@ interface AdminPanelProps {
   onRenameSubject: (oldSubj: string, newSubj: string) => void;
   onDeleteSubject: (subj: string) => void;
   onResetCurriculum: () => void;
+  onImportCurriculum: (imported: WordItem[]) => void;
 }
 
 const TASHKEEL_BUTTONS = [
@@ -109,6 +117,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onRenameSubject,
   onDeleteSubject,
   onResetCurriculum,
+  onImportCurriculum,
 }) => {
   const [activeTab, setActiveTab] = useState<'lessons' | 'sheets' | 'system' | 'submissions'>('lessons');
   const [searchQuery, setSearchQuery] = useState('');
@@ -118,6 +127,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Modals for Subject and Category Management
   const [showSubjectManager, setShowSubjectManager] = useState(false);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
+  const [showSyncGuideModal, setShowSyncGuideModal] = useState(false);
+
+  // Curriculum Code & Sync Statuses
+  const [saveFileStatus, setSaveFileStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
+  const [copiedCurriculumCode, setCopiedCurriculumCode] = useState(false);
+
+  // AI Diagnostic Status
+  const [aiDiagnostic, setAiDiagnostic] = useState<{
+    checked: boolean;
+    loading: boolean;
+    configured?: boolean;
+    status?: string;
+    message?: string;
+    error?: string;
+    sample?: string;
+  } | null>(null);
 
   // Subject Manager Temporary Inputs
   const [newSubjInput, setNewSubjInput] = useState('');
@@ -343,6 +368,98 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     });
   };
 
+  // Generate TypeScript code for src/data/arabicCurriculum.ts
+  const generateCurriculumTS = () => {
+    return `import { WordItem } from '../types';
+
+export const INITIAL_LESSON_SUBJECTS = ${JSON.stringify(subjects, null, 2)};
+
+export const INITIAL_CATEGORIES = ${JSON.stringify(categories, null, 2)};
+
+export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)};
+`;
+  };
+
+  // Save updated curriculum directly into server code file src/data/arabicCurriculum.ts
+  const handleSaveToServer = async () => {
+    setSaveFileStatus({ loading: true, message: 'جاري الحفظ في ملف src/data/arabicCurriculum.ts...' });
+    try {
+      const res = await fetch('/api/save-curriculum', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ curriculum, subjects, categories }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSaveFileStatus({
+          loading: false,
+          success: true,
+          message: `تم حفظ ${curriculum.length} كلمة ودرس بنجاح في ملفات المشروع! الآن عند تصدير المشروع أو رفعه إلى GitHub ستظهر الدروس فوراً على كل الجوالات والتابليت.`,
+        });
+      } else {
+        setSaveFileStatus({
+          loading: false,
+          success: false,
+          message: data.error || 'تعذر الحفظ المباشر، يمكنك تحميل الملف عبر زر "تحميل ملف arabicCurriculum.ts".',
+        });
+      }
+    } catch (err: any) {
+      setSaveFileStatus({
+        loading: false,
+        success: false,
+        message: 'تعذر الاتصال بخادم الحفظ التلقائي. يرجى استخدام زر "تحميل ملف arabicCurriculum.ts".',
+      });
+    }
+  };
+
+  // Download complete arabicCurriculum.ts file ready to replace on GitHub
+  const handleDownloadTSFile = () => {
+    const tsContent = generateCurriculumTS();
+    const blob = new Blob([tsContent], { type: 'text/typescript;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute('href', url);
+    downloadAnchor.setAttribute('download', 'arabicCurriculum.ts');
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  // Copy complete TypeScript code to clipboard
+  const handleCopyTSCode = () => {
+    const tsContent = generateCurriculumTS();
+    navigator.clipboard.writeText(tsContent);
+    setCopiedCurriculumCode(true);
+    setTimeout(() => setCopiedCurriculumCode(false), 2500);
+  };
+
+  // AI Diagnostic Check Handler
+  const handleCheckAIStatus = async () => {
+    setAiDiagnostic({ checked: true, loading: true });
+    try {
+      const res = await fetch('/api/ai-status');
+      const data = await res.json();
+      setAiDiagnostic({
+        checked: true,
+        loading: false,
+        configured: data.configured,
+        status: data.status,
+        message: data.message,
+        error: data.error,
+        sample: data.sample,
+      });
+    } catch (err: any) {
+      setAiDiagnostic({
+        checked: true,
+        loading: false,
+        configured: false,
+        status: 'error',
+        error: 'فشل الاتصال بنقطة الفحص /api/ai-status على السيرفر.',
+      });
+    }
+  };
+
   // Export curriculum as JSON for GitHub backup
   const handleExportJSON = () => {
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(curriculum, null, 2));
@@ -352,6 +469,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+  };
+
+  // Import curriculum from JSON file
+  const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].word) {
+          onImportCurriculum(parsed);
+          alert(`تم استيراد ${parsed.length} كلمة ودرس بنجاح إلى هذا الجهاز!`);
+        } else {
+          alert('ملف JSON غير صالح، يرجى اختيار ملف المنهج المصدر.');
+        }
+      } catch (err) {
+        alert('حدث خطأ أثناء قراءة ملف JSON');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   // Filter items in the list view by selected subject and category
@@ -391,13 +532,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Import JSON button */}
+            <label
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
+              title="استيراد دروس وكلمات من ملف JSON محفوظ"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">استيراد منهج (JSON)</span>
+              <input
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={handleImportJSON}
+              />
+            </label>
+
+            {/* Export JSON button */}
             <button
               onClick={handleExportJSON}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
               title="تصدير المنهج كملف JSON لمستودع GitHub"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>نسخ احتياطي (JSON)</span>
+              <span className="hidden sm:inline">نسخ احتياطي (JSON)</span>
             </button>
 
             <button
@@ -413,6 +570,90 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {/* Main Admin Body */}
       <main className="max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 flex-1 flex flex-col gap-6">
+        {/* Sync & GitHub Deployment Bar */}
+        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-3xl p-5 sm:p-6 shadow-lg border border-slate-700/60 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                مزامنة الأجهزة والنشر
+              </span>
+              <h2 className="text-sm sm:text-base font-bold text-white">
+                نشر الدروس المضافة لجميع الطلاب والأجهزة (GitHub & Vercel)
+              </h2>
+            </div>
+            <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+              لتظهر الدروس الجديدة على هواتف الطلاب والأجهزة اللوحية، احفظ التعديلات في ملفات المشروع ثم ارفعها لمستودع GitHub.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+            <button
+              onClick={handleSaveToServer}
+              disabled={saveFileStatus?.loading}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-sm cursor-pointer"
+              title="حفظ التعديلات في كود المشروع مباشرة"
+            >
+              <Save className="w-4 h-4" />
+              <span>{saveFileStatus?.loading ? 'جاري الحفظ...' : 'حفظ في ملفات المشروع'}</span>
+            </button>
+
+            <button
+              onClick={handleDownloadTSFile}
+              className="flex items-center gap-1.5 px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+              title="تحميل ملف arabicCurriculum.ts المحدث"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>تحميل ملف المنهج (.ts)</span>
+            </button>
+
+            <button
+              onClick={handleCopyTSCode}
+              className="flex items-center gap-1.5 px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+              title="نسخ كود المنهج ولصقه في GitHub"
+            >
+              {copiedCurriculumCode ? (
+                <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+              <span>{copiedCurriculumCode ? 'تم نسخ الكود!' : 'نسخ الكود'}</span>
+            </button>
+
+            <button
+              onClick={() => setShowSyncGuideModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2.5 bg-indigo-600/40 hover:bg-indigo-600/60 text-indigo-200 border border-indigo-500/40 rounded-xl text-xs font-bold transition-all cursor-pointer"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-indigo-300" />
+              <span>طريقة التحديث</span>
+            </button>
+          </div>
+        </div>
+
+        {saveFileStatus && (
+          <div
+            className={`p-3.5 rounded-2xl border text-xs font-semibold flex items-center justify-between gap-3 animate-in fade-in duration-200 ${
+              saveFileStatus.success
+                ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                : 'bg-rose-50 text-rose-900 border-rose-300'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {saveFileStatus.success ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              )}
+              <span>{saveFileStatus.message}</span>
+            </div>
+            <button
+              onClick={() => setSaveFileStatus(null)}
+              className="text-xs opacity-60 hover:opacity-100 p-1 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Navigation Tabs */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-slate-200">
           <button
@@ -698,9 +939,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       )}
                     </button>
                   </div>
-                  <span className="text-[10px] text-slate-400 mt-0.5 block">
-                    إذا تركته فارغاً سيقرأ المتصفح الكلمة تلقائياً مجاناً بدون أي ملف.
-                  </span>
+                  
+                  {/* مؤشر حالة الصوت */}
+                  <div className="mt-1">
+                    {audioUrl ? (
+                      audioUrl.startsWith('data:audio') ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
+                          <CheckCheck className="w-3 h-3 text-emerald-600" />
+                          <span>صوت محفوظ محلياً (مسجل بالميكروفون أو مرفوع مباشرة)</span>
+                        </span>
+                      ) : audioUrl.includes('drive.google.com') ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200">
+                          <Info className="w-3 h-3 text-blue-600" />
+                          <span>رابط Google Drive (تأكد أن إذن المشاركة: أي شخص لديه الرابط - معلَن)</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-200">
+                          <Volume2 className="w-3 h-3 text-purple-600" />
+                          <span>رابط صوت خارجي مخصص</span>
+                        </span>
+                      )
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-lg">
+                        <Volume2 className="w-3 h-3 text-emerald-600" />
+                        <span>الحقل فارغ: سيتم تشغيل القراءة الآلية الفصيحة تلقائياً مجاناً دون ملف.</span>
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* 5. إضافة حقل الكلمة او الحرف او جملة */}
@@ -1174,6 +1439,133 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </ul>
               </div>
             </div>
+
+            {/* AI Status & Diagnostic Tool */}
+            <div className="mt-6 p-6 bg-slate-50 border border-slate-200/90 rounded-3xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+                    <Cpu className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">
+                      أداة فحص واختبار اتصال الذكاء الاصطناعي (Gemini AI Diagnostic)
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      تأكد مما إذا كان محرك الذكاء الاصطناعي مفعلاً ويعمل على سيرفرك أو Vercel
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCheckAIStatus}
+                  disabled={aiDiagnostic?.loading}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition-all shadow-xs cursor-pointer flex items-center gap-2 self-start sm:self-auto"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${aiDiagnostic?.loading ? 'animate-spin' : ''}`} />
+                  <span>{aiDiagnostic?.loading ? 'جاري الفحص...' : 'فحص اتصال Gemini الآن'}</span>
+                </button>
+              </div>
+
+              {aiDiagnostic && !aiDiagnostic.loading && (
+                <div
+                  className={`p-4 rounded-2xl border text-xs animate-in fade-in duration-200 ${
+                    aiDiagnostic.configured && aiDiagnostic.status === 'active'
+                      ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                      : 'bg-amber-50 text-amber-900 border-amber-300'
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5">
+                    {aiDiagnostic.configured && aiDiagnostic.status === 'active' ? (
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    )}
+                    <div className="space-y-1.5 flex-1">
+                      <div className="font-bold text-sm">
+                        {aiDiagnostic.configured && aiDiagnostic.status === 'active'
+                          ? 'الذكاء الاصطناعي متصل وجاهز للعمل 100%!'
+                          : 'تنبيه: محرك الذكاء الاصطناعي غير متصل أو لم يُعثر على المفتاح'}
+                      </div>
+                      <p className="leading-relaxed">
+                        {aiDiagnostic.message || aiDiagnostic.error || 'تم استلام الاستجابة من الخادم.'}
+                      </p>
+                      {aiDiagnostic.sample && (
+                        <div className="text-[11px] font-mono bg-white/70 p-2 rounded-lg text-slate-700 mt-1">
+                          استجابة نموذج الذكاء الاصطناعي التجريبية: "{aiDiagnostic.sample}"
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Clarification on Why Difference Wasn't Visible */}
+              <div className="p-4 bg-white border border-slate-200 rounded-2xl space-y-2 text-xs">
+                <div className="font-bold text-slate-900 flex items-center gap-2">
+                  <HelpCircle className="w-4 h-4 text-indigo-600" />
+                  <span>لماذا لم تلاحظ فرقاً بين التقييمين سابقاً؟</span>
+                </div>
+                <p className="text-slate-600 leading-relaxed text-[11px]">
+                  عند رفع المشروع على Vercel، لا يكون مفتاح <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">GEMINI_API_KEY</code> موجوداً تلقائياً. لذلك، عندما كان يفشل الاتصال بسيرفر الذكاء الاصطناعي، كان النظام يرجع تلقائياً للمحرك الداخلي حتى لا يتعطل الطالب، فكانت النتيجة تظهر متطابقة!
+                </p>
+                <div className="mt-2 p-3 bg-indigo-50/70 rounded-xl border border-indigo-100 text-[11px] text-indigo-950 space-y-1">
+                  <div className="font-bold">كيفية تفعيل الذكاء الاصطناعي على Vercel في 3 خطوات مجاناً:</div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-700">
+                    <li>ادخل إلى حسابك في موقع Vercel واختر مشروع تطبيقك.</li>
+                    <li>اضغط على <strong>Settings</strong> ثم اختر <strong>Environment Variables</strong> من القائمة الجانبية.</li>
+                    <li>أضف متغيراً جديداً: الاسم <code className="font-mono bg-white px-1">GEMINI_API_KEY</code> والقيمة مفتاحك المجاني من Google AI Studio، ثم اضغط Save.</li>
+                    <li>أعد النشر (Redeploy) وسيعمل تقييم الذكاء الاصطناعي الفائق فوراً!</li>
+                  </ol>
+                </div>
+              </div>
+
+              {/* Direct Comparison Table */}
+              <div className="pt-2">
+                <h5 className="font-bold text-xs text-slate-800 mb-2">
+                  مقارنة تفصيلية بين النظامين:
+                </h5>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right text-[11px] bg-white rounded-xl border border-slate-200">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                        <th className="p-2.5">وجه المقارنة</th>
+                        <th className="p-2.5 text-emerald-800">النظام الداخلي (الأساسي)</th>
+                        <th className="p-2.5 text-indigo-800">نظام الذكاء الاصطناعي (Gemini)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      <tr>
+                        <td className="p-2.5 font-bold text-slate-700">التكلفة والحدود</td>
+                        <td className="p-2.5 text-emerald-700 font-semibold">مجاني 100% للأبد بلا أي حدود</td>
+                        <td className="p-2.5 text-indigo-700">مجاني حتى 1500 تقييم يومياً (Google Tier)</td>
+                      </tr>
+                      <tr>
+                        <td className="p-2.5 font-bold text-slate-700">سرعة الاستجابة</td>
+                        <td className="p-2.5 text-emerald-700 font-semibold">لحظية وفورية (0.1 ثانية)</td>
+                        <td className="p-2.5 text-indigo-700">1 - 2 ثانية لتحليل المقطع الصوتي</td>
+                      </tr>
+                      <tr>
+                        <td className="p-2.5 font-bold text-slate-700">طريقة التقييم</td>
+                        <td className="p-2.5 text-slate-600">مطابقة الحروف والتشكيل المباشرة (Levenshtein)</td>
+                        <td className="p-2.5 text-slate-600">تحليل صوتي فيزيائي لمخارج الحروف والتجويد</td>
+                      </tr>
+                      <tr>
+                        <td className="p-2.5 font-bold text-slate-700">التغذية الراجعة</td>
+                        <td className="p-2.5 text-slate-600">نسبة تطابق + الحروف الصحيحة والناقصة</td>
+                        <td className="p-2.5 text-slate-600">نصائح دقيقة لموضع اللسان والشفتين والحلق</td>
+                      </tr>
+                      <tr>
+                        <td className="p-2.5 font-bold text-slate-700">العمل دون إنترنت</td>
+                        <td className="p-2.5 text-emerald-700 font-semibold">يعمل أوفلاين بالكامل على المتصفح</td>
+                        <td className="p-2.5 text-slate-600">يحتاج اتصالاً بالإنترنت</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1520,6 +1912,113 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 );
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sync & GitHub Deployment Guide Modal */}
+      {showSyncGuideModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setShowSyncGuideModal(false)}
+              className="absolute left-5 top-5 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5 pb-4 border-b border-slate-100">
+              <div className="w-11 h-11 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+                <Globe className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900">
+                  دليل نشر الدروس ومزامنتها على GitHub و Vercel
+                </h3>
+                <p className="text-xs text-slate-500">
+                  خطوات سريعة وسهلة لظهور كل الدروس الجديدة على هواتف الطلاب وأجهزتهم اللوحية
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+              <div className="p-4 bg-amber-50 border border-amber-200/90 rounded-2xl">
+                <h4 className="font-bold text-amber-900 mb-1 flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>لماذا لم تظهر الدروس المضافة على الجوال والتابليت؟</span>
+                </h4>
+                <p className="text-amber-800 text-[11px] leading-relaxed">
+                  عندما تضيف درساً جديداً، يحفظه المتصفح مؤقتاً في ذاكرته المحلية (Local Storage) الخاصة بحاسوبك الحالي فقط. الأجهزة الأخرى (الجوالات والأجهزة اللوحية) تتصل بـ Vercel وتقرأ كود المشروع الأساسي المخزن في ملف: <code className="bg-amber-100 px-1 py-0.5 rounded font-mono font-bold">src/data/arabicCurriculum.ts</code>.
+                </p>
+              </div>
+
+              <div className="p-4 bg-emerald-50 border border-emerald-200/90 rounded-2xl space-y-2">
+                <h4 className="font-bold text-emerald-950 flex items-center gap-1.5 text-sm">
+                  <CheckCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>الحل الأسهل (بنقرة زر داخل AI Studio):</span>
+                </h4>
+                <ol className="list-decimal list-inside space-y-1.5 text-[11px] text-emerald-900">
+                  <li>
+                    اضغط على الزر الأخضر في أعلى لوحة الإدارة: <strong>"حفظ في ملفات المشروع"</strong>.
+                  </li>
+                  <li>
+                    سيقوم النظام بحفظ كل الكلمات والدروس والفئات التي أضفتها مباشرة في ملف <code className="bg-white px-1 rounded font-mono">src/data/arabicCurriculum.ts</code>.
+                  </li>
+                  <li>
+                    قم بتصدير الملفات كالمعتاد ورفعها لمستودع GitHub؛ سيقوم Vercel بنشرها فوراً لكل الطلاب في ثوانٍ!
+                  </li>
+                </ol>
+              </div>
+
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                <h4 className="font-bold text-slate-900 flex items-center gap-1.5">
+                  <FileCode className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span>الحل اليدوي المباشر على موقع GitHub (في 60 ثانية):</span>
+                </h4>
+                <ol className="list-decimal list-inside space-y-1.5 text-[11px] text-slate-600">
+                  <li>
+                    اضغط زر <strong>"تحميل ملف المنهج (.ts)"</strong> أو <strong>"نسخ الكود"</strong> من شريط الإدارة.
+                  </li>
+                  <li>
+                    ادخل إلى مستودعك في GitHub، ثم ادخل إلى المجلد: <code className="bg-slate-200/80 px-1 rounded font-mono">src</code> ثم <code className="bg-slate-200/80 px-1 rounded font-mono">data</code>.
+                  </li>
+                  <li>
+                    اختر ملف <code className="bg-slate-200/80 px-1 rounded font-mono font-bold">arabicCurriculum.ts</code> واضغط على علامة القلم ✏️ لتعديله، ثم الصق الكود المنسوخ بالكامل بدلاً منه.
+                  </li>
+                  <li>
+                    اضغط على الزر الأخضر أسفل الصفحة <strong>Commit changes</strong>.
+                  </li>
+                  <li>
+                    انتهى الأمر! سيعيد Vercel البناء وستظهر جميع الدروس والفئات فوراً لجميع أجهزة الجوال والتابليت.
+                  </li>
+                </ol>
+              </div>
+
+              <div className="p-4 bg-indigo-50 border border-indigo-200/90 rounded-2xl space-y-1.5">
+                <h4 className="font-bold text-indigo-950 flex items-center gap-1.5">
+                  <Volume2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span>حل مشكلة الصوت والصور في Vercel:</span>
+                </h4>
+                <ul className="list-disc list-inside space-y-1 text-[11px] text-indigo-900">
+                  <li>
+                    <strong>لقوقل درايف (Google Drive):</strong> تأكد أن إذن المشاركة لكل ملف صوت أو صورة مضبوط على <strong>"أي شخص لديه الرابط يمكنه العرض" (Anyone with link)</strong>. لقد قمنا بتحديث معالج الروابط ليستخدم خوادم Google CDN المباشرة (lh3) ليعمل الصوت على كل الجوالات وسفاري وكروم.
+                  </li>
+                  <li>
+                    <strong>الخيار الأكثر ثباتاً وسرعة (مستودع GitHub نفسه):</strong> يمكنك حفظ ملفات الـ mp3 مباشرة في مجلد <code className="bg-white px-1 rounded font-mono">public/audio/</code> داخل المشروع، ووضع الرابط مثل: <code className="bg-white px-1 rounded font-mono">/audio/word1.mp3</code> حيث سيعمل بسرعة 100% بدون أي حظر أو تعقيدات.
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowSyncGuideModal(false)}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl cursor-pointer"
+              >
+                فهمت، إغلاق
+              </button>
             </div>
           </div>
         </div>

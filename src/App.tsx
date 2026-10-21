@@ -478,6 +478,16 @@ export default function App() {
     }
   };
 
+  const handleImportCurriculum = (imported: WordItem[]) => {
+    setCurriculum(imported);
+    try {
+      localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(imported));
+    } catch (e) {}
+    if (imported.length > 0) {
+      setSelectedItem(imported[0]);
+    }
+  };
+
   // Route to Admin or Student View
   const handleOpenAdmin = () => {
     window.location.hash = 'admin';
@@ -515,6 +525,7 @@ export default function App() {
         onRenameSubject={handleRenameSubject}
         onDeleteSubject={handleDeleteSubject}
         onResetCurriculum={handleResetCurriculum}
+        onImportCurriculum={handleImportCurriculum}
       />
     );
   }

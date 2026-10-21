@@ -13,7 +13,7 @@ import {
   Info,
   Volume2,
 } from 'lucide-react';
-import { speakArabicBrowser, speakArabicGemini } from '../utils/arabicAudio';
+import { speakArabicBrowser, speakArabicGemini, playCustomAudio } from '../utils/arabicAudio';
 
 interface EvaluationCardProps {
   evaluation: PronunciationEvaluation;
@@ -57,7 +57,15 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
     if (isPlayingTarget) return;
     setIsPlayingTarget(true);
 
-    if (audioEngine === 'gemini') {
+    if (targetWordItem.audioUrl) {
+      playCustomAudio(
+        targetWordItem.audioUrl,
+        targetWordItem.word,
+        0.85,
+        () => setIsPlayingTarget(true),
+        () => setIsPlayingTarget(false)
+      );
+    } else if (audioEngine === 'gemini') {
       speakArabicGemini(
         targetWordItem.word,
         false,
@@ -169,14 +177,37 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
           </div>
 
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Award className="w-5 h-5 text-emerald-600" />
-              <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${theme.badge}`}>
-                {evaluation.grade}
+            <div className="flex flex-wrap items-center gap-2 mb-1.5">
+              <span className="flex items-center gap-1.5">
+                <Award className="w-5 h-5 text-emerald-600" />
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${theme.badge}`}>
+                  {evaluation.grade}
+                </span>
               </span>
+
+              {/* Engine Badge */}
+              {evaluation.engineUsed === 'ai' ? (
+                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                  <span>تقييم الذكاء الاصطناعي (Gemini AI)</span>
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                  <span>التقييم الداخلي المباشر (مطابقة سريعة)</span>
+                </span>
+              )}
             </div>
+
             <h3 className="text-xl font-bold text-slate-900">{theme.title}</h3>
             <p className="text-sm text-slate-500 mt-1">{evaluation.feedback}</p>
+
+            {evaluation.engineNotice && (
+              <div className="mt-2.5 p-2.5 bg-amber-50 border border-amber-200/80 rounded-xl text-xs text-amber-900 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>{evaluation.engineNotice}</span>
+              </div>
+            )}
           </div>
         </div>
 
