@@ -85,7 +85,7 @@ export default function App() {
     engine: 'browser',
     autoPlayTarget: false,
     repeatTargetTwice: false,
-    preferredEvaluationMode: 'local',
+    preferredEvaluationMode: 'ai',
     studentName: '',
   });
 

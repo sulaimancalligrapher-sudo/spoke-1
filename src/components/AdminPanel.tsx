@@ -55,7 +55,18 @@ import {
   QrCode,
   Smartphone,
   Loader2,
+  CreditCard,
+  TrendingUp,
+  AlertTriangle,
+  Gauge,
+  Clock,
 } from 'lucide-react';
+import {
+  getDailyQuotaStatus,
+  resetDailyQuota,
+  setDailyMaxQuota,
+  QuotaStatus,
+} from '../utils/aiQuota';
 import { removeTashkeel } from '../utils/arabicMatcher';
 import {
   sendScoreToGoogleSheets,
@@ -141,6 +152,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Curriculum Code & Sync Statuses
   const [saveFileStatus, setSaveFileStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
   const [copiedCurriculumCode, setCopiedCurriculumCode] = useState(false);
+
+  // AI Daily Quota & Usage Monitor
+  const [quotaStatus, setQuotaStatus] = useState<QuotaStatus>(getDailyQuotaStatus());
+  const [showBillingGuideModal, setShowBillingGuideModal] = useState(false);
+  const [customMaxDailyInput, setCustomMaxDailyInput] = useState('');
+  const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
+
+  // Sync quota updates across components
+  React.useEffect(() => {
+    const handleQuotaUpdate = () => {
+      setQuotaStatus(getDailyQuotaStatus());
+    };
+    window.addEventListener('arabic-quota-updated', handleQuotaUpdate);
+    return () => window.removeEventListener('arabic-quota-updated', handleQuotaUpdate);
+  }, []);
 
   // AI Diagnostic Status
   const [aiDiagnostic, setAiDiagnostic] = useState<{
@@ -508,6 +534,26 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
     navigator.clipboard.writeText(url);
     setCopiedSyncUrl(true);
     setTimeout(() => setCopiedSyncUrl(false), 2500);
+  };
+
+  // Quota Management Handlers
+  const handleResetDailyQuota = () => {
+    const updated = resetDailyQuota();
+    setQuotaStatus(updated);
+    setQuotaNotice('تم تصفير عداد الاستهلاك اليومي بنجاح إلى (0 محاولة).');
+    setTimeout(() => setQuotaNotice(null), 3500);
+  };
+
+  const handleUpdateMaxDailyQuota = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = parseInt(customMaxDailyInput, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      const updated = setDailyMaxQuota(parsed);
+      setQuotaStatus(updated);
+      setCustomMaxDailyInput('');
+      setQuotaNotice(`تم تحديث الحد اليومي إلى (${parsed} محاولة) بنجاح.`);
+      setTimeout(() => setQuotaNotice(null), 3500);
+    }
   };
 
   // AI Diagnostic Check Handler
@@ -1505,19 +1551,206 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </div>
         )}
 
-        {/* TAB 3: DUAL EVALUATION SYSTEM SETTINGS */}
+        {/* TAB 3: DUAL EVALUATION SYSTEM SETTINGS & QUOTA MONITOR */}
         {activeTab === 'system' && (
           <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-md border border-slate-100 space-y-6">
-            <div className="pb-4 border-b border-slate-100">
-              <h3 className="text-base font-bold text-slate-900">
-                التحكم بنظامي التقييم (النظام الداخلي والذكاء الاصطناعي)
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">
-                حدد النظام الافتراضي لكل الطلاب وفق متطلباتك
-              </p>
+            <div className="pb-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Gauge className="w-5 h-5 text-indigo-600" />
+                  <span>التحكم بنظام التقييم ومراقبة الاستهلاك اليومي</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  نظام التقييم بالذكاء الاصطناعي (Audio-First) هو الأساسي لجميع الأجهزة مع تحول ذكي للمحرك المحلي
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowBillingGuideModal(true)}
+                className="px-4 py-2 bg-linear-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-sm cursor-pointer flex items-center gap-1.5 self-start sm:self-auto"
+              >
+                <CreditCard className="w-4 h-4 text-slate-950" />
+                <span>دليل الترقية والدفع وتفعيل الباقة المفتوحة</span>
+              </button>
             </div>
 
+            {/* AI DAILY QUOTA & USAGE MONITOR (شريط الاستهلاك والإنذار) */}
+            <div className="p-5 sm:p-6 bg-linear-to-br from-slate-900 via-slate-800 to-indigo-950 text-white rounded-3xl border border-slate-700 shadow-xl space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 flex items-center justify-center font-bold">
+                    <TrendingUp className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                      <span>استهلاك التقييم الصوتي اليومي (AI Daily Quota)</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        تجدد تلقائي منتصف الليل
+                      </span>
+                    </h4>
+                    <p className="text-xs text-slate-300 mt-0.5">
+                      تتبع دقيق لعدد محاولات الطلاب اليومية لحمايتك وضمان استمرار الخدمة
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleResetDailyQuota}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 rounded-xl text-xs font-semibold cursor-pointer transition-all"
+                    title="تصفير العداد لليوم والبدء من 0"
+                  >
+                    تصفير العداد يدوياً (0)
+                  </button>
+                </div>
+              </div>
+
+              {/* Progress Bar Container */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold">
+                  <span className="text-slate-300">
+                    استهلاك التقييم الصوتي اليوم:
+                    <strong className="text-amber-400 text-sm font-cairo mr-1.5">
+                      [ {quotaStatus.count} / {quotaStatus.maxDaily} ]
+                    </strong>
+                    محاولة
+                  </span>
+                  <span
+                    className={`font-cairo text-sm font-extrabold ${
+                      quotaStatus.isExceeded
+                        ? 'text-rose-400'
+                        : quotaStatus.isWarning
+                        ? 'text-amber-400'
+                        : 'text-emerald-400'
+                    }`}
+                  >
+                    {quotaStatus.percentage}%
+                  </span>
+                </div>
+
+                {/* The Visual Progress Track */}
+                <div className="w-full h-3.5 bg-slate-950/80 rounded-full overflow-hidden p-0.5 border border-slate-700">
+                  <div
+                    className={`h-full rounded-full transition-all duration-700 ease-out ${
+                      quotaStatus.isExceeded
+                        ? 'bg-linear-to-r from-rose-500 to-rose-600 animate-pulse'
+                        : quotaStatus.isWarning
+                        ? 'bg-linear-to-r from-amber-400 to-amber-500'
+                        : 'bg-linear-to-r from-emerald-400 to-teal-400'
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(3, quotaStatus.percentage))}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Early Warning Alerts (80% and 100%) */}
+              {quotaStatus.isExceeded ? (
+                <div className="p-3.5 bg-rose-950/70 border border-rose-500/80 rounded-2xl text-xs text-rose-200 flex items-start gap-2.5 animate-in fade-in duration-200">
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <span className="font-bold text-rose-300 block">
+                      🛑 تم استهلاك الحصة المجانية لليوم بالكامل ({quotaStatus.count} / {quotaStatus.maxDaily})!
+                    </span>
+                    <p className="text-[11px] text-rose-200/90 leading-relaxed">
+                      يعمل النظام التلقائي الآن بمرونة: أجهزة الكمبيوتر تكمل التدريب عبر المحرك المحلي الداخلي، بينما تظهر للهواتف والتابليت رسالة لطيفة بالعودة للكمبيوتر أو الانتظار لتجدد الرصيد المجاني في منتصف الليل.
+                    </p>
+                  </div>
+                </div>
+              ) : quotaStatus.isWarning ? (
+                <div className="p-3.5 bg-amber-950/70 border border-amber-500/80 rounded-2xl text-xs text-amber-200 flex items-start gap-2.5 animate-in fade-in duration-200">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <span className="font-bold text-amber-300 block">
+                      ⚠️ تنبيه مبكر: تم استهلاك {quotaStatus.percentage}% من الحصة اليومية المتاحة (بقي {quotaStatus.remaining} محاولة)
+                    </span>
+                    <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                      عند اكتمال الـ 100%، سيتحول الكمبيوتر تلقائياً إلى المحرك الداخلي بدون انقطاع، مع إرشاد أجهزة الجوال.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Feedback Notice on Action */}
+              {quotaNotice && (
+                <div className="p-2.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 rounded-xl text-xs font-semibold">
+                  {quotaNotice}
+                </div>
+              )}
+
+              {/* 3 Metric Cards + Limit Setter */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700/80">
+                  <span className="text-[11px] text-slate-400 block mb-0.5">المتبقي لليوم:</span>
+                  <div className="text-base font-bold text-white font-cairo">
+                    {quotaStatus.remaining} <span className="text-xs text-slate-400 font-normal">محاولة</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700/80">
+                  <span className="text-[11px] text-slate-400 block mb-0.5">التجدد التلقائي:</span>
+                  <div className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>منتصف الليل (12:00 ص)</span>
+                  </div>
+                </div>
+
+                {/* Adjust Limit Form */}
+                <form
+                  onSubmit={handleUpdateMaxDailyQuota}
+                  className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700/80 flex items-center gap-2"
+                >
+                  <input
+                    type="number"
+                    min="10"
+                    max="100000"
+                    value={customMaxDailyInput}
+                    onChange={(e) => setCustomMaxDailyInput(e.target.value)}
+                    placeholder={`الحد (${quotaStatus.maxDaily})...`}
+                    className="w-full bg-slate-900 border border-slate-700 px-2.5 py-1.5 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-hidden"
+                  />
+                  <button
+                    type="submit"
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shrink-0 cursor-pointer"
+                  >
+                    تعديل
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            {/* DUAL EVALUATION ENGINE CARDS */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div
+                onClick={() => onUpdateDefaultEvalMode('ai')}
+                className={`p-5 rounded-2xl border-2 transition-all cursor-pointer relative ${
+                  defaultEvalMode === 'ai'
+                    ? 'border-indigo-500 bg-indigo-50/40 shadow-xs'
+                    : 'border-slate-200 bg-white hover:border-slate-300'
+                }`}
+              >
+                {defaultEvalMode === 'ai' && (
+                  <span className="absolute top-4 left-4 px-2 py-0.5 bg-indigo-600 text-white rounded-full text-[10px] font-bold">
+                    الأساسي الافتراضي (موصى به)
+                  </span>
+                )}
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold mb-3">
+                  ✨
+                </div>
+                <h4 className="text-sm font-bold text-slate-900 mb-1">
+                  النظام الأساسي: تقييم الذكاء الاصطناعي (Audio-First Evaluation)
+                </h4>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  يستمع لملف الصوت المسجل الحقيقي من أي جوال أو كمبيوتر، ويكتب الكلمة المنطوقة بدقة ويقيم مخارج الحروف.
+                </p>
+                <ul className="mt-3 space-y-1 text-[11px] text-indigo-800 font-medium">
+                  <li>✓ يعمل على 100% من الهواتف والأجهزة اللوحية دون قيود المتصفح</li>
+                  <li>✓ تفريغ الكلمة المسموعة حرفياً مع تحليل الحركات والمخارج</li>
+                  <li>✓ باقة مجانية حتى 1,500 تقييم يومياً مع إمكانية الترقية المفتوحة</li>
+                </ul>
+              </div>
+
               <div
                 onClick={() => onUpdateDefaultEvalMode('local')}
                 className={`p-5 rounded-2xl border-2 transition-all cursor-pointer relative ${
@@ -1535,44 +1768,15 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                   ⚡
                 </div>
                 <h4 className="text-sm font-bold text-slate-900 mb-1">
-                  النظام الأول: التقييم الداخلي السريع (الأساسي)
+                  النظام البديل: التقييم الداخلي السريع (Local Matcher)
                 </h4>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  يعمل بالكامل داخل متصفح الطالب عبر خوارزميات صوتية مدمجة. 
+                  يعمل داخل متصفح الكمبيوتر كبديل فوري عند نفاد الحصة اليومية للذكاء الاصطناعي.
                 </p>
                 <ul className="mt-3 space-y-1 text-[11px] text-emerald-800 font-medium">
-                  <li>✓ مجاني 100% للأبد وبدون أي حدود أو اشتراك</li>
-                  <li>✓ فوري ولحظي (0.1 ثانية) ولا يحتاج لسيرفر خارجي</li>
-                  <li>✓ يعمل بكفاءة عالية عند الرفع على Vercel و GitHub</li>
-                </ul>
-              </div>
-
-              <div
-                onClick={() => onUpdateDefaultEvalMode('ai')}
-                className={`p-5 rounded-2xl border-2 transition-all cursor-pointer relative ${
-                  defaultEvalMode === 'ai'
-                    ? 'border-indigo-500 bg-indigo-50/40 shadow-xs'
-                    : 'border-slate-200 bg-white hover:border-slate-300'
-                }`}
-              >
-                {defaultEvalMode === 'ai' && (
-                  <span className="absolute top-4 left-4 px-2 py-0.5 bg-indigo-600 text-white rounded-full text-[10px] font-bold">
-                    الافتراضي الحالي
-                  </span>
-                )}
-                <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold mb-3">
-                  ✨
-                </div>
-                <h4 className="text-sm font-bold text-slate-900 mb-1">
-                  النظام الثاني: تقييم الذكاء الاصطناعي (Gemini)
-                </h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  يحلل الصوت عبر الذكاء الاصطناعي ويوفر نصائح مفصلة للسان والمخارج.
-                </p>
-                <ul className="mt-3 space-y-1 text-[11px] text-indigo-800 font-medium">
-                  <li>✓ مخصص للحالات الخاصة والتغذية الراجعة المعمقة</li>
-                  <li>✓ مجاني حتى 1,500 تقييم يومياً عبر باقة Google المجانية</li>
-                  <li>✓ يستطيع الطالب اختياره عند الحاجة بضغطة زر</li>
+                  <li>✓ فوري ومجاني بلا إنترنت على الكمبيوتر</li>
+                  <li>✓ يضمن استمرار الطلاب على الكمبيوتر بدون أي توقف</li>
+                  <li>✓ تدريب سريع بدون استهلاك أي رصيد</li>
                 </ul>
               </div>
             </div>
@@ -2261,6 +2465,133 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                 className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl cursor-pointer"
               >
                 إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: GOOGLE CLOUD BILLING & UPGRADE GUIDE */}
+      {showBillingGuideModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto font-cairo">
+            <button
+              onClick={() => setShowBillingGuideModal(false)}
+              className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100">
+              <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 shadow-xs border border-amber-200">
+                <CreditCard className="w-6 h-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">
+                  دليل الترقية والدفع وتفعيل الباقة المفتوحة (Google Cloud Billing)
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  خطوات رسمية لربط البطاقة البنكية وتفعيل الدفع حسب الاستهلاك مع ميزة الحماية والحد المالي
+                </p>
+              </div>
+            </div>
+
+            {/* Official Links Box */}
+            <div className="p-4 bg-indigo-50/70 border border-indigo-200/80 rounded-2xl mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-indigo-950">
+              <div className="flex items-center gap-2">
+                <Globe className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span className="font-bold">الموقع الرسمي لإدارة الفوترة والبطاقات:</span>
+              </div>
+              <div className="flex gap-2">
+                <a
+                  href="https://console.cloud.google.com/billing"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold flex items-center gap-1.5 transition-all text-xs"
+                >
+                  <span>Google Cloud Billing</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+                <a
+                  href="https://aistudio.google.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 bg-white hover:bg-indigo-100 text-indigo-900 border border-indigo-300 rounded-xl font-bold flex items-center gap-1.5 transition-all text-xs"
+                >
+                  <span>Google AI Studio</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            </div>
+
+            {/* 5 Detailed Steps */}
+            <div className="space-y-4 mb-6">
+              <div className="p-4 rounded-2xl border border-slate-200/80 bg-slate-50 space-y-1.5">
+                <div className="flex items-center gap-2 font-bold text-slate-900 text-sm">
+                  <span className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs">1</span>
+                  <span>الخطوة الأولى: فتح حساب الفوترة وإضافة البطاقة</span>
+                </div>
+                <p className="text-xs text-slate-600 pr-8 leading-relaxed">
+                  ادخل إلى رابط <a href="https://console.cloud.google.com/billing" target="_blank" rel="noreferrer" className="text-indigo-600 font-bold underline">Google Cloud Billing</a> وسجّل الدخول بحساب Google نفسه. اضغط على <strong>"Add Billing Account"</strong> وأدخل بيانات بطاقتك البنكية (Visa أو MasterCard أو Mada).
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl border border-amber-200/80 bg-amber-50/60 space-y-1.5">
+                <div className="flex items-center gap-2 font-bold text-amber-950 text-sm">
+                  <span className="w-6 h-6 rounded-full bg-amber-600 text-white flex items-center justify-center text-xs">2</span>
+                  <span>الخطوة الثانية: تعيين الحد المالي للحماية (Budget Alert) - هام جداً!</span>
+                </div>
+                <p className="text-xs text-amber-900 pr-8 leading-relaxed">
+                  من القائمة الجانبية في Billing، اختر <strong>"Budgets & alerts"</strong> ثم <strong>"Create Budget"</strong>. حدد حداً مالياً آمناً (مثلاً: <strong>5 دولار شهرياً</strong> أو 20 ريال). بهذه الطريقة تضمن بنسبة 100% أن جوجل لن تسحب أي مبالغ إضافية وسيرسل لك إشعاراً فورياً.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl border border-slate-200/80 bg-slate-50 space-y-1.5">
+                <div className="flex items-center gap-2 font-bold text-slate-900 text-sm">
+                  <span className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs">3</span>
+                  <span>الخطوة الثالثة: الحصول على مفتاح API</span>
+                </div>
+                <p className="text-xs text-slate-600 pr-8 leading-relaxed">
+                  افتح موقع <a href="https://aistudio.google.com" target="_blank" rel="noreferrer" className="text-indigo-600 font-bold underline">Google AI Studio</a>، واضغط على <strong>"Get API key"</strong> بالأعلى. اختر مشروعك المربوط بالفوترة وانسخ المفتاح السري الناتج.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl border border-slate-200/80 bg-slate-50 space-y-1.5">
+                <div className="flex items-center gap-2 font-bold text-slate-900 text-sm">
+                  <span className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs">4</span>
+                  <span>الخطوة الرابعة: تفعيل المفتاح في موقع Vercel</span>
+                </div>
+                <p className="text-xs text-slate-600 pr-8 leading-relaxed">
+                  ادخل إلى لوحة تحكم موقعك على Vercel، ثم اذهب إلى: <code className="bg-white px-1.5 py-0.5 rounded font-mono text-slate-800">Settings &rarr; Environment Variables</code>. أضف متغيراً جديداً باسم <code className="font-mono font-bold text-indigo-700 bg-white px-1 rounded">GEMINI_API_KEY</code> وضع قيمته هي المفتاح الذي نسخته، ثم اضغط <strong>Save</strong>.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl border border-emerald-200/80 bg-emerald-50/60 space-y-1.5">
+                <div className="flex items-center gap-2 font-bold text-emerald-950 text-sm">
+                  <span className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs">5</span>
+                  <span>الخطوة الخامسة: التشغيل الفوري المباشر (Zero Downtime)</span>
+                </div>
+                <p className="text-xs text-emerald-900 pr-8 leading-relaxed">
+                  بمجرد إتمام الخطوات أعلاه، سيعمل النظام فورياً لجميع الطلاب دون أي توقف أو حاجة لتعديل الكود البرمجي، ويمكنك من شريط الاستهلاك بالأعلى رفع الحد اليومي إلى أي رقم تريده (مثلاً 5000 أو 10000 محاولة).
+                </p>
+              </div>
+            </div>
+
+            {/* Pricing transparency */}
+            <div className="p-4 bg-slate-100 rounded-2xl text-xs text-slate-600 space-y-1 mb-6">
+              <div className="font-bold text-slate-800">💡 معلومات التكلفة للموديل (Gemini Flash):</div>
+              <p>• الباقة المجانية: تمنحك <strong>1,500 محاولة يومياً مجاناً 100%</strong> وتتجدد تلقائياً كل ليلة في منتصف الليل.</p>
+              <p>• في حالة الاستهلاك الإضافي المدفوع: التكلفة ضئيلة جداً (كل 1,000 نطق صوتي تكلفته حوالي <strong>0.05 دولار</strong> فقط أي 20 هللة تقريباً).</p>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowBillingGuideModal(false)}
+                className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                إغلاق الدليل
               </button>
             </div>
           </div>

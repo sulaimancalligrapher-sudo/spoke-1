@@ -19,6 +19,10 @@ import {
   CheckCircle,
   Play,
   RotateCcw,
+  Smartphone,
+  Clock,
+  AlertTriangle,
+  Monitor,
 } from 'lucide-react';
 import {
   speakArabicBrowser,
@@ -33,6 +37,7 @@ import {
 } from '../utils/arabicAudio';
 import { normalizeMediaUrl } from '../utils/mediaUrl';
 import { evaluateArabicLocal } from '../utils/arabicMatcher';
+import { getDailyQuotaStatus, incrementDailyQuota } from '../utils/aiQuota';
 import { AudioWaveform } from './AudioWaveform';
 
 interface PracticeCardProps {
@@ -69,11 +74,12 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   const [manualText, setManualText] = useState('');
   const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null);
 
-  // Active evaluation mode for this attempt (local or ai)
+  // Active evaluation mode for this attempt (ai by default for audio-first evaluation, or local)
   const [activeEvalMode, setActiveEvalMode] = useState<EvaluationMode>(
-    settings.preferredEvaluationMode || 'local'
+    settings.preferredEvaluationMode || 'ai'
   );
   const [studentName, setStudentName] = useState(settings.studentName || '');
+  const [showMobileQuotaModal, setShowMobileQuotaModal] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -164,6 +170,18 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
   // Start Voice Recording
   const startRecording = async () => {
+    const isMobileDevice = typeof navigator !== 'undefined' && (
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
+    );
+
+    // If on Mobile/Tablet and daily AI quota is exceeded:
+    const quota = getDailyQuotaStatus();
+    if (isMobileDevice && quota.isExceeded) {
+      setShowMobileQuotaModal(true);
+      return;
+    }
+
     setLiveTranscript('');
     liveTranscriptRef.current = '';
     setRecordDuration(0);
@@ -171,8 +189,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     isRecordingRef.current = true;
     setIsRecording(true);
 
-    // 1. CRITICAL: Start SpeechRecognition SYNCHRONOUSLY inside the user gesture handler!
-    // This allows iOS Safari and Android Chrome to immediately grant speech dictation permissions.
+    // 1. Start SpeechRecognition on desktop
     if (isSpeechRecognitionSupported()) {
       try {
         const recognizer = createSpeechRecognizer(
@@ -184,7 +201,6 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             console.warn('Speech recognition notice:', error);
           },
           () => {
-            // If recording is still active and recognizer stopped on brief silence, restart it!
             if (isRecordingRef.current && speechRecognizerRef.current) {
               try {
                 speechRecognizerRef.current.start();
@@ -210,21 +226,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       });
     }, 1000);
 
-    // 3. Audio stream handling:
-    // On mobile devices (iOS Safari, iPad, Android Chrome, tablet browsers),
-    // opening a getUserMedia stream locks the hardware mic track and starves SpeechRecognition!
-    // So on mobile devices with SpeechRecognition active in local evaluation mode,
-    // we give native SpeechRecognition exclusive mic access so it can capture spoken Arabic clearly.
-    const isMobileDevice = typeof navigator !== 'undefined' && (
-      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-      (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
-    );
-
-    if (isMobileDevice && isSpeechRecognitionSupported() && activeEvalMode === 'local') {
-      return;
-    }
-
-    // On Android (in AI mode) / Desktop / PC, initialize MediaRecorder for waveform and audio capture
+    // 3. Audio stream handling for Audio-First evaluation:
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!isRecordingRef.current) {
@@ -288,32 +290,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         setIsRecording(false);
 
         const currentSpoken = (liveTranscriptRef.current || liveTranscript).trim();
-
-        // 1. If text was captured by speech recognition: evaluate the actual spoken word!
-        if (currentSpoken) {
-          await evaluateStudentAttempt(audioBlob, currentSpoken, recordedAudioUrl);
-          return;
-        }
-
-        // 2. If Gemini AI is active or key is provided: Gemini directly evaluates the audio!
-        if (activeEvalMode === 'ai' || !!settings.geminiApiKey) {
-          await evaluateStudentAttempt(audioBlob, '', recordedAudioUrl);
-          return;
-        }
-
-        // 3. In local mode without captured speech:
-        // If an audio recording exists (> 1KB), try server-side AI evaluation so the student gets their word transcribed!
-        if (audioBlob && audioBlob.size > 1000) {
-          try {
-            await evaluateStudentAttempt(audioBlob, '', recordedAudioUrl);
-            return;
-          } catch (e) {
-            console.warn('Audio fallback evaluation notice:', e);
-          }
-        }
-
-        // 4. Honest local evaluation (no speech captured)
-        await evaluateStudentAttempt(audioBlob, '', recordedAudioUrl);
+        await evaluateStudentAttempt(audioBlob, currentSpoken, recordedAudioUrl);
       };
     } else {
       setIsRecording(false);
@@ -335,42 +312,38 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     setIsEvaluating(true);
     const textToEvaluate = spokenText || liveTranscriptRef.current || liveTranscript || manualText || '';
 
-    // If Mode is LOCAL (Primary / Default)
-    if (activeEvalMode === 'local') {
-      // If no text was captured by SpeechRecognition, but audioBlob exists with content:
-      // Try calling /api/evaluate to transcribe the voice!
-      if (!textToEvaluate && audioBlob && audioBlob.size > 1000) {
-        try {
-          const audioBase64 = await blobToBase64(audioBlob);
-          const response = await fetch('/api/evaluate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              targetWord: wordItem.word,
-              audioBase64,
-              audioMimeType: audioBlob.type || getSupportedAudioMimeType() || 'audio/webm',
-              notes: `الدرس: ${wordItem.lessonSubject} - الفئة: ${wordItem.category}`,
-            }),
-          });
-          if (response.ok) {
-            const data = await response.json();
-            if (data.success && data.evaluation) {
-              const evalResult: PronunciationEvaluation = {
-                ...data.evaluation,
-                timestamp: Date.now(),
-                recordedAudioUrl,
-                engineUsed: 'ai',
-              };
-              onEvaluationComplete(evalResult, recordedAudioUrl, studentName);
-              setIsEvaluating(false);
-              return;
-            }
-          }
-        } catch (e) {
-          console.warn('Local mode audio fallback failed:', e);
-        }
-      }
+    const isMobileDevice = typeof navigator !== 'undefined' && (
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
+    );
 
+    const quota = getDailyQuotaStatus();
+
+    // Check if daily quota is exceeded
+    if (quota.isExceeded) {
+      if (isMobileDevice) {
+        setIsEvaluating(false);
+        setShowMobileQuotaModal(true);
+        return;
+      }
+      // On Desktop: graceful fallback to local evaluation
+      const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate);
+      onEvaluationComplete(
+        {
+          ...localEval,
+          recordedAudioUrl,
+          engineUsed: 'local',
+          engineNotice: 'تم التقييم بالمحرك المحلي لاكتمال الحصة اليومية المجانية للذكاء الاصطناعي.',
+        },
+        recordedAudioUrl,
+        studentName
+      );
+      setIsEvaluating(false);
+      return;
+    }
+
+    // If Mode is explicitly set to LOCAL by user
+    if (activeEvalMode === 'local') {
       const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate);
       const evalResult: PronunciationEvaluation = {
         ...localEval,
@@ -382,7 +355,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       return;
     }
 
-    // If Mode is AI (Gemini)
+    // PRIMARY PATH: AUDIO-FIRST AI EVALUATION
     let audioBase64 = '';
     let mimeType = getSupportedAudioMimeType() || 'audio/webm';
 
@@ -415,6 +388,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.evaluation) {
+          incrementDailyQuota();
           const evalResult: PronunciationEvaluation = {
             ...data.evaluation,
             timestamp: Date.now(),
@@ -430,10 +404,17 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         console.warn('Gemini server returned error status:', response.status, errJson);
       }
     } catch (err) {
-      console.warn('Gemini server evaluation error, falling back to local matcher:', err);
+      console.warn('Gemini server evaluation error:', err);
     }
 
     // Fallback if AI was unavailable
+    if (isMobileDevice) {
+      setIsEvaluating(false);
+      setShowMobileQuotaModal(true);
+      return;
+    }
+
+    // On Desktop: graceful fallback to local matcher
     const fallbackLocal = evaluateArabicLocal(wordItem.word, textToEvaluate);
     onEvaluationComplete(
       {
@@ -441,7 +422,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         recordedAudioUrl,
         engineUsed: 'local',
         engineNotice:
-          'تنبيه: تعذر الاتصال بمحرك الذكاء الاصطناعي على السيرفر (يمكنك إضافة مفتاح Gemini من أيقونة الإعدادات لتفعيله فوراً على Vercel). تم إتمام التقييم بنجاح بواسطة المحرك الصوتي الداخلي.',
+          'تم إتمام التقييم بنجاح بواسطة المحرك الصوتي الداخلي بسبب عدم توفر استجابة السيرفر حالياً.',
       },
       recordedAudioUrl,
       studentName
@@ -738,6 +719,46 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           </form>
         )}
       </div>
+
+      {/* Mobile / Tablet Quota Exhausted Modal */}
+      {showMobileQuotaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl border border-slate-100 text-center relative">
+            <div className="w-16 h-16 rounded-3xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-4 shadow-sm border border-amber-200">
+              <Smartphone className="w-8 h-8 text-amber-600" />
+            </div>
+
+            <span className="px-3 py-1 bg-amber-100/70 text-amber-900 border border-amber-300 rounded-full text-xs font-bold inline-block mb-3">
+              اكتملت الحصة اليومية للهاتف
+            </span>
+
+            <h3 className="text-lg font-bold text-slate-900 mb-2 font-cairo">
+              أحسنت في تدريبات اليوم!
+            </h3>
+
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-6 font-medium">
+              أحسنت! انتهت الحصة اليومية للتقييم الصوتي على الهاتف اليوم. يمكنك إكمال التدريب والتسجيل الصوتي الآن عبر جهاز الكمبيوتر، أو العودة غداً عند تجدد الرصيد.
+            </p>
+
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl mb-5 text-right flex items-start gap-2.5">
+              <Clock className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <div className="text-[11px] text-slate-600">
+                <span className="font-bold text-slate-800">التجدد التلقائي:</span> يتجدد الرصيد المجاني تلقائياً في منتصف الليل (12:00 ص) بتوقيت جهازك دون أي تدخل.
+              </div>
+            </div>
+
+            <div className="flex gap-2.5 justify-center">
+              <button
+                type="button"
+                onClick={() => setShowMobileQuotaModal(false)}
+                className="w-full py-3 px-5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
+              >
+                حسناً، فهمت
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
