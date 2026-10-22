@@ -80,6 +80,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   );
   const [studentName, setStudentName] = useState(settings.studentName || '');
   const [showMobileQuotaModal, setShowMobileQuotaModal] = useState(false);
+  const [keyMissingError, setKeyMissingError] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -402,6 +403,9 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       } else {
         const errJson = await response.json().catch(() => null);
         console.warn('Gemini server returned error status:', response.status, errJson);
+        if (response.status === 400 || (errJson?.error && (errJson.error.includes('مفتاح') || errJson.error.includes('API key')))) {
+          setKeyMissingError(true);
+        }
       }
     } catch (err) {
       console.warn('Gemini server evaluation error:', err);
@@ -422,7 +426,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         recordedAudioUrl,
         engineUsed: 'local',
         engineNotice:
-          'تم إتمام التقييم بنجاح بواسطة المحرك الصوتي الداخلي بسبب عدم توفر استجابة السيرفر حالياً.',
+          'تنبيه: مفتاح GEMINI_API_KEY غير مضاف في إعدادات Vercel. تم التقييم بالمحرك الداخلي. (أضف المفتاح في إعدادات Vercel أو من أيقونة الإعدادات ⚙️ بأعلى الشاشة لتفعيل الذكاء الاصطناعي لجميع الطلاب).',
       },
       recordedAudioUrl,
       studentName
@@ -729,23 +733,33 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             </div>
 
             <span className="px-3 py-1 bg-amber-100/70 text-amber-900 border border-amber-300 rounded-full text-xs font-bold inline-block mb-3">
-              اكتملت الحصة اليومية للهاتف
+              {keyMissingError ? 'تفعيل الذكاء الاصطناعي على Vercel' : 'اكتملت الحصة اليومية للهاتف'}
             </span>
 
             <h3 className="text-lg font-bold text-slate-900 mb-2 font-cairo">
-              أحسنت في تدريبات اليوم!
+              {keyMissingError ? 'يلزم تفعيل مفتاح السيرفر' : 'أحسنت في تدريبات اليوم!'}
             </h3>
 
-            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-6 font-medium">
-              أحسنت! انتهت الحصة اليومية للتقييم الصوتي على الهاتف اليوم. يمكنك إكمال التدريب والتسجيل الصوتي الآن عبر جهاز الكمبيوتر، أو العودة غداً عند تجدد الرصيد.
-            </p>
-
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl mb-5 text-right flex items-start gap-2.5">
-              <Clock className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-              <div className="text-[11px] text-slate-600">
-                <span className="font-bold text-slate-800">التجدد التلقائي:</span> يتجدد الرصيد المجاني تلقائياً في منتصف الليل (12:00 ص) بتوقيت جهازك دون أي تدخل.
-              </div>
+            <div className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-6 font-medium">
+              {keyMissingError ? (
+                <span>
+                  مفتاح الذكاء الاصطناعي (<code className="font-mono font-bold text-indigo-700">GEMINI_API_KEY</code>) غير مضاف في إعدادات موقع Vercel. ليعمل تقييم الصوت بالذكاء الاصطناعي على الجوال لجميع الطلاب: يُرجى إضافة المفتاح في لوحة تحكم Vercel Environment Variables (أو النقر على أيقونة الإعدادات ⚙️ بأعلى الصفحة ولصقه).
+                </span>
+              ) : (
+                <span>
+                  أحسنت! انتهت الحصة اليومية للتقييم الصوتي على الهاتف اليوم. يمكنك إكمال التدريب والتسجيل الصوتي الآن عبر جهاز الكمبيوتر، أو العودة غداً عند تجدد الرصيد.
+                </span>
+              )}
             </div>
+
+            {!keyMissingError && (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl mb-5 text-right flex items-start gap-2.5">
+                <Clock className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="text-[11px] text-slate-600">
+                  <span className="font-bold text-slate-800">التجدد التلقائي:</span> يتجدد الرصيد المجاني تلقائياً في منتصف الليل (12:00 ص) بتوقيت جهازك دون أي تدخل.
+                </div>
+              </div>
+            )}
 
             <div className="flex gap-2.5 justify-center">
               <button
