@@ -79,10 +79,11 @@ ${notes ? `ملاحظات إضافية: ${notes}` : ''}
 
     // If audio is provided, attach as inline data for multimodal evaluation
     if (audioBase64) {
-      const mime = audioMimeType || 'audio/webm';
+      let cleanMime = (audioMimeType || 'audio/webm').split(';')[0].trim().toLowerCase();
+      if (cleanMime === 'audio/x-m4a' || cleanMime === 'audio/m4a') cleanMime = 'audio/mp4';
       contents.push({
         inlineData: {
-          mimeType: mime,
+          mimeType: cleanMime,
           data: audioBase64,
         },
       });
@@ -90,64 +91,97 @@ ${notes ? `ملاحظات إضافية: ${notes}` : ''}
 
     contents.push({ text: promptText });
 
-    const response = await aiInstance.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: contents.length === 1 ? contents[0].text : { parts: contents },
-      config: {
-        systemInstruction: 'أنت أستاذ لغة عربية خبير في علم الصوتيات ومخارج الحروف والتجويد. قيّم نطق المتعلم بدقة وموضوعية مع تقديم إرشاد عملي مبسط.',
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            score: {
-              type: Type.INTEGER,
-              description: 'الدرجة الكلية من 0 إلى 100',
-            },
-            grade: {
-              type: Type.STRING,
-              description: 'التقدير اللفظي: ممتاز، رائع، جيد جداً، جيد، أو يحتاج تدريباً',
-            },
-            isMatch: {
-              type: Type.BOOLEAN,
-              description: 'هل نطق الكلمة بنجاح مقبول؟',
-            },
-            feedback: {
-              type: Type.STRING,
-              description: 'ملاحظة تربوية وتشجيعية مفصلة عن النطق',
-            },
-            makhrajAdvice: {
-              type: Type.STRING,
-              description: 'نصيحة دقيقة لكيفية نطق الحرف من مخرجه الصحيح (موضع اللسان والشفتين والحلق)',
-            },
-            vowelAccuracy: {
-              type: Type.STRING,
-              description: 'تقييم الحركات القصيرة والطويلة (الفتحة، الضمة، الكسرة، المدود)',
-            },
-            detectedWord: {
-              type: Type.STRING,
-              description: 'الكلمة التي سمعت بدقة مع التشكيل',
-            },
-            letterBreakdown: {
-              type: Type.ARRAY,
-              description: 'تحليل الحروف حرفاً بحرف',
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  letter: { type: Type.STRING, description: 'الحرف' },
-                  status: { type: Type.STRING, description: 'صحيح | يحتاج تحسين | مفقود' },
-                  comment: { type: Type.STRING, description: 'ملاحظة صوتية على هذا الحرف' },
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-3.8-flash'];
+    let lastError: any = null;
+    let evalResultText = '';
+
+    for (const modelName of modelsToTry) {
+      try {
+        const response = await aiInstance.models.generateContent({
+          model: modelName,
+          contents: contents.length === 1 ? contents[0].text : { parts: contents },
+          config: {
+            systemInstruction: 'أنت أستاذ لغة عربية خبير في علم الصوتيات ومخارج الحروف والتجويد. قيّم نطق المتعلم بدقة وموضوعية مع تقديم إرشاد عملي مبسط.',
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                score: {
+                  type: Type.INTEGER,
+                  description: 'الدرجة الكلية من 0 إلى 100',
                 },
-                required: ['letter', 'status'],
+                grade: {
+                  type: Type.STRING,
+                  description: 'التقدير اللفظي: ممتاز، رائع، جيد جداً، جيد، أو يحتاج تدريباً',
+                },
+                isMatch: {
+                  type: Type.BOOLEAN,
+                  description: 'هل نطق الكلمة بنجاح مقبول؟',
+                },
+                feedback: {
+                  type: Type.STRING,
+                  description: 'ملاحظة تربوية وتشجيعية مفصلة عن النطق',
+                },
+                makhrajAdvice: {
+                  type: Type.STRING,
+                  description: 'نصيحة دقيقة لكيفية نطق الحرف من مخرجه الصحيح (موضع اللسان والشفتين والحلق)',
+                },
+                vowelAccuracy: {
+                  type: Type.STRING,
+                  description: 'تقييم الحركات القصيرة والطويلة (الفتحة، الضمة، الكسرة، المدود)',
+                },
+                detectedWord: {
+                  type: Type.STRING,
+                  description: 'الكلمة التي سمعت بدقة مع التشكيل',
+                },
+                letterBreakdown: {
+                  type: Type.ARRAY,
+                  description: 'تحليل الحروف حرفاً بحرف',
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      letter: { type: Type.STRING, description: 'الحرف' },
+                      status: { type: Type.STRING, description: 'صحيح | يحتاج تحسين | مفقود' },
+                      comment: { type: Type.STRING, description: 'ملاحظة صوتية على هذا الحرف' },
+                    },
+                    required: ['letter', 'status'],
+                  },
+                },
               },
+              required: ['score', 'grade', 'isMatch', 'feedback', 'makhrajAdvice', 'vowelAccuracy', 'letterBreakdown'],
             },
           },
-          required: ['score', 'grade', 'isMatch', 'feedback', 'makhrajAdvice', 'vowelAccuracy', 'letterBreakdown'],
-        },
-      },
-    });
+        });
 
-    const resultText = response.text || '{}';
-    const parsed = JSON.parse(resultText);
+        if (response && response.text) {
+          evalResultText = response.text;
+          break;
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Local model ${modelName} failed or throttled, trying next model:`, err?.message || err);
+        if (err?.status === 429 || (err?.message && err.message.includes('429'))) {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+        }
+      }
+    }
+
+    if (!evalResultText) {
+      const errMsg = lastError?.message || '';
+      const isRateLimit = lastError?.status === 429 || errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED');
+      
+      if (isRateLimit) {
+        return res.status(429).json({
+          success: false,
+          isRateLimited: true,
+          error: 'تم تجاوز معدل السرعة للذكاء الاصطناعي (أكثر من اللازم في الدقيقة). يرجى الانتظار 5 ثوانٍ ثم النقر على الميكروفون مجدداً.',
+        });
+      }
+
+      throw lastError || new Error('تعذر الحصول على استجابة من نموذج الذكاء الاصطناعي');
+    }
+
+    const parsed = JSON.parse(evalResultText);
 
     return res.json({
       success: true,

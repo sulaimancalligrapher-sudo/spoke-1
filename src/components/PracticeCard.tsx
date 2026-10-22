@@ -81,6 +81,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   const [studentName, setStudentName] = useState(settings.studentName || '');
   const [showMobileQuotaModal, setShowMobileQuotaModal] = useState(false);
   const [keyMissingError, setKeyMissingError] = useState(false);
+  const [transientErrorNotice, setTransientErrorNotice] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -183,6 +184,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       return;
     }
 
+    setTransientErrorNotice(null);
     setLiveTranscript('');
     liveTranscriptRef.current = '';
     setRecordDuration(0);
@@ -390,6 +392,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         const data = await response.json();
         if (data.success && data.evaluation) {
           incrementDailyQuota();
+          setTransientErrorNotice(null);
           const evalResult: PronunciationEvaluation = {
             ...data.evaluation,
             timestamp: Date.now(),
@@ -403,18 +406,40 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       } else {
         const errJson = await response.json().catch(() => null);
         console.warn('Gemini server returned error status:', response.status, errJson);
-        if (response.status === 400 || (errJson?.error && (errJson.error.includes('مفتاح') || errJson.error.includes('API key')))) {
+        
+        if (response.status === 400 && (errJson?.error?.includes('مفتاح') || errJson?.error?.includes('API key'))) {
           setKeyMissingError(true);
+          setShowMobileQuotaModal(true);
+          setIsEvaluating(false);
+          return;
+        }
+
+        if (response.status === 429 || errJson?.isRateLimited) {
+          setTransientErrorNotice(
+            errJson?.error || '⏳ يرجى الانتظار 5 ثوانٍ ثم النقر على الميكروفون مجدداً (تجاوز سرعة الطلبات في الدقيقة للنسخة التجريبية).'
+          );
+          setIsEvaluating(false);
+          return;
+        }
+
+        if (errJson?.error) {
+          setTransientErrorNotice(errJson.error);
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Gemini server evaluation error:', err);
+      setTransientErrorNotice('تعذر الاتصال بخادم التقييم مؤقتاً. اضغط على زر الميكروفون لإعادة المحاولة.');
     }
 
-    // Fallback if AI was unavailable
+    // Check if daily quota is TRULY exhausted (1500 limit)
+    const latestQuota = getDailyQuotaStatus();
     if (isMobileDevice) {
       setIsEvaluating(false);
-      setShowMobileQuotaModal(true);
+      if (latestQuota.isExceeded) {
+        setShowMobileQuotaModal(true);
+      } else if (!transientErrorNotice) {
+        setTransientErrorNotice('حدث تأخر مؤقت في استجابة الذكاء الاصطناعي. اضغط على زر الميكروفون للمحاولة ثانية.');
+      }
       return;
     }
 
@@ -425,8 +450,9 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         ...fallbackLocal,
         recordedAudioUrl,
         engineUsed: 'local',
-        engineNotice:
-          'تنبيه: مفتاح GEMINI_API_KEY غير مضاف في إعدادات Vercel. تم التقييم بالمحرك الداخلي. (أضف المفتاح في إعدادات Vercel أو من أيقونة الإعدادات ⚙️ بأعلى الشاشة لتفعيل الذكاء الاصطناعي لجميع الطلاب).',
+        engineNotice: latestQuota.isExceeded
+          ? 'تم التقييم بالمحرك الداخلي لاكتمال الحصة اليومية للذكاء الاصطناعي.'
+          : 'تنبيه: تعذر الاتصال بالذكاء الاصطناعي مؤقتاً، تم التقييم بالمحرك الداخلي.',
       },
       recordedAudioUrl,
       studentName
@@ -682,6 +708,24 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
                   ? 'جاري تقييم النطق عبر الذكاء الاصطناعي...'
                   : 'جاري تقييم النطق عبر النظام الداخلي...'}
               </span>
+            </div>
+          )}
+
+          {transientErrorNotice && (
+            <div className="mt-4 w-full p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl text-xs flex flex-col sm:flex-row items-center justify-between gap-2 animate-in fade-in">
+              <div className="flex items-center gap-2 text-center sm:text-right">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>{transientErrorNotice}</span>
+              </div>
+              <button
+                onClick={() => {
+                  setTransientErrorNotice(null);
+                  startRecording();
+                }}
+                className="px-3 py-1 bg-amber-600 text-white rounded-xl font-bold hover:bg-amber-700 text-xs shrink-0 cursor-pointer shadow-xs"
+              >
+                إعادة المحاولة
+              </button>
             </div>
           )}
         </div>

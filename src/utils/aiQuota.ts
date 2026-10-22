@@ -50,7 +50,7 @@ export function getDailyQuotaStatus(): QuotaStatus {
 
   // Automatic reset at midnight if date has rolled over
   if (!data || data.date !== today) {
-    const maxDaily = data && typeof data.maxDaily === 'number' && data.maxDaily > 0 
+    const maxDaily = data && typeof data.maxDaily === 'number' && data.maxDaily >= 50 
       ? data.maxDaily 
       : DEFAULT_MAX_DAILY;
     
@@ -64,7 +64,9 @@ export function getDailyQuotaStatus(): QuotaStatus {
     } catch (e) {}
   }
 
-  const max = data.maxDaily || DEFAULT_MAX_DAILY;
+  const max = (data.maxDaily && typeof data.maxDaily === 'number' && data.maxDaily >= 50) 
+    ? data.maxDaily 
+    : DEFAULT_MAX_DAILY;
   const count = data.count || 0;
   const percentage = Math.min(100, Math.round((count / max) * 100));
   const isWarning = count >= Math.floor(max * 0.8) && count < max;
