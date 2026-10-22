@@ -125,6 +125,23 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
     );
   }
 
+  if (isRecording && !stream) {
+    return (
+      <div className="flex items-center justify-center gap-1.5 h-10 w-full">
+        {[18, 32, 22, 40, 26, 44, 20, 38, 24, 30, 18, 22].map((baseHeight, i) => (
+          <div
+            key={i}
+            className="w-1.5 bg-rose-500 rounded-full animate-pulse"
+            style={{
+              height: `${baseHeight}px`,
+              animationDuration: `${0.35 + (i % 4) * 0.12}s`,
+            }}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center justify-center w-full h-12">
       <canvas

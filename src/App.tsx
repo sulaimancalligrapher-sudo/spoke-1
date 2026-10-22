@@ -100,6 +100,58 @@ export default function App() {
         try {
           const raw = decodeURIComponent(hash.substring(6));
           const parsed = JSON.parse(raw);
+
+          // Format 1: Ultra-compact format ({ cw: [...], cs: [...], cc: [...] }) for instant QR & short link
+          if (parsed && Array.isArray(parsed.cw)) {
+            const restoredCustomWords: WordItem[] = parsed.cw.map((cwItem: any) => ({
+              id: cwItem.id || `custom-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              word: cwItem.w || '',
+              plainWord: cwItem.p || cwItem.w || '',
+              meaning: cwItem.m || '',
+              category: cwItem.c || 'أخرى',
+              lessonSubject: cwItem.s || 'دروس إضافية',
+              audioUrl: cwItem.a || undefined,
+              autoReadText: cwItem.t || undefined,
+              imageUrl: cwItem.img || undefined,
+              makhrajTip: cwItem.tip || undefined,
+            }));
+
+            // Merge with ALL_CURRICULUM
+            const customIds = new Set(restoredCustomWords.map((w) => w.id));
+            const mergedCurriculum = [
+              ...ALL_CURRICULUM.filter((item) => !customIds.has(item.id)),
+              ...restoredCustomWords,
+            ];
+
+            setCurriculum(mergedCurriculum);
+            localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(mergedCurriculum));
+
+            if (Array.isArray(parsed.cc) && parsed.cc.length > 0) {
+              const mergedCats = Array.from(new Set([...INITIAL_CATEGORIES, ...parsed.cc]));
+              setCategories(mergedCats);
+              localStorage.setItem(STORAGE_KEY_CATEGORIES, JSON.stringify(mergedCats));
+            }
+            if (Array.isArray(parsed.cs) && parsed.cs.length > 0) {
+              const mergedSubjs = Array.from(new Set([...INITIAL_LESSON_SUBJECTS, ...parsed.cs]));
+              setSubjects(mergedSubjs);
+              localStorage.setItem(STORAGE_KEY_SUBJECTS, JSON.stringify(mergedSubjs));
+            }
+
+            if (restoredCustomWords.length > 0) {
+              setSelectedItem(restoredCustomWords[0]);
+              setStudentSubject(restoredCustomWords[0].lessonSubject || '');
+            } else if (mergedCurriculum.length > 0) {
+              setSelectedItem(mergedCurriculum[0]);
+              setStudentSubject(mergedCurriculum[0].lessonSubject || '');
+            }
+
+            setSyncNotice(`🎉 تمت مزامنة ${restoredCustomWords.length} درس وكلمة جديدة بنجاح إلى هذا الجهاز!`);
+            window.history.replaceState(null, '', window.location.pathname);
+            setTimeout(() => setSyncNotice(null), 6000);
+            return;
+          }
+
+          // Format 2: Full curriculum array format
           if (parsed && Array.isArray(parsed.curriculum)) {
             setCurriculum(parsed.curriculum);
             localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(parsed.curriculum));

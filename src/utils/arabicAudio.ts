@@ -433,9 +433,14 @@ export function createSpeechRecognizer(
     return null;
   }
 
+  const isMobile =
+    typeof navigator !== 'undefined' &&
+    (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1));
+
   const recognizer = new SpeechRec();
-  // continuous mode: prevents premature shutdown on mobile
-  recognizer.continuous = true;
+  // continuous = false on mobile avoids WebKit/Android freezing and delivers prompt onresult events
+  recognizer.continuous = !isMobile;
   recognizer.interimResults = true;
 
   // Use device's Arabic dialect if available, otherwise default to ar-SA

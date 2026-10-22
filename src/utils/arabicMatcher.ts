@@ -96,31 +96,45 @@ export function evaluateArabicLocal(target: string, spoken: string): Pronunciati
   const ratio = Math.max(0, 1 - distance / maxLen);
   const score = Math.round(ratio * 100);
 
-  // Letter by letter analysis
+  // Positional letter-by-letter analysis
   const breakdown: LetterPhoneme[] = [];
   const targetChars = normTarget.split('');
   const spokenChars = normSpoken.split('');
 
   for (let i = 0; i < targetChars.length; i++) {
     const char = targetChars[i];
-    if (spokenChars.includes(char)) {
+    const spokenChar = spokenChars[i];
+
+    if (spokenChar === char) {
       breakdown.push({
         letter: char,
         status: 'صحيح',
-        comment: 'تم نطقه بدقة',
+        comment: 'تم نطقه بدقة وفي موضعه',
+      });
+    } else if (spokenChars.includes(char)) {
+      breakdown.push({
+        letter: char,
+        status: 'يحتاج تحسين',
+        comment: 'الحرف وُجد لكن بترتيب أو موضع غير مضبوط',
+      });
+    } else if (spokenChar) {
+      breakdown.push({
+        letter: char,
+        status: 'يحتاج تحسين',
+        comment: `سُمع بدلاً منه: ${spokenChar}`,
       });
     } else {
       breakdown.push({
         letter: char,
-        status: 'يحتاج تحسين',
-        comment: `الحرف لم يظهر بوضوح في الصوت المسجل`,
+        status: 'مفقود',
+        comment: 'الحرف لم يظهر في الصوت المنطوق',
       });
     }
   }
 
-  let grade = 'يحتاج تدريباً';
+  let grade = 'غير مطابق';
   let isMatch = false;
-  let feedback = 'نطقك قريب لكنه يحتاج إلى مزيد من التدريب على ضبط المخارج والحركات.';
+  let feedback = 'الكلمة المنطوقة تختلف عن الكلمة المستهدفة، استمع للنطق النموذجي وأعد المحاولة.';
 
   if (score >= 85) {
     grade = 'رائع وممتاز';
@@ -131,7 +145,8 @@ export function evaluateArabicLocal(target: string, spoken: string): Pronunciati
     isMatch = true;
     feedback = 'أداء جيد جداً، هناك بعض الحروف أو الحركات تحتاج تركيزاً طفيفاً.';
   } else if (score >= 50) {
-    grade = 'جيد';
+    grade = 'جيد - يحتاج تدريباً';
+    isMatch = false;
     feedback = 'بداية طيبة، استمع مجدداً للنموذج الصوتي وحاول تقليد مخرج الحرف.';
   }
 

@@ -211,18 +211,20 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     }, 1000);
 
     // 3. Audio stream handling:
-    // On iOS Safari / iPad, opening a getUserMedia stream locks AVAudioSession and forcibly terminates SpeechRecognition!
-    // So on Apple mobile devices with SpeechRecognition, we let native SpeechRecognition handle the mic without stream conflict.
-    const isAppleMobile = typeof navigator !== 'undefined' && (
-      /iPhone|iPad|iPod/.test(navigator.userAgent) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    // On mobile devices (iOS Safari, iPad, Android Chrome, tablet browsers),
+    // opening a getUserMedia stream locks the hardware mic track and starves SpeechRecognition!
+    // So on mobile devices with SpeechRecognition active in local evaluation mode,
+    // we give native SpeechRecognition exclusive mic access so it can capture spoken Arabic clearly.
+    const isMobileDevice = typeof navigator !== 'undefined' && (
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
     );
 
-    if (isAppleMobile && isSpeechRecognitionSupported()) {
+    if (isMobileDevice && isSpeechRecognitionSupported() && activeEvalMode === 'local') {
       return;
     }
 
-    // On Android / Desktop / PC, initialize MediaRecorder for waveform and audio capture
+    // On Android (in AI mode) / Desktop / PC, initialize MediaRecorder for waveform and audio capture
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!isRecordingRef.current) {
@@ -299,7 +301,18 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           return;
         }
 
-        // 3. In local mode without captured speech: perform honest evaluation (no fake 95% scores)
+        // 3. In local mode without captured speech:
+        // If an audio recording exists (> 1KB), try server-side AI evaluation so the student gets their word transcribed!
+        if (audioBlob && audioBlob.size > 1000) {
+          try {
+            await evaluateStudentAttempt(audioBlob, '', recordedAudioUrl);
+            return;
+          } catch (e) {
+            console.warn('Audio fallback evaluation notice:', e);
+          }
+        }
+
+        // 4. Honest local evaluation (no speech captured)
         await evaluateStudentAttempt(audioBlob, '', recordedAudioUrl);
       };
     } else {
@@ -324,6 +337,40 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
     // If Mode is LOCAL (Primary / Default)
     if (activeEvalMode === 'local') {
+      // If no text was captured by SpeechRecognition, but audioBlob exists with content:
+      // Try calling /api/evaluate to transcribe the voice!
+      if (!textToEvaluate && audioBlob && audioBlob.size > 1000) {
+        try {
+          const audioBase64 = await blobToBase64(audioBlob);
+          const response = await fetch('/api/evaluate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              targetWord: wordItem.word,
+              audioBase64,
+              audioMimeType: audioBlob.type || getSupportedAudioMimeType() || 'audio/webm',
+              notes: `الدرس: ${wordItem.lessonSubject} - الفئة: ${wordItem.category}`,
+            }),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.evaluation) {
+              const evalResult: PronunciationEvaluation = {
+                ...data.evaluation,
+                timestamp: Date.now(),
+                recordedAudioUrl,
+                engineUsed: 'ai',
+              };
+              onEvaluationComplete(evalResult, recordedAudioUrl, studentName);
+              setIsEvaluating(false);
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn('Local mode audio fallback failed:', e);
+        }
+      }
+
       const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate);
       const evalResult: PronunciationEvaluation = {
         ...localEval,

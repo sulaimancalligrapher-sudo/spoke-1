@@ -6,9 +6,11 @@ import {
   EvaluationMode,
 } from '../types';
 import {
+  ALL_CURRICULUM,
   INITIAL_LESSON_SUBJECTS,
   INITIAL_CATEGORIES,
 } from '../data/arabicCurriculum';
+import QRCode from 'qrcode';
 import {
   BookOpen,
   Plus,
@@ -52,6 +54,7 @@ import {
   Cpu,
   QrCode,
   Smartphone,
+  Loader2,
 } from 'lucide-react';
 import { removeTashkeel } from '../utils/arabicMatcher';
 import {
@@ -132,6 +135,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [showSyncGuideModal, setShowSyncGuideModal] = useState(false);
   const [showQrSyncModal, setShowQrSyncModal] = useState(false);
   const [copiedSyncUrl, setCopiedSyncUrl] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [qrLoading, setQrLoading] = useState(false);
 
   // Curriculum Code & Sync Statuses
   const [saveFileStatus, setSaveFileStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -444,15 +449,58 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
     setTimeout(() => setCopiedCurriculumCode(false), 2500);
   };
 
-  // Generate Mobile/Tablet Sync URL
+  // Generate Compact Mobile/Tablet Sync URL (encodes only custom additions for small size)
   const getSyncUrl = () => {
     if (typeof window === 'undefined') return '';
+    const defaultIds = new Set(ALL_CURRICULUM.map((c) => c.id));
+    const customItems = curriculum.filter(
+      (c) => !defaultIds.has(c.id) || c.id.startsWith('custom-')
+    );
+    const customSubjects = subjects.filter((s) => !INITIAL_LESSON_SUBJECTS.includes(s));
+    const customCategories = categories.filter((c) => !INITIAL_CATEGORIES.includes(c));
+
+    // Compact item structure for minimal QR payload (under 500 chars)
+    const compactWords = customItems.map((item) => ({
+      id: item.id,
+      w: item.word,
+      p: item.plainWord,
+      m: item.meaning,
+      c: item.category,
+      s: item.lessonSubject,
+      a: item.audioUrl || undefined,
+      t: item.autoReadText || undefined,
+      img: item.imageUrl || undefined,
+      tip: item.makhrajTip || undefined,
+    }));
+
     const payload = {
-      curriculum,
-      subjects,
-      categories,
+      cw: compactWords,
+      cs: customSubjects,
+      cc: customCategories,
     };
     return `${window.location.origin}/#sync=${encodeURIComponent(JSON.stringify(payload))}`;
+  };
+
+  const handleOpenQrModal = async () => {
+    setShowQrSyncModal(true);
+    setQrLoading(true);
+    try {
+      const url = getSyncUrl();
+      const dataUrl = await QRCode.toDataURL(url, {
+        width: 260,
+        margin: 2,
+        errorCorrectionLevel: 'M',
+        color: {
+          dark: '#0f172a',
+          light: '#ffffff',
+        },
+      });
+      setQrDataUrl(dataUrl);
+    } catch (e) {
+      console.warn('QR generation error:', e);
+    } finally {
+      setQrLoading(false);
+    }
   };
 
   const handleCopySyncUrl = () => {
@@ -617,7 +665,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
             {/* Quick Mobile Sync via QR Code or Link */}
             <button
-              onClick={() => setShowQrSyncModal(true)}
+              onClick={handleOpenQrModal}
               className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-md cursor-pointer animate-pulse"
               title="مزامنة فورية للدروس مع الجوال أو التابليت بكود QR أو رابط"
             >
@@ -2140,13 +2188,23 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
 
             {/* QR Code Presentation */}
             <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl text-center mb-4">
-              <div className="bg-white p-3 rounded-2xl inline-block border-2 border-amber-200 shadow-sm mb-3">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(getSyncUrl())}`}
-                  alt="QR Code"
-                  className="w-48 h-48 sm:w-56 sm:h-56 mx-auto object-contain"
-                  loading="lazy"
-                />
+              <div className="bg-white p-3 rounded-2xl inline-block border-2 border-amber-200 shadow-sm mb-3 min-w-[200px] min-h-[200px]">
+                {qrLoading ? (
+                  <div className="w-48 h-48 sm:w-56 sm:h-56 flex flex-col items-center justify-center gap-2 text-slate-400">
+                    <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+                    <span className="text-xs">جاري إنشاء رمز QR محلياً...</span>
+                  </div>
+                ) : qrDataUrl ? (
+                  <img
+                    src={qrDataUrl}
+                    alt="QR Code"
+                    className="w-48 h-48 sm:w-56 sm:h-56 mx-auto object-contain rounded-lg"
+                  />
+                ) : (
+                  <div className="w-48 h-48 flex items-center justify-center text-xs text-slate-400">
+                    اضغط لإنشاء رمز QR
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1 text-xs text-slate-700">
