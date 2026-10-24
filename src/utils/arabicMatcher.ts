@@ -47,9 +47,58 @@ export function getLevenshteinDistance(a: string, b: string): number {
 }
 
 /**
- * Quick client-side phonetic evaluation
+ * Count how many times the target word or phrase was repeated in the spoken text
  */
-export function evaluateArabicLocal(target: string, spoken: string): PronunciationEvaluation {
+export function countTargetRepetitions(target: string, spoken: string): number {
+  const normTarget = removeTashkeel(target).trim();
+  const normSpoken = removeTashkeel(spoken).trim();
+  if (!normTarget || !normSpoken) return 0;
+
+  const targetTokens = normTarget.split(/\s+/).filter(Boolean);
+  const spokenTokens = normSpoken.split(/\s+/).filter(Boolean);
+  if (targetTokens.length === 0 || spokenTokens.length === 0) return 0;
+
+  if (targetTokens.length === 1) {
+    const singleTarget = targetTokens[0];
+    let count = 0;
+    for (const token of spokenTokens) {
+      if (token === singleTarget) {
+        count++;
+      } else {
+        const dist = getLevenshteinDistance(token, singleTarget);
+        const maxLen = Math.max(token.length, singleTarget.length);
+        if (maxLen > 0 && 1 - dist / maxLen >= 0.65) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
+  // Multi-word phrase matching
+  const phraseLen = targetTokens.length;
+  let count = 0;
+  for (let i = 0; i <= spokenTokens.length - phraseLen; i++) {
+    const windowPhrase = spokenTokens.slice(i, i + phraseLen).join(' ');
+    const dist = getLevenshteinDistance(windowPhrase, normTarget);
+    const maxLen = Math.max(windowPhrase.length, normTarget.length);
+    if (1 - dist / maxLen >= 0.65) {
+      count++;
+      i += phraseLen - 1;
+    }
+  }
+  return count;
+}
+
+/**
+ * Client-side phonetic evaluation with repetition counting support
+ */
+export function evaluateArabicLocal(
+  target: string,
+  spoken: string,
+  repeatCount: number = 1
+): PronunciationEvaluation {
+  const requiredRepetitions = typeof repeatCount === 'number' && repeatCount > 0 ? repeatCount : 1;
   const normTarget = removeTashkeel(target);
   const normSpoken = removeTashkeel(spoken);
 
@@ -65,11 +114,15 @@ export function evaluateArabicLocal(target: string, spoken: string): Pronunciati
       letterBreakdown: [],
       timestamp: Date.now(),
       engineUsed: 'local',
+      requiredRepetitions,
+      repetitionsDetected: 0,
     };
   }
 
-  // Exact match
-  if (normTarget === normSpoken) {
+  const detectedCount = countTargetRepetitions(normTarget, normSpoken);
+
+  // Exact match (single occurrence when repeatCount <= 1)
+  if (normTarget === normSpoken && requiredRepetitions <= 1) {
     const letters: LetterPhoneme[] = normTarget.split('').map((l) => ({
       letter: l,
       status: 'صحيح',
@@ -87,14 +140,16 @@ export function evaluateArabicLocal(target: string, spoken: string): Pronunciati
       letterBreakdown: letters,
       timestamp: Date.now(),
       engineUsed: 'local',
+      requiredRepetitions: 1,
+      repetitionsDetected: 1,
     };
   }
 
-  // Calculate similarity ratio
+  // Calculate similarity ratio against single token or whole
   const maxLen = Math.max(normTarget.length, normSpoken.length);
   const distance = getLevenshteinDistance(normTarget, normSpoken);
   const ratio = Math.max(0, 1 - distance / maxLen);
-  const score = Math.round(ratio * 100);
+  let baseScore = Math.round(ratio * 100);
 
   // Positional letter-by-letter analysis
   const breakdown: LetterPhoneme[] = [];
@@ -132,34 +187,66 @@ export function evaluateArabicLocal(target: string, spoken: string): Pronunciati
     }
   }
 
+  // If repetitions were detected, raise baseScore because words were matched!
+  if (detectedCount > 0) {
+    baseScore = Math.max(baseScore, 92);
+  }
+
+  let finalScore = baseScore;
   let grade = 'غير مطابق';
   let isMatch = false;
   let feedback = 'الكلمة المنطوقة تختلف عن الكلمة المستهدفة، استمع للنطق النموذجي وأعد المحاولة.';
 
-  if (score >= 85) {
-    grade = 'رائع وممتاز';
-    isMatch = true;
-    feedback = 'نطق ممتاز جداً! مخارج الحروف نقية وواضحة.';
-  } else if (score >= 70) {
-    grade = 'جيد جداً';
-    isMatch = true;
-    feedback = 'أداء جيد جداً، هناك بعض الحروف أو الحركات تحتاج تركيزاً طفيفاً.';
-  } else if (score >= 50) {
-    grade = 'جيد - يحتاج تدريباً';
-    isMatch = false;
-    feedback = 'بداية طيبة، استمع مجدداً للنموذج الصوتي وحاول تقليد مخرج الحرف.';
+  // Handling repetition count requirement:
+  if (requiredRepetitions > 1) {
+    if (detectedCount >= requiredRepetitions) {
+      // Completed all repetitions (or even exceeded)!
+      finalScore = Math.min(100, Math.max(88, baseScore));
+      grade = 'ممتاز ومتقن';
+      isMatch = true;
+      feedback = `رائع جداً! أكملت تكرار الكلمة بنجاح (${detectedCount} مرات من ${requiredRepetitions} مطلوبة) بنطق واضح ومخارج سليمة.`;
+    } else if (detectedCount > 0) {
+      // Partial repetitions: deduct proportionally as requested
+      const completionRatio = detectedCount / requiredRepetitions;
+      finalScore = Math.round(baseScore * completionRatio);
+      grade = finalScore >= 60 ? 'جيد - نقص في التكرار' : 'غير مكتمل التكرار';
+      isMatch = false;
+      feedback = `نطقك صحيح ولكنك كررت الكلمة ${detectedCount} ${detectedCount === 1 ? 'مرة واحدة' : 'مرات'} فقط من أصل ${requiredRepetitions} مرات مطلوبة. تم خصم درجات لنقص التكرار، نرجو إكمال التكرار المطلوب للحصول على الدرجة الكاملة!`;
+    } else {
+      finalScore = Math.min(finalScore, 35);
+      grade = 'لم يكتمل التكرار';
+      isMatch = false;
+      feedback = `المطلوب تكرار الكلمة (${requiredRepetitions} مرات). لم يتم رصد الكلمة المستهدفة بوضوح، يرجى إعادة المحاولة ونطقها ${requiredRepetitions} مرات.`;
+    }
+  } else {
+    // Single repetition
+    if (finalScore >= 85) {
+      grade = 'رائع وممتاز';
+      isMatch = true;
+      feedback = 'نطق ممتاز جداً! مخارج الحروف نقية وواضحة.';
+    } else if (finalScore >= 70) {
+      grade = 'جيد جداً';
+      isMatch = true;
+      feedback = 'أداء جيد جداً، هناك بعض الحروف أو الحركات تحتاج تركيزاً طفيفاً.';
+    } else if (finalScore >= 50) {
+      grade = 'جيد - يحتاج تدريباً';
+      isMatch = false;
+      feedback = 'بداية طيبة، استمع مجدداً للنموذج الصوتي وحاول تقليد مخرج الحرف.';
+    }
   }
 
   return {
-    score,
+    score: finalScore,
     grade,
     isMatch,
     feedback,
     makhrajAdvice: 'استمع للتسجيل الصوتي وركّز على حركة الشفتين واللسان عند نطق الحرف المستهدف.',
-    vowelAccuracy: score > 75 ? 'جيدة' : 'تحتاج انتباه للحركات القصيرة',
+    vowelAccuracy: finalScore > 75 ? 'جيدة' : 'تحتاج انتباه للحركات القصيرة',
     detectedWord: spoken,
     letterBreakdown: breakdown,
     timestamp: Date.now(),
     engineUsed: 'local',
+    requiredRepetitions,
+    repetitionsDetected: detectedCount,
   };
 }

@@ -340,7 +340,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
     // 1. LOCAL EVALUATION (Web Speech text matcher - Primary for Desktop/PC)
     if (activeEvalMode === 'local') {
-      const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate);
+      const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
       const evalResult: PronunciationEvaluation = {
         ...localEval,
         recordedAudioUrl,
@@ -372,7 +372,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       }
 
       // If no audio blob (e.g. manual text submit), fall back to local matcher
-      const localFallback = evaluateArabicLocal(wordItem.word, textToEvaluate);
+      const localFallback = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
       onEvaluationComplete(
         {
           ...localFallback,
@@ -421,7 +421,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       }
 
       // On Desktop: graceful fallback to local evaluation
-      const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate);
+      const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
       onEvaluationComplete(
         {
           ...localEval,
@@ -467,6 +467,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           audioBase64: audioBase64 || undefined,
           audioMimeType: mimeType,
           apiKey: settings.geminiApiKey || undefined,
+          repeatCount: wordItem.repeatCount || 1,
           notes: `الدرس: ${wordItem.lessonSubject} - الفئة: ${wordItem.category}`,
         }),
       });
@@ -650,6 +651,13 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
                 }}
               />
             </div>
+          </div>
+        )}
+
+        {wordItem.repeatCount && wordItem.repeatCount > 1 && (
+          <div className="mb-3 inline-flex items-center gap-2 px-4 py-1.5 bg-amber-500/15 border border-amber-400 text-amber-900 rounded-2xl text-xs sm:text-sm font-bold shadow-2xs animate-pulse">
+            <RotateCcw className="w-4 h-4 text-amber-700" />
+            <span>المطلوب: كرر نطق الكلمة ({wordItem.repeatCount}) مرات متتالية بوضوح</span>
           </div>
         )}
 

@@ -17,7 +17,7 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { targetWord, spokenText, audioBase64, audioMimeType, notes, apiKey: bodyApiKey } = req.body || {};
+    const { targetWord, spokenText, audioBase64, audioMimeType, notes, apiKey: bodyApiKey, repeatCount } = req.body || {};
     const effectiveApiKey =
       (req.headers['x-gemini-key'] as string) ||
       bodyApiKey ||
@@ -44,28 +44,28 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Target word is required' });
     }
 
-    const promptText = `أنت خبير ومعلم متخصص في تعليم النطق العربي ومخارج الحروف والتجويد والقراءة الصحيحة.
-المهمة: تقييم نطق الطالب للكلمة أو الحرف العربي المستهدف.
+    const requiredRepetitions = typeof repeatCount === 'number' && repeatCount > 0 ? repeatCount : 1;
+
+    const promptText = `أنت أستاذ ومعلم خبير في تعليم النطق العربي ومخارج الحروف والتجويد.
+الهدف: تقييم نطق الطالب للكلمة أو الحرف العربي بدقة وموضوعية.
 
 الكلمة/الحرف المستهدف: "${targetWord}"
-ما نطق به الطالب (أو تم التعرف عليه صوتياً): "${spokenText || 'لم يتم التعرف على نص، يرجى التقييم من الصوت إن وُجد'}"
+ما نطق به الطالب (أو تم التعرف عليه): "${spokenText || 'يرجى التقييم من تسجيل الصوت المرفق'}"
+${requiredRepetitions > 1 ? `عدد التكرارات المطلوبة: المطلوب من الطالب نطق الكلمة ${requiredRepetitions} مرات متتالية. قم بعد مرات التكرار بدقة. إذا نطق أقل من ${requiredRepetitions} مرات، اخصم درجات واذكر صراحة عدد التكرار الناقص.` : ''}
 ${notes ? `ملاحظات إضافية: ${notes}` : ''}
 
-قم بتحليل النطق بدقة وفق المعايير التالية:
-1. نسبة التطابق الإجمالية (score من 0 إلى 100).
-2. تقييم مخارج الحروف العربية (مثل التمييز بين: ض و د، ط و ت، ص و س، ق و ك، ع و أ، ح و هـ).
-3. الحركات والمدود (الفتحة والضمة والكسرة والسكون والمدود بالألف والواو والياء).
-4. تحديد الحروف التي نطقها الطالب بشكل سليم، والحروف التي تحتاج تصحيحاً.
-5. نصيحة ملموسة لطريقة وضع اللسان أو حركة الشفتين للنطق السليم لمخرج الحرف.
-6. تقديم تعليق تشجيعي وتربوي ملهم باللغة العربية الفصحى.
+معايير التقييم:
+1. نسبة التطابق (score من 0 إلى 100). إذا كانت الكلمة مختلفة تماماً عن المستهدف، يجب إعطاء درجة منخفضة جداً (0-25).
+2. ${requiredRepetitions > 1 ? `عدد التكرارات التي رصدتها في الصوت (repetitionsDetected).` : 'التأكد من اكتمال نطق الكلمة.'}
+3. مخارج الحروف، الحركات، والمدود.
+4. ملاحظة تشجيعية وتوجيه عملي لموضع اللسان والشفتين.
 
-يرجى الرد بتنسيق JSON حصراً حسب المخطط المحدد.`;
+يرجى الرد بصيغة JSON وفق المخطط.`;
 
     const contents: any[] = [];
 
     if (audioBase64) {
-      // Clean mimeType so it doesn't fail on codec parameters like ';codecs=opus' or ';codecs=mp4a'
-      let cleanMime = (audioMimeType || 'audio/webm').split(';')[0].trim().toLowerCase();
+      let cleanMime = (audioMimeType || 'audio/wav').split(';')[0].trim().toLowerCase();
       if (cleanMime === 'audio/x-m4a' || cleanMime === 'audio/m4a') cleanMime = 'audio/mp4';
       
       contents.push({
@@ -78,7 +78,7 @@ ${notes ? `ملاحظات إضافية: ${notes}` : ''}
 
     contents.push({ text: promptText });
 
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-3.8-flash'];
+    const modelsToTry = ['gemini-flash-latest', 'gemini-3.8-flash'];
     let lastError: any = null;
     let evalResultText = '';
 
@@ -88,7 +88,7 @@ ${notes ? `ملاحظات إضافية: ${notes}` : ''}
           model: modelName,
           contents: contents.length === 1 ? contents[0].text : { parts: contents },
           config: {
-            systemInstruction: 'أنت أستاذ لغة عربية خبير في علم الصوتيات ومخارج الحروف والتجويد. قيّم نطق المتعلم بدقة وموضوعية مع تقديم إرشاد عملي مبسط.',
+            systemInstruction: 'أنت أستاذ لغة عربية خبير في علم الصوتيات ومخارج الحروف والتجويد. قيّم نطق المتعلم بدقة وموضوعية وسرعة.',
             responseMimeType: 'application/json',
             responseSchema: {
               type: Type.OBJECT,
@@ -105,13 +105,17 @@ ${notes ? `ملاحظات إضافية: ${notes}` : ''}
                   type: Type.BOOLEAN,
                   description: 'هل نطق الكلمة بنجاح مقبول؟',
                 },
+                repetitionsDetected: {
+                  type: Type.INTEGER,
+                  description: 'عدد مرات تكرار الكلمة المستهدفة التي رُصدت في التسجيل',
+                },
                 feedback: {
                   type: Type.STRING,
-                  description: 'ملاحظة تربوية وتشجيعية مفصلة عن النطق',
+                  description: 'ملاحظة تربوية وتشجيعية مفصلة عن النطق وعدد التكرار',
                 },
                 makhrajAdvice: {
                   type: Type.STRING,
-                  description: 'نصيحة دقيقة لكيفية نطق الحرف من مخرجه الصحيح (موضع اللسان والشفتين والحلق)',
+                  description: 'نصيحة دقيقة لكيفية نطق الحرف من مخرجه الصحيح',
                 },
                 vowelAccuracy: {
                   type: Type.STRING,
@@ -119,7 +123,7 @@ ${notes ? `ملاحظات إضافية: ${notes}` : ''}
                 },
                 detectedWord: {
                   type: Type.STRING,
-                  description: 'الكلمة التي سمعت بدقة مع التشكيل',
+                  description: 'الكلمة أو الجملة التي سُمعت بدقة من التسجيل',
                 },
                 letterBreakdown: {
                   type: Type.ARRAY,
@@ -129,7 +133,7 @@ ${notes ? `ملاحظات إضافية: ${notes}` : ''}
                     properties: {
                       letter: { type: Type.STRING, description: 'الحرف' },
                       status: { type: Type.STRING, description: 'صحيح | يحتاج تحسين | مفقود' },
-                      comment: { type: Type.STRING, description: 'ملاحظة صوتية على هذا الحرف' },
+                      comment: { type: Type.STRING, description: 'ملاحظة صوتية' },
                     },
                     required: ['letter', 'status'],
                   },
@@ -146,11 +150,7 @@ ${notes ? `ملاحظات إضافية: ${notes}` : ''}
         }
       } catch (err: any) {
         lastError = err;
-        console.warn(`Model ${modelName} failed or throttled, trying next model:`, err?.message || err);
-        // If it's a rate limit (429), wait a brief moment before attempting fallback
-        if (err?.status === 429 || (err?.message && err.message.includes('429'))) {
-          await new Promise((resolve) => setTimeout(resolve, 800));
-        }
+        console.warn(`Model ${modelName} notice:`, err?.message || err);
       }
     }
 

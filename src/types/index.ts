@@ -25,6 +25,7 @@ export interface WordItem {
   letterFocus?: string;
   harakat?: string;
   transliteration?: string;
+  repeatCount?: number; // عدد مرات التكرار المطلوبة (افتراضي 1)
 }
 
 export interface LetterPhoneme {
@@ -47,6 +48,8 @@ export interface PronunciationEvaluation {
   engineUsed: EvaluationMode;
   engineNotice?: string;
   acousticMetrics?: AcousticWaveformMetrics;
+  repetitionsDetected?: number; // عدد التكرارات التي رصدها النظام
+  requiredRepetitions?: number; // عدد التكرارات المطلوبة
 }
 
 export interface PracticeHistoryItem {

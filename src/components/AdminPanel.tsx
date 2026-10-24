@@ -201,6 +201,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [wordText, setWordText] = useState('');
   const [meaning, setMeaning] = useState('');
   const [makhrajTip, setMakhrajTip] = useState('');
+  const [repeatCount, setRepeatCount] = useState<number>(1);
 
   // Teacher Voice Recording State
   const [isRecordingTeacher, setIsRecordingTeacher] = useState(false);
@@ -238,6 +239,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setWordText(item.word);
     setMeaning(item.meaning || '');
     setMakhrajTip(item.makhrajTip || '');
+    setRepeatCount(item.repeatCount || 1);
 
     window.scrollTo({ top: 120, behavior: 'smooth' });
   };
@@ -251,6 +253,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setImageUrl('');
     setAudioUrl('');
     setAutoReadText('');
+    setRepeatCount(1);
   };
 
   // Handle Local File Upload for Image
@@ -343,6 +346,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       autoReadText: autoReadText.trim() || undefined,
       makhrajTip: makhrajTip.trim() || 'انطق الكلمة بوضوح مع مراعاة الحركات المشكّلة.',
       letterFocus: wordText.trim()[0],
+      repeatCount: repeatCount > 1 ? repeatCount : 1,
     };
 
     if (editingId) {
@@ -362,6 +366,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setAudioUrl('');
     setAutoReadText('');
     setCustomSubjectInput('');
+    setRepeatCount(1);
   };
 
   // Test play audio from field
@@ -1205,6 +1210,48 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                   />
                 </div>
 
+                {/* 9. عدد مرات التكرار المطلوبة */}
+                <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-2xl">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                      <span>9- عدد مرات التكرار المطلوبة للتقييم:</span>
+                    </label>
+                    <span className="text-[11px] text-amber-800 font-bold">
+                      {repeatCount > 1 ? `${repeatCount} مرات متتالية` : 'مرة واحدة (افتراضي)'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={repeatCount}
+                      onChange={(e) => setRepeatCount(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+                      className="w-20 px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs font-bold text-center text-amber-950 focus:outline-hidden focus:border-amber-500 shadow-2xs"
+                    />
+                    <div className="flex items-center gap-1">
+                      {[1, 2, 3, 5].map((cnt) => (
+                        <button
+                          key={cnt}
+                          type="button"
+                          onClick={() => setRepeatCount(cnt)}
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            repeatCount === cnt
+                              ? 'bg-amber-500 text-slate-950 shadow-xs'
+                              : 'bg-white hover:bg-amber-100/80 text-amber-900 border border-amber-200/80'
+                          }`}
+                        >
+                          {cnt === 1 ? 'مرة واحدة' : `${cnt} مرات`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-amber-800/90 mt-1.5 block leading-relaxed">
+                    يقوم النظام بعدّ التكرارات في كل من (Web Speech) و(Gemini). إذا نقص عدد التكرارات تُخصم درجات ويُنبه الطالب بوضوح.
+                  </span>
+                </div>
+
                 {/* Submit button */}
                 <div className="flex gap-2 pt-1">
                   {editingId && (
@@ -1361,6 +1408,11 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                             ) : (
                               <span className="text-[10px] text-slate-400 font-medium" title="قراءة آلية للكلمة">
                                 🔊 آلي
+                              </span>
+                            )}
+                            {item.repeatCount && item.repeatCount > 1 && (
+                              <span className="text-[10px] text-amber-800 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded-md font-bold" title={`يتطلب تكرار الكلمة ${item.repeatCount} مرات`}>
+                                🔁 {item.repeatCount}×
                               </span>
                             )}
                           </div>

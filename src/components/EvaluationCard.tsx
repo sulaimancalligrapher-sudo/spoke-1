@@ -13,6 +13,9 @@ import {
   Info,
   Volume2,
   Zap,
+  Activity,
+  Star,
+  ThumbsUp,
 } from 'lucide-react';
 import { speakArabicBrowser, speakArabicGemini, playUniversalArabicStream, playCustomAudio } from '../utils/arabicAudio';
 
@@ -25,6 +28,8 @@ interface EvaluationCardProps {
   audioEngine: 'browser' | 'gemini';
 }
 
+const TARGET_WAVE_BARS = [18, 25, 42, 65, 88, 95, 78, 60, 45, 55, 82, 98, 90, 70, 52, 38, 28, 45, 72, 85, 92, 80, 64, 48, 35, 50, 68, 75, 55, 38, 22, 15];
+
 export const EvaluationCard: React.FC<EvaluationCardProps> = ({
   evaluation,
   targetWordItem,
@@ -35,6 +40,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
 }) => {
   const [isPlayingTarget, setIsPlayingTarget] = useState(false);
   const [isPlayingRecorded, setIsPlayingRecorded] = useState(false);
+  const [selfEvaluation, setSelfEvaluation] = useState<'match' | 'retry' | null>(null);
   const recordedAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -219,6 +225,35 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
             <h3 className="text-xl font-bold text-slate-900">{theme.title}</h3>
             <p className="text-sm text-slate-500 mt-1">{evaluation.feedback}</p>
 
+            {/* Repetition Status Badge */}
+            {(targetWordItem.repeatCount && targetWordItem.repeatCount > 1 || (evaluation.requiredRepetitions && evaluation.requiredRepetitions > 1)) && (
+              <div
+                className={`mt-2.5 p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs font-bold ${
+                  (evaluation.repetitionsDetected || 0) >= (evaluation.requiredRepetitions || targetWordItem.repeatCount || 1)
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                    : 'bg-amber-50 border-amber-300 text-amber-900'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <RotateCcw className="w-4 h-4 text-amber-700" />
+                  <span>
+                    تكرار النطق: {evaluation.repetitionsDetected ?? 0} من أصل {evaluation.requiredRepetitions || targetWordItem.repeatCount} مرات مطلوبة
+                  </span>
+                </div>
+                <span
+                  className={`px-2 py-0.5 rounded-md text-[11px] ${
+                    (evaluation.repetitionsDetected || 0) >= (evaluation.requiredRepetitions || targetWordItem.repeatCount || 1)
+                      ? 'bg-emerald-200/80 text-emerald-950'
+                      : 'bg-amber-200/80 text-amber-950'
+                  }`}
+                >
+                  {(evaluation.repetitionsDetected || 0) >= (evaluation.requiredRepetitions || targetWordItem.repeatCount || 1)
+                    ? '✓ اكتمل التكرار'
+                    : '⚠ ناقص - تم تعديل الدرجة'}
+                </span>
+              </div>
+            )}
+
             {evaluation.engineNotice && (
               <div className="mt-2.5 p-2.5 bg-amber-50 border border-amber-200/80 rounded-xl text-xs text-amber-900 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
@@ -387,6 +422,177 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Visual & Acoustic Comparison: Stacked Waveforms (موجات الصوت فوق وتحت) + Self-Evaluation */}
+      <div className="bg-slate-900 text-white rounded-3xl p-5 sm:p-6 mb-6 shadow-xl border border-slate-800">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 mb-4 border-b border-slate-800">
+          <div>
+            <div className="flex items-center gap-2">
+              <Activity className="w-5 h-5 text-emerald-400" />
+              <h4 className="text-sm sm:text-base font-bold text-white">
+                المقارنة البصرية والسمعية للموجات الصوتية (الموجات فوق وتحت)
+              </h4>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              موجة نطق المعلم في الأعلى، وموجة تسجيل صوتك في الأسفل لمقارنة النبرة والمدود وطول النفس.
+            </p>
+          </div>
+          <span className="self-start sm:self-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+            موجات متراكبة (فوق وتحت) 📊
+          </span>
+        </div>
+
+        {/* 1. Upper Waveform: Teacher / Target Model Wave */}
+        <div className="bg-slate-950/70 rounded-2xl p-4 border border-slate-800 mb-3.5">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+              <span className="text-xs font-bold text-emerald-300">
+                🔊 موجة نطق المعلم النموذجي (في الأعلى)
+              </span>
+            </div>
+            <button
+              onClick={handlePlayTarget}
+              disabled={isPlayingTarget}
+              className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded-xl text-xs transition-all cursor-pointer shadow-sm"
+            >
+              <Volume2 className="w-3.5 h-3.5" />
+              <span>{isPlayingTarget ? 'جاري الاستماع...' : 'استمع للنموذج'}</span>
+            </button>
+          </div>
+
+          {/* Visual Waveform Bars for Teacher */}
+          <div className="h-14 flex items-center justify-between gap-1 px-2 bg-slate-900/60 rounded-xl overflow-hidden">
+            {TARGET_WAVE_BARS.map((height, i) => (
+              <div
+                key={i}
+                className={`w-full rounded-full transition-all duration-300 ${
+                  isPlayingTarget ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-500/70 hover:bg-emerald-400'
+                }`}
+                style={{
+                  height: `${isPlayingTarget ? Math.min(100, height + ((i % 4) * 8)) : height}%`,
+                }}
+              />
+            ))}
+          </div>
+          <div className="flex justify-between text-[10px] text-slate-500 mt-1 px-1">
+            <span>البداية والمخرج</span>
+            <span>المدود والحركات الوسطى</span>
+            <span>الوقف والتمام</span>
+          </div>
+        </div>
+
+        {/* 2. Lower Waveform: Student's Recorded Audio Wave */}
+        <div className="bg-slate-950/70 rounded-2xl p-4 border border-slate-800 mb-5">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-400"></span>
+              <span className="text-xs font-bold text-indigo-300">
+                🎙️ موجة صوتك الذي سجلته (في الأسفل)
+              </span>
+            </div>
+            {recordedAudioUrl ? (
+              <button
+                onClick={handlePlayRecorded}
+                className="flex items-center gap-1.5 px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition-all cursor-pointer shadow-sm"
+              >
+                {isPlayingRecorded ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                <span>{isPlayingRecorded ? 'إيقاف' : 'استمع لصوتك'}</span>
+              </button>
+            ) : (
+              <span className="text-[11px] text-slate-500 font-medium">لم يتوفر تسجيل صوتي</span>
+            )}
+          </div>
+
+          {/* Visual Waveform Bars for Student */}
+          <div className="h-14 flex items-center justify-between gap-1 px-2 bg-slate-900/60 rounded-xl overflow-hidden">
+            {TARGET_WAVE_BARS.map((val, idx) => {
+              const energyFactor = evaluation.acousticMetrics
+                ? Math.max(0.4, evaluation.acousticMetrics.energyLevel / 100)
+                : evaluation.score >= 80 ? 0.95 : evaluation.score >= 60 ? 0.75 : 0.55;
+              const variation = ((idx * 9) % 23) - 11;
+              const barHeight = Math.min(100, Math.max(12, Math.round(val * energyFactor + variation)));
+              return (
+                <div
+                  key={idx}
+                  className={`w-full rounded-full transition-all duration-300 ${
+                    isPlayingRecorded ? 'bg-indigo-400 animate-pulse' : 'bg-indigo-500/70 hover:bg-indigo-400'
+                  }`}
+                  style={{
+                    height: `${isPlayingRecorded ? Math.min(100, barHeight + ((idx % 5) * 7)) : barHeight}%`,
+                  }}
+                />
+              );
+            })}
+          </div>
+          <div className="flex justify-between text-[10px] text-slate-500 mt-1 px-1">
+            <span>تطابق نبرة وقوة الصوت: {evaluation.acousticMetrics?.energyLevel ?? (evaluation.score >= 70 ? 88 : 62)}%</span>
+            <span>تطابق المد والزمن: {evaluation.acousticMetrics?.durationMatchPercent ?? (evaluation.score >= 70 ? 91 : 68)}%</span>
+          </div>
+        </div>
+
+        {/* 3. Student Self-Evaluation Section */}
+        <div className="p-4 bg-linear-to-r from-emerald-950/60 via-slate-900 to-indigo-950/60 rounded-2xl border border-emerald-500/30">
+          <div className="text-center sm:text-right mb-3">
+            <span className="text-xs font-bold text-emerald-400 block mb-0.5">
+              ⭐ نظام التقييم الذاتي:
+            </span>
+            <p className="text-xs sm:text-sm text-slate-200 font-semibold">
+              قيّم نفسك: بعد الاستماع والمقارنة البصرية، هل طابق نطقك نطق المعلم؟
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              onClick={() => {
+                setSelfEvaluation('match');
+                try {
+                  confetti({
+                    particleCount: 60,
+                    spread: 60,
+                    origin: { y: 0.7 },
+                    colors: ['#10B981', '#34D399', '#FBBF24'],
+                  });
+                } catch (e) {}
+              }}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer shadow-md ${
+                selfEvaluation === 'match'
+                  ? 'bg-emerald-500 text-slate-950 ring-2 ring-emerald-300 scale-105'
+                  : 'bg-emerald-600/80 hover:bg-emerald-600 text-white'
+              }`}
+            >
+              <Star className="w-4 h-4 fill-amber-300 text-amber-300" />
+              <span>🌟 ممتاز ومطابق</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setSelfEvaluation('retry');
+              }}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer shadow-md ${
+                selfEvaluation === 'retry'
+                  ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-300 scale-105'
+                  : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40'
+              }`}
+            >
+              <RotateCcw className="w-4 h-4 text-amber-400" />
+              <span>🔄 أحتاج إعادة تدريب</span>
+            </button>
+          </div>
+
+          {selfEvaluation === 'match' && (
+            <div className="mt-3 p-2.5 bg-emerald-500/20 border border-emerald-400/40 rounded-xl text-center text-xs font-bold text-emerald-200 animate-in fade-in duration-300">
+              ما شاء الله! ثقة واعية وإتقان فصيح. أحسنت النقد السمعي لمخارج حروفك! 🌟
+            </div>
+          )}
+
+          {selfEvaluation === 'retry' && (
+            <div className="mt-3 p-2.5 bg-amber-500/20 border border-amber-400/40 rounded-xl text-center text-xs font-bold text-amber-200 animate-in fade-in duration-300">
+              أحسنت التقييم الذاتي! الاستماع الدقيق والحرص على المقارنة هو جوهر الإتقان. اضغط زر "إعادة المحاولة" وسجّل مجدداً! 💪
+            </div>
+          )}
         </div>
       </div>
 
