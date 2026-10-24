@@ -39,6 +39,14 @@ const STORAGE_KEY_SUBMISSIONS = 'faseeh_submissions_v1';
 const STORAGE_KEY_CATEGORIES = 'faseeh_categories_v2';
 const STORAGE_KEY_SUBJECTS = 'faseeh_subjects_v2';
 
+const isMobileDevicePlatform = () => {
+  if (typeof navigator === 'undefined') return false;
+  return (
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
+  );
+};
+
 export default function App() {
   const [curriculum, setCurriculum] = useState<WordItem[]>(ALL_CURRICULUM);
   const [categories, setCategories] = useState<string[]>(INITIAL_CATEGORIES);
@@ -79,13 +87,13 @@ export default function App() {
   // Student Submissions Log
   const [submissions, setSubmissions] = useState<StudentSubmissionRecord[]>([]);
 
-  // Settings
+  // Settings: Desktop defaults to 'local' (Web Speech), Mobile/Tablet defaults to 'ai' (Gemini)
   const [settings, setSettings] = useState<AudioSettings>({
     speed: 0.9,
     engine: 'browser',
     autoPlayTarget: false,
     repeatTargetTwice: false,
-    preferredEvaluationMode: 'ai',
+    preferredEvaluationMode: isMobileDevicePlatform() ? 'ai' : 'local',
     studentName: '',
   });
 
@@ -217,7 +225,14 @@ export default function App() {
       if (savedSubjects) setSubjects(JSON.parse(savedSubjects));
 
       const savedSettings = localStorage.getItem(STORAGE_KEY_SETTINGS);
-      if (savedSettings) setSettings(JSON.parse(savedSettings));
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings);
+        setSettings({
+          ...parsed,
+          preferredEvaluationMode:
+            parsed.preferredEvaluationMode || (isMobileDevicePlatform() ? 'ai' : 'local'),
+        });
+      }
 
       const savedSheets = localStorage.getItem(STORAGE_KEY_SHEETS);
       if (savedSheets) setSheetsConfig(JSON.parse(savedSheets));

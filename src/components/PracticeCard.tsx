@@ -37,6 +37,8 @@ import {
 } from '../utils/arabicAudio';
 import { normalizeMediaUrl } from '../utils/mediaUrl';
 import { evaluateArabicLocal } from '../utils/arabicMatcher';
+import { evaluateAcousticLocally } from '../utils/acousticEvaluator';
+import { compressAndResampleAudio } from '../utils/audioConverter';
 import { getDailyQuotaStatus, incrementDailyQuota } from '../utils/aiQuota';
 import { AudioWaveform } from './AudioWaveform';
 
@@ -74,21 +76,45 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   const [manualText, setManualText] = useState('');
   const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null);
 
-  // Active evaluation mode for this attempt (ai by default for audio-first evaluation, or local)
+  const isMobileDevice = typeof navigator !== 'undefined' && (
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
+  );
+
+  // Active evaluation mode: Desktop defaults to 'local' (Web Speech), Mobile/Tablet defaults to 'ai' (Gemini)
   const [activeEvalMode, setActiveEvalMode] = useState<EvaluationMode>(
-    settings.preferredEvaluationMode || 'ai'
+    settings.preferredEvaluationMode || (isMobileDevice ? 'ai' : 'local')
   );
   const [studentName, setStudentName] = useState(settings.studentName || '');
   const [showMobileQuotaModal, setShowMobileQuotaModal] = useState(false);
   const [keyMissingError, setKeyMissingError] = useState(false);
   const [transientErrorNotice, setTransientErrorNotice] = useState<string | null>(null);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const speechRecognizerRef = useRef<any>(null);
   const timerIntervalRef = useRef<any>(null);
+  const cooldownIntervalRef = useRef<any>(null);
   const liveTranscriptRef = useRef<string>('');
   const isRecordingRef = useRef<boolean>(false);
+
+  const triggerCooldown = (seconds = 4) => {
+    if (cooldownIntervalRef.current) {
+      clearInterval(cooldownIntervalRef.current);
+    }
+    setCooldownSeconds(seconds);
+    cooldownIntervalRef.current = setInterval(() => {
+      setCooldownSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(cooldownIntervalRef.current);
+          cooldownIntervalRef.current = null;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
 
   // Auto-play audio when wordItem changes if autoPlayTarget is enabled
   useEffect(() => {
@@ -172,15 +198,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
   // Start Voice Recording
   const startRecording = async () => {
-    const isMobileDevice = typeof navigator !== 'undefined' && (
-      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-      (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
-    );
-
-    // If on Mobile/Tablet and daily AI quota is exceeded:
-    const quota = getDailyQuotaStatus();
-    if (isMobileDevice && quota.isExceeded) {
-      setShowMobileQuotaModal(true);
+    if (cooldownSeconds > 0 || isEvaluating) {
       return;
     }
 
@@ -320,15 +338,88 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
     );
 
+    // 1. LOCAL EVALUATION (Web Speech text matcher - Primary for Desktop/PC)
+    if (activeEvalMode === 'local') {
+      const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate);
+      const evalResult: PronunciationEvaluation = {
+        ...localEval,
+        recordedAudioUrl,
+        engineUsed: 'local',
+      };
+      onEvaluationComplete(evalResult, recordedAudioUrl, studentName);
+      setIsEvaluating(false);
+      triggerCooldown(3);
+      return;
+    }
+
+    // 2. ACOUSTIC EVALUATION (Web Audio Physical Waveform - Free in-browser)
+    if (activeEvalMode === 'acoustic') {
+      try {
+        if (audioBlob) {
+          const acousticResult = await evaluateAcousticLocally(
+            audioBlob,
+            wordItem.word,
+            textToEvaluate,
+            recordedAudioUrl
+          );
+          onEvaluationComplete(acousticResult, recordedAudioUrl, studentName);
+          setIsEvaluating(false);
+          triggerCooldown(3);
+          return;
+        }
+      } catch (err) {
+        console.warn('Acoustic evaluation notice:', err);
+      }
+
+      // If no audio blob (e.g. manual text submit), fall back to local matcher
+      const localFallback = evaluateArabicLocal(wordItem.word, textToEvaluate);
+      onEvaluationComplete(
+        {
+          ...localFallback,
+          recordedAudioUrl,
+          engineUsed: 'acoustic',
+          engineNotice: 'تم التقييم النصي السريع لعدم توفر ملف صوتي مسجل.',
+        },
+        recordedAudioUrl,
+        studentName
+      );
+      setIsEvaluating(false);
+      triggerCooldown(3);
+      return;
+    }
+
+    // 3. AI EVALUATION (Gemini AI - Primary for Mobile & Tablet)
     const quota = getDailyQuotaStatus();
 
-    // Check if daily quota is exceeded
+    // Check if daily quota is exceeded (for AI mode):
     if (quota.isExceeded) {
       if (isMobileDevice) {
-        setIsEvaluating(false);
-        setShowMobileQuotaModal(true);
-        return;
+        // Smoothly fall back to acoustic wave analysis so mobile training NEVER stops!
+        if (audioBlob) {
+          try {
+            const acousticResult = await evaluateAcousticLocally(
+              audioBlob,
+              wordItem.word,
+              textToEvaluate,
+              recordedAudioUrl
+            );
+            onEvaluationComplete(
+              {
+                ...acousticResult,
+                engineUsed: 'acoustic',
+                engineNotice:
+                  'تم التحويل التلقائي لنظام الذبذبات الصوتي لاكتمال الحصة اليومية للذكاء الاصطناعي - واصل تدريبك دون توقف!',
+              },
+              recordedAudioUrl,
+              studentName
+            );
+            setIsEvaluating(false);
+            triggerCooldown(4);
+            return;
+          } catch (e) {}
+        }
       }
+
       // On Desktop: graceful fallback to local evaluation
       const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate);
       onEvaluationComplete(
@@ -342,31 +433,23 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         studentName
       );
       setIsEvaluating(false);
+      triggerCooldown(3);
       return;
     }
 
-    // If Mode is explicitly set to LOCAL by user
-    if (activeEvalMode === 'local') {
-      const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate);
-      const evalResult: PronunciationEvaluation = {
-        ...localEval,
-        recordedAudioUrl,
-        engineUsed: 'local',
-      };
-      onEvaluationComplete(evalResult, recordedAudioUrl, studentName);
-      setIsEvaluating(false);
-      return;
-    }
-
-    // PRIMARY PATH: AUDIO-FIRST AI EVALUATION
+    // Compress & Resample to lightweight 16kHz mono WAV (<50KB) before sending to Gemini API
     let audioBase64 = '';
-    let mimeType = getSupportedAudioMimeType() || 'audio/webm';
+    let mimeType = 'audio/wav';
 
     if (audioBlob) {
       try {
+        const compressed = await compressAndResampleAudio(audioBlob);
+        audioBase64 = compressed.base64;
+        mimeType = compressed.mimeType;
+      } catch (e) {
         audioBase64 = await blobToBase64(audioBlob);
-        mimeType = audioBlob.type || mimeType;
-      } catch (e) {}
+        mimeType = audioBlob.type || 'audio/webm';
+      }
     }
 
     try {
@@ -401,6 +484,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           };
           onEvaluationComplete(evalResult, recordedAudioUrl, studentName);
           setIsEvaluating(false);
+          triggerCooldown(4); // 4-second cooldown to let student read feedback and avoid double-clicking
           return;
         }
       } else {
@@ -416,31 +500,39 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
         if (response.status === 429 || errJson?.isRateLimited) {
           setTransientErrorNotice(
-            errJson?.error || '⏳ يرجى الانتظار 5 ثوانٍ ثم النقر على الميكروفون مجدداً (تجاوز سرعة الطلبات في الدقيقة للنسخة التجريبية).'
+            errJson?.error || '⏳ يرجى الانتظار بضع ثوانٍ ثم النقر على الميكروفون مجدداً (تجاوز معدل السرعة).'
           );
-          setIsEvaluating(false);
-          return;
-        }
-
-        if (errJson?.error) {
+        } else if (errJson?.error) {
           setTransientErrorNotice(errJson.error);
         }
       }
     } catch (err: any) {
       console.warn('Gemini server evaluation error:', err);
-      setTransientErrorNotice('تعذر الاتصال بخادم التقييم مؤقتاً. اضغط على زر الميكروفون لإعادة المحاولة.');
     }
 
-    // Check if daily quota is TRULY exhausted (1500 limit)
-    const latestQuota = getDailyQuotaStatus();
-    if (isMobileDevice) {
-      setIsEvaluating(false);
-      if (latestQuota.isExceeded) {
-        setShowMobileQuotaModal(true);
-      } else if (!transientErrorNotice) {
-        setTransientErrorNotice('حدث تأخر مؤقت في استجابة الذكاء الاصطناعي. اضغط على زر الميكروفون للمحاولة ثانية.');
-      }
-      return;
+    // If AI evaluation hit any transient error on mobile: fall back to acoustic so student is NEVER blocked!
+    if (isMobileDevice && audioBlob) {
+      try {
+        const acousticResult = await evaluateAcousticLocally(
+          audioBlob,
+          wordItem.word,
+          textToEvaluate,
+          recordedAudioUrl
+        );
+        onEvaluationComplete(
+          {
+            ...acousticResult,
+            engineUsed: 'acoustic',
+            engineNotice:
+              'تعذر الاتصال بالذكاء الاصطناعي مؤقتاً، تم التقييم عبر نظام الذبذبات الصوتي المباشر لمواصلة التدريب.',
+          },
+          recordedAudioUrl,
+          studentName
+        );
+        setIsEvaluating(false);
+        triggerCooldown(4);
+        return;
+      } catch (e) {}
     }
 
     // On Desktop: graceful fallback to local matcher
@@ -450,14 +542,13 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         ...fallbackLocal,
         recordedAudioUrl,
         engineUsed: 'local',
-        engineNotice: latestQuota.isExceeded
-          ? 'تم التقييم بالمحرك الداخلي لاكتمال الحصة اليومية للذكاء الاصطناعي.'
-          : 'تنبيه: تعذر الاتصال بالذكاء الاصطناعي مؤقتاً، تم التقييم بالمحرك الداخلي.',
+        engineNotice: 'تنبيه: تعذر الاتصال بالذكاء الاصطناعي، تم التقييم بالمحرك المحلي.',
       },
       recordedAudioUrl,
       studentName
     );
     setIsEvaluating(false);
+    triggerCooldown(3);
   };
 
   const handleManualSubmit = (e: React.FormEvent) => {
@@ -497,29 +588,29 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         </div>
       </div>
 
-      {/* Dual Evaluation Engine Selector */}
-      <div className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200/80 rounded-2xl mb-6">
-        <span className="text-xs font-bold text-slate-700 pr-2">
+      {/* Multi Evaluation Engine Selector */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-2 p-2.5 bg-slate-50 border border-slate-200/80 rounded-2xl mb-6">
+        <span className="text-xs font-bold text-slate-700 pr-1">
           نظام التقييم:
         </span>
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
           <button
             type="button"
-            onClick={() => setActiveEvalMode('local')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeEvalMode === 'local'
+            onClick={() => setActiveEvalMode('acoustic')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeEvalMode === 'acoustic'
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
             }`}
           >
-            <Zap className="w-3.5 h-3.5" />
-            <span>التقييم الداخلي (الأساسي)</span>
+            <Zap className="w-3.5 h-3.5 text-amber-300" />
+            <span>التحليل الصوتي الفيزيائي (⚡ فوري ومجاني)</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveEvalMode('ai')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               activeEvalMode === 'ai'
                 ? 'bg-indigo-600 text-white shadow-xs'
                 : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
@@ -527,6 +618,19 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           >
             <Sparkles className="w-3.5 h-3.5" />
             <span>الذكاء الاصطناعي</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveEvalMode('local')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeEvalMode === 'local'
+                ? 'bg-slate-800 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <Monitor className="w-3.5 h-3.5" />
+            <span>التعرف النصي</span>
           </button>
         </div>
       </div>
@@ -652,33 +756,48 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
           {/* Record Button */}
           <div className="relative my-2">
-            <button
-              onClick={isRecording ? stopRecording : startRecording}
-              disabled={isEvaluating}
-              className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 cursor-pointer shadow-lg ${
-                isRecording
-                  ? 'bg-rose-500 text-white hover:bg-rose-600 animate-mic-pulse shadow-rose-500/40 scale-105'
-                  : 'bg-emerald-600 text-white hover:bg-emerald-700 hover:scale-105 shadow-emerald-600/30'
-              }`}
-              title={isRecording ? 'اضغط لإنهاء التسجيل والتقييم' : 'اضغط للتحدث ونطق الكلمة'}
-            >
-              {isRecording ? (
-                <div className="flex flex-col items-center justify-center">
-                  <MicOff className="w-8 h-8" />
-                  <span className="text-[10px] font-bold mt-0.5">
-                    00:{recordDuration < 10 ? `0${recordDuration}` : recordDuration}
-                  </span>
-                </div>
-              ) : (
-                <Mic className="w-8 h-8" />
-              )}
-            </button>
+            {cooldownSeconds > 0 ? (
+              <div className="w-20 h-20 rounded-full flex flex-col items-center justify-center bg-amber-50 text-amber-700 border-2 border-amber-300 shadow-inner select-none animate-in fade-in">
+                <Clock className="w-7 h-7 text-amber-600" />
+                <span className="text-xs font-extrabold text-amber-800 mt-0.5 font-mono">
+                  {cooldownSeconds}ث
+                </span>
+              </div>
+            ) : (
+              <button
+                onClick={isRecording ? stopRecording : startRecording}
+                disabled={isEvaluating}
+                className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 cursor-pointer shadow-lg ${
+                  isRecording
+                    ? 'bg-rose-500 text-white hover:bg-rose-600 animate-mic-pulse shadow-rose-500/40 scale-105'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-700 hover:scale-105 shadow-emerald-600/30'
+                }`}
+                title={isRecording ? 'اضغط لإنهاء التسجيل والتقييم' : 'اضغط للتحدث ونطق الكلمة'}
+              >
+                {isRecording ? (
+                  <div className="flex flex-col items-center justify-center">
+                    <MicOff className="w-8 h-8" />
+                    <span className="text-[10px] font-bold mt-0.5">
+                      00:{recordDuration < 10 ? `0${recordDuration}` : recordDuration}
+                    </span>
+                  </div>
+                ) : (
+                  <Mic className="w-8 h-8" />
+                )}
+              </button>
+            )}
           </div>
 
           <p className="text-xs font-medium text-slate-500 mt-3 text-center">
-            {isRecording
-              ? 'تحدّث الآن بوضوح... اضغط على الزر مرة أخرى للتقييم'
-              : 'اضغط على الميكروفون ثم انطق الكلمة بوضوح'}
+            {cooldownSeconds > 0 ? (
+              <span className="text-amber-800 font-bold bg-amber-50 border border-amber-200 px-3 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse">
+                <span>⏳ استعد للمحاولة التالية خلال {cooldownSeconds} ثوانٍ...</span>
+              </span>
+            ) : isRecording ? (
+              'تحدّث الآن بوضوح... اضغط على الزر مرة أخرى للتقييم'
+            ) : (
+              'اضغط على الميكروفون ثم انطق الكلمة بوضوح'
+            )}
           </p>
 
           {(liveTranscript || isRecording) && (
@@ -701,10 +820,12 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
 
           {isEvaluating && (
-            <div className="mt-5 flex items-center gap-2.5 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-xs font-bold animate-pulse">
-              <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+            <div className="mt-5 flex items-center gap-2.5 px-4 py-2 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold animate-pulse">
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
               <span>
-                {activeEvalMode === 'ai'
+                {activeEvalMode === 'acoustic'
+                  ? 'جاري التحليل الصوتي الفيزيائي المباشر...'
+                  : activeEvalMode === 'ai'
                   ? 'جاري تقييم النطق عبر الذكاء الاصطناعي...'
                   : 'جاري تقييم النطق عبر النظام الداخلي...'}
               </span>

@@ -12,6 +12,7 @@ import {
   Sparkles,
   Info,
   Volume2,
+  Zap,
 } from 'lucide-react';
 import { speakArabicBrowser, speakArabicGemini, playUniversalArabicStream, playCustomAudio } from '../utils/arabicAudio';
 
@@ -197,7 +198,12 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
               </span>
 
               {/* Engine Badge */}
-              {evaluation.engineUsed === 'ai' ? (
+              {evaluation.engineUsed === 'acoustic' ? (
+                <span className="flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  <Zap className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>التحليل الصوتي الفيزيائي المباشر (Acoustic Matching) ⚡</span>
+                </span>
+              ) : evaluation.engineUsed === 'ai' ? (
                 <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
                   <Sparkles className="w-3.5 h-3.5 text-purple-600" />
                   <span>تقييم الذكاء الاصطناعي (Gemini AI)</span>
@@ -284,6 +290,51 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Acoustic Waveform & Voice Metrics (for in-browser physical matching) */}
+      {evaluation.acousticMetrics && (
+        <div className="bg-emerald-50/50 border border-emerald-200/80 rounded-2xl p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+              <Zap className="w-4 h-4 text-emerald-600" />
+              <span>مؤشرات البصمة الصوتية الفيزيائية (Acoustic Metrics):</span>
+            </h4>
+            <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
+              معالجة فورية ومحلية ⚡
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="bg-white p-3 rounded-xl border border-emerald-100 text-center shadow-2xs">
+              <span className="text-[10px] text-slate-500 block mb-0.5">نقاء وقوة الصوت</span>
+              <span className="text-base font-extrabold text-emerald-600 font-mono">
+                {evaluation.acousticMetrics.energyLevel}%
+              </span>
+            </div>
+            <div className="bg-white p-3 rounded-xl border border-emerald-100 text-center shadow-2xs">
+              <span className="text-[10px] text-slate-500 block mb-0.5">زمن النطق المسجل</span>
+              <span className="text-base font-extrabold text-sky-600 font-mono">
+                {evaluation.acousticMetrics.speechDuration}ث
+              </span>
+              <span className="text-[9px] text-slate-400 block mt-0.5">
+                (المثالي: {evaluation.acousticMetrics.expectedDuration}ث)
+              </span>
+            </div>
+            <div className="bg-white p-3 rounded-xl border border-emerald-100 text-center shadow-2xs">
+              <span className="text-[10px] text-slate-500 block mb-0.5">تطابق المدود والإيقاع</span>
+              <span className="text-base font-extrabold text-indigo-600 font-mono">
+                {evaluation.acousticMetrics.durationMatchPercent}%
+              </span>
+            </div>
+            <div className="bg-white p-3 rounded-xl border border-emerald-100 text-center shadow-2xs">
+              <span className="text-[10px] text-slate-500 block mb-0.5">توازن الترددات</span>
+              <span className="text-base font-extrabold text-purple-600 font-mono">
+                {evaluation.acousticMetrics.spectralClarityScore}%
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Letter breakdown pills */}
       {evaluation.letterBreakdown && evaluation.letterBreakdown.length > 0 && (

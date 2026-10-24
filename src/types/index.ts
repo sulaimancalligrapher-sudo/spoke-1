@@ -1,4 +1,14 @@
-export type EvaluationMode = 'local' | 'ai';
+export type EvaluationMode = 'acoustic' | 'ai' | 'local';
+
+export interface AcousticWaveformMetrics {
+  speechDuration: number;
+  expectedDuration: number;
+  durationMatchPercent: number;
+  energyLevel: number; // 0-100
+  voiceActivityDetected: boolean;
+  rhythmScore: number; // 0-100
+  spectralClarityScore: number; // 0-100
+}
 
 export interface WordItem {
   id: string;
@@ -36,6 +46,7 @@ export interface PronunciationEvaluation {
   recordedAudioUrl?: string;
   engineUsed: EvaluationMode;
   engineNotice?: string;
+  acousticMetrics?: AcousticWaveformMetrics;
 }
 
 export interface PracticeHistoryItem {

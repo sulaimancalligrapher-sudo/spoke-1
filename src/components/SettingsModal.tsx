@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AudioSettings } from '../types';
-import { X, Settings, Volume2, Sparkles, Mic, Gauge, Key, CheckCircle2 } from 'lucide-react';
+import { X, Settings, Volume2, Sparkles, Mic, Gauge, Key, CheckCircle2, Zap } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -117,6 +117,55 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="text-xs font-bold">صوت المتصفح المباشر</div>
                 <div className="text-[10px] text-slate-500 mt-0.5">
                   استجابة فورية سريعة
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* Preferred Evaluation Engine */}
+          <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl">
+            <label className="block text-xs font-bold text-slate-800 mb-2 flex items-center gap-1.5">
+              <Zap className="w-4 h-4 text-emerald-600" />
+              <span>نظام تقييم نطق الطالب الافتراضي:</span>
+            </label>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ preferredEvaluationMode: 'acoustic' })}
+                className={`w-full p-2.5 rounded-xl border text-right transition-all cursor-pointer flex items-center justify-between ${
+                  (settings.preferredEvaluationMode || 'acoustic') === 'acoustic'
+                    ? 'bg-emerald-50 border-emerald-400 text-emerald-950 shadow-xs'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                }`}
+              >
+                <div>
+                  <div className="text-xs font-bold flex items-center gap-1.5">
+                    <span>التحليل الصوتي الفيزيائي المباشر (Acoustic Matching)</span>
+                    <span className="text-[10px] bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded-md font-bold">
+                      موصى به ⚡
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">
+                    يعمل فورياً داخل الهاتف والكمبيوتر، مجاني 100% للأبد وبدون خوادم أو رصيد
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ preferredEvaluationMode: 'ai' })}
+                className={`w-full p-2.5 rounded-xl border text-right transition-all cursor-pointer flex items-center justify-between ${
+                  settings.preferredEvaluationMode === 'ai'
+                    ? 'bg-indigo-50 border-indigo-400 text-indigo-950 shadow-xs'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                }`}
+              >
+                <div>
+                  <div className="text-xs font-bold">الذكاء الاصطناعي السحابي (Gemini AI)</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">
+                    تحليل لغوي سحابي متقدم لمخارج الحروف والتجويد (يتطلب مفتاح API وحصة يومية)
+                  </div>
                 </div>
               </button>
             </div>
