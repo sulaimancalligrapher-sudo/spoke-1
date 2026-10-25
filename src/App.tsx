@@ -21,7 +21,7 @@ import { StatsModal } from './components/StatsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { GuideModal } from './components/GuideModal';
 import { AdminPanel } from './components/AdminPanel';
-import { sendScoreToGoogleSheets } from './utils/googleSheets';
+import { sendScoreToGoogleSheets, fetchCurriculumFromSheets } from './utils/googleSheets';
 import {
   Sparkles,
   ChevronRight,
@@ -235,7 +235,26 @@ export default function App() {
       }
 
       const savedSheets = localStorage.getItem(STORAGE_KEY_SHEETS);
-      if (savedSheets) setSheetsConfig(JSON.parse(savedSheets));
+      if (savedSheets) {
+        const parsedSheets: GoogleSheetsConfig = JSON.parse(savedSheets);
+        setSheetsConfig(parsedSheets);
+
+        // If Google Sheets is configured and auto-sync is enabled, fetch lessons directly from sheet "الدروس"
+        if (parsedSheets.webhookUrl && parsedSheets.syncCurriculumFromSheets !== false) {
+          fetchCurriculumFromSheets(parsedSheets.webhookUrl).then((res) => {
+            if (res.success && res.curriculum && res.curriculum.length > 0) {
+              setCurriculum(res.curriculum);
+              if (res.subjects && res.subjects.length > 0) setSubjects(res.subjects);
+              if (res.categories && res.categories.length > 0) setCategories(res.categories);
+              localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(res.curriculum));
+              setSyncNotice(`تمت المزامنة المباشرة للدروس من Google Sheets (${res.curriculum.length} كلمة)`);
+              setTimeout(() => setSyncNotice(null), 4000);
+            }
+          }).catch((err) => {
+            console.warn('Auto-sync from Google Sheets notice:', err);
+          });
+        }
+      }
 
       const savedSubmissions = localStorage.getItem(STORAGE_KEY_SUBMISSIONS);
       if (savedSubmissions) setSubmissions(JSON.parse(savedSubmissions));

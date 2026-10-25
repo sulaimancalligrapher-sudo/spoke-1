@@ -654,10 +654,13 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           </div>
         )}
 
+        {/* شارة التكرار المطلوبة - واضحة ومستقلة تماماً فوق نص الدرس */}
         {wordItem.repeatCount && wordItem.repeatCount > 1 && (
-          <div className="mb-3 inline-flex items-center gap-2 px-4 py-1.5 bg-amber-500/15 border border-amber-400 text-amber-900 rounded-2xl text-xs sm:text-sm font-bold shadow-2xs animate-pulse">
-            <RotateCcw className="w-4 h-4 text-amber-700" />
-            <span>المطلوب: كرر نطق الكلمة ({wordItem.repeatCount}) مرات متتالية بوضوح</span>
+          <div className="flex justify-center mb-5">
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-amber-50 border-2 border-amber-300 text-amber-950 rounded-2xl text-xs sm:text-sm font-bold shadow-xs">
+              <RotateCcw className="w-4 h-4 text-amber-700 shrink-0" />
+              <span>🔁 المطلوب: كرر نطق هذا النص ({wordItem.repeatCount}) مرات متتالية بوضوح</span>
+            </div>
           </div>
         )}
 

@@ -80,6 +80,8 @@ export interface GoogleSheetsConfig {
   webhookUrl: string;
   autoSync: boolean;
   lastSyncTime?: number;
+  driveFolderId?: string; // معرف مجلد Google Drive للأصوات
+  syncCurriculumFromSheets?: boolean; // مزامنة الدروس من ورقة "الدروس"
 }
 
 export interface StudentSubmissionRecord {
