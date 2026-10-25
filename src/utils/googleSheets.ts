@@ -12,6 +12,94 @@ export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'
  * - Col R:Y (3rd word / text)
  * - Col Z:AG (4th word / text) ... and so on!
  */
+/**
+ * Sends a POST request to Google Apps Script.
+ * 1. First tries the local /api/google-sheets proxy (eliminates all browser CORS errors).
+ * 2. If the proxy returns an error message or fails to connect:
+ *    Falls back to direct fetch.
+ * 3. If direct fetch triggers a browser CORS/redirect error (TypeError: Failed to fetch),
+ *    retries with mode: 'no-cors' so the browser delivers the payload directly to Google Apps Script!
+ */
+export async function callGoogleSheetsPost(webhookUrl: string, payload: any): Promise<{
+  success: boolean;
+  data?: any;
+  message?: string;
+  error?: string;
+}> {
+  const cleanUrl = webhookUrl.trim();
+
+  // 1. Try server-side proxy first (best for CORS on Vercel & local server)
+  try {
+    const proxyRes = await fetch('/api/google-sheets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ webhookUrl: cleanUrl, payload }),
+    });
+
+    if (proxyRes.ok) {
+      const data = await proxyRes.json().catch(() => null);
+      if (data && data.success !== false && !data.error) {
+        return { success: true, data, message: data.message };
+      }
+      if (data && data.error) {
+        return { success: false, error: data.error };
+      }
+    } else {
+      const errData = await proxyRes.json().catch(() => null);
+      if (errData && errData.error) {
+        return { success: false, error: errData.error };
+      }
+    }
+  } catch (proxyErr) {
+    console.warn('Proxy fetch failed, attempting direct fetch:', proxyErr);
+  }
+
+  // 2. Direct fetch fallback
+  try {
+    const directRes = await fetch(cleanUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+    });
+
+    if (directRes.ok) {
+      const data = await directRes.json().catch(() => null);
+      return { success: true, data, message: data?.message };
+    }
+  } catch (directErr: any) {
+    console.warn('Direct fetch failed with CORS error, delivering via no-cors mode:', directErr);
+    // 3. Fallback to mode: 'no-cors' so the browser delivers the payload directly to Google Apps Script
+    try {
+      await fetch(cleanUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+      });
+      return {
+        success: true,
+        message: 'تم إرسال البيانات إلى Google Sheets بنجاح!',
+      };
+    } catch (noCorsErr: any) {
+      return {
+        success: false,
+        error: 'تعذر الاتصال بـ Google Sheets: ' + (noCorsErr?.message || 'خطأ في الشبكة'),
+      };
+    }
+  }
+
+  return { success: true, message: 'تم إرسال الطلب إلى Google Sheets!' };
+}
+
+/**
+ * Fetch curriculum (lessons and exercises) directly from Google Sheet tab "الدروس"
+ * Supports the horizontal layout:
+ * - Col A: موضوع الدرس
+ * - Col B:I (1st word / text)
+ * - Col J:Q (2nd word / text)
+ * - Col R:Y (3rd word / text)
+ * - Col Z:AG (4th word / text) ... and so on!
+ */
 export async function fetchCurriculumFromSheets(webhookUrl: string): Promise<{
   success: boolean;
   curriculum?: WordItem[];
@@ -23,32 +111,61 @@ export async function fetchCurriculumFromSheets(webhookUrl: string): Promise<{
     return { success: false, error: 'رابط Google Sheets غير صالح' };
   }
 
+  const cleanUrl = webhookUrl.trim();
+  const targetUrl = cleanUrl.includes('?') 
+    ? `${cleanUrl}&action=get_curriculum&_t=${Date.now()}` 
+    : `${cleanUrl}?action=get_curriculum&_t=${Date.now()}`;
+
+  let data: any = null;
+
+  // 1. Try server-side proxy first (bypasses browser CORS)
   try {
-    const cleanUrl = webhookUrl.trim();
-    const targetUrl = cleanUrl.includes('?') 
-      ? `${cleanUrl}&action=get_curriculum&_t=${Date.now()}` 
-      : `${cleanUrl}?action=get_curriculum&_t=${Date.now()}`;
-
-    const res = await fetch(targetUrl, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-      },
-    });
-
-    if (!res.ok) {
-      return { success: false, error: `استجاب السيرفر برمز خطأ: ${res.status}` };
+    const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+    if (proxyRes.ok) {
+      data = await proxyRes.json().catch(() => null);
+    } else {
+      const errJson = await proxyRes.json().catch(() => null);
+      if (errJson && errJson.error) {
+        return { success: false, error: errJson.error };
+      }
     }
+  } catch (proxyErr) {
+    console.warn('Proxy GET failed, trying direct fetch:', proxyErr);
+  }
 
-    const data = await res.json();
-    if (!data || !Array.isArray(data.curriculum)) {
-      return {
-        success: false,
-        error: 'لم يتم العثور على تمارين في ورقة "الدروس". تأكد من تسمية الورقة (الدروس) وترتيب الأعمدة A ثم B:I و J:Q و R:Y...',
-      };
+  // 2. Direct fetch fallback
+  if (!data || !Array.isArray(data.curriculum)) {
+    try {
+      const directRes = await fetch(targetUrl, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+
+      if (directRes.ok) {
+        data = await directRes.json().catch(() => null);
+      }
+    } catch (directErr: any) {
+      console.warn('Direct GET failed:', directErr);
+      if (!data) {
+        return {
+          success: false,
+          error:
+            'تم حظر الاتصال بـ Google Sheets (CORS). يرجى التأكد عند نشر السكربت (Deploy) في Google Sheets من ضبط: (من يملك حق الوصول Who has access) = (أي شخص Anyone) وليس (أنا فقط Only myself).',
+        };
+      }
     }
+  }
 
-    const words: WordItem[] = data.curriculum.map((item: any, idx: number) => ({
+  if (!data || !Array.isArray(data.curriculum)) {
+    return {
+      success: false,
+      error:
+        'لم يتم العثور على تمارين في ورقة "الدروس". تأكد من تسمية الورقة (الدروس) وترتيب الأعمدة A:I ونشر السكربت كـ Web App للجميع (Anyone).',
+    };
+  }
+
+  const words: WordItem[] = data.curriculum
+    .map((item: any, idx: number) => ({
       id: item.id || `sheet-${idx + 1}-${Date.now()}`,
       word: String(item.word || '').trim(),
       plainWord: removeTashkeel(String(item.word || '').trim()),
@@ -60,27 +177,22 @@ export async function fetchCurriculumFromSheets(webhookUrl: string): Promise<{
       autoReadText: item.autoReadText ? String(item.autoReadText).trim() : undefined,
       makhrajTip: String(item.makhrajTip || '').trim() || 'انطق الكلمة بوضوح ومخارج سليمة.',
       letterFocus: String(item.word || '').trim()[0],
-      repeatCount: typeof item.repeatCount === 'number' && item.repeatCount > 0 
-        ? item.repeatCount 
-        : (parseInt(item.repeatCount) || 1),
-    })).filter((w: WordItem) => Boolean(w.word));
+      repeatCount:
+        typeof item.repeatCount === 'number' && item.repeatCount > 0
+          ? item.repeatCount
+          : parseInt(item.repeatCount) || 1,
+    }))
+    .filter((w: WordItem) => Boolean(w.word));
 
-    const extractedSubjects: string[] = Array.from(new Set(words.map((w) => w.lessonSubject).filter(Boolean)));
-    const extractedCategories: string[] = Array.from(new Set(words.map((w) => w.category).filter(Boolean)));
+  const extractedSubjects: string[] = Array.from(new Set(words.map((w) => w.lessonSubject).filter(Boolean)));
+  const extractedCategories: string[] = Array.from(new Set(words.map((w) => w.category).filter(Boolean)));
 
-    return {
-      success: true,
-      curriculum: words,
-      subjects: extractedSubjects.length > 0 ? extractedSubjects : undefined,
-      categories: extractedCategories.length > 0 ? extractedCategories : undefined,
-    };
-  } catch (err: any) {
-    console.warn('Error fetching curriculum from Google Sheets:', err);
-    return {
-      success: false,
-      error: 'تعذر جلب الدروس من Google Sheets: ' + (err?.message || 'تأكد من نشر السكربت بوضعية Anyone'),
-    };
-  }
+  return {
+    success: true,
+    curriculum: words,
+    subjects: extractedSubjects.length > 0 ? extractedSubjects : undefined,
+    categories: extractedCategories.length > 0 ? extractedCategories : undefined,
+  };
 }
 
 /**
@@ -115,33 +227,13 @@ export async function saveWordToGoogleSheets(
     audioBase64: audioBase64 || undefined,
   };
 
-  try {
-    const res = await fetch(webhookUrl.trim(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
-    });
+  const res = await callGoogleSheetsPost(webhookUrl, payload);
 
-    if (res.ok) {
-      const data = await res.json().catch(() => null);
-      return {
-        success: true,
-        audioUrl: data?.audioUrl,
-        message: 'تم حفظ التمرين في ورقة "الدروس" بنجاح!',
-      };
-    }
-
-    return {
-      success: true,
-      message: 'تم إرسال طلب الحفظ إلى Google Sheets!',
-    };
-  } catch (err: any) {
-    console.warn('Error saving word to sheets:', err);
-    return {
-      success: false,
-      message: 'تعذر حفظ التمرين في الشيت: ' + (err?.message || 'خطأ في الشبكة'),
-    };
-  }
+  return {
+    success: res.success,
+    audioUrl: res.data?.audioUrl,
+    message: res.message || (res.success ? 'تم حفظ التمرين في ورقة "الدروس" بنجاح!' : (res.error || 'خطأ أثناء الحفظ')),
+  };
 }
 
 /**
@@ -156,21 +248,16 @@ export async function deleteWordFromGoogleSheets(
     return { success: false, message: 'رابط Google Sheets غير صالح' };
   }
 
-  try {
-    await fetch(webhookUrl.trim(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({
-        action: 'delete_word',
-        word: wordText,
-        lessonSubject,
-      }),
-    });
+  const res = await callGoogleSheetsPost(webhookUrl, {
+    action: 'delete_word',
+    word: wordText,
+    lessonSubject,
+  });
 
-    return { success: true, message: 'تم حذف التمرين من ورقة "الدروس" بنجاح' };
-  } catch (err: any) {
-    return { success: false, message: 'خطأ أثناء الحذف: ' + err.message };
-  }
+  return {
+    success: res.success,
+    message: res.success ? 'تم حذف التمرين من ورقة "الدروس" بنجاح' : (res.error || 'خطأ أثناء الحذف'),
+  };
 }
 
 /**
@@ -202,35 +289,23 @@ export async function syncAllCurriculumToSheets(
     })),
   };
 
-  try {
-    const res = await fetch(webhookUrl.trim(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
-    });
+  const res = await callGoogleSheetsPost(webhookUrl, payload);
 
-    if (res.ok) {
-      const data = await res.json().catch(() => null);
-      return {
-        success: true,
-        count: data?.count || curriculum.length,
-        lessonsCount: data?.lessonsCount,
-        message: data?.message || `تم بنجاح رفع وتحديث ${curriculum.length} كلمة وتدريب في ورقة "الدروس" في Google Sheets بالهيكل الأفقي المعتمد!`,
-      };
-    }
-
+  if (res.success) {
     return {
       success: true,
-      count: curriculum.length,
-      message: `تم إرسال طلب تصدير المنهج بالكامل (${curriculum.length} تمرين) إلى Google Sheets!`,
-    };
-  } catch (err: any) {
-    console.warn('Error syncing curriculum to sheets:', err);
-    return {
-      success: false,
-      message: 'تعذر رفع المنهج إلى Google Sheets: ' + (err?.message || 'خطأ في الشبكة'),
+      count: res.data?.count || curriculum.length,
+      lessonsCount: res.data?.lessonsCount,
+      message:
+        res.data?.message ||
+        `تم بنجاح رفع وتحديث ${curriculum.length} كلمة وتدريب في ورقة "الدروس" في Google Sheets بالهيكل الأفقي المعتمد!`,
     };
   }
+
+  return {
+    success: false,
+    message: res.error || 'تعذر رفع المنهج إلى Google Sheets. تأكد من نشر السكربت بوضعية Anyone.',
+  };
 }
 
 /**
@@ -256,27 +331,11 @@ export async function sendScoreToGoogleSheets(
     feedback: record.feedback || '',
   };
 
-  try {
-    await fetch(webhookUrl.trim(), {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    return {
-      success: true,
-      message: 'تم إرسال الدرجة بنجاح إلى جدول Google Sheets!',
-    };
-  } catch (err: any) {
-    console.warn('Google Sheets sync error:', err);
-    return {
-      success: false,
-      message: 'تعذر الاتصال بـ Google Sheets: ' + (err?.message || 'خطأ في الشبكة'),
-    };
-  }
+  const res = await callGoogleSheetsPost(webhookUrl, payload);
+  return {
+    success: res.success,
+    message: res.success ? 'تم إرسال الدرجة بنجاح إلى جدول Google Sheets!' : (res.error || 'تعذر الاتصال'),
+  };
 }
 
 /**
@@ -489,10 +548,17 @@ function doPost(e) {
       ]];
       
       if (lessonRowIndex !== -1 && wordColIndex !== -1) {
+        var neededCols = wordColIndex + 7;
+        if (sheet.getMaxColumns() < neededCols) {
+          sheet.insertColumnsAfter(sheet.getMaxColumns(), neededCols - sheet.getMaxColumns());
+        }
         sheet.getRange(lessonRowIndex, wordColIndex, 1, 8).setValues(blockData);
       } else {
         // إنشاء صف جديد للدرس يبدأ بـ العامود A ومعه أول تمرين (B:I)
         var newRow = [targetSubject].concat(blockData[0]);
+        if (sheet.getMaxColumns() < newRow.length) {
+          sheet.insertColumnsAfter(sheet.getMaxColumns(), newRow.length - sheet.getMaxColumns());
+        }
         sheet.appendRow(newRow);
       }
       
@@ -526,7 +592,17 @@ function doPost(e) {
     
     // (ج) تصدير وتحديث المنهج كاملاً من النظام إلى ورقة "الدروس" بالهيكل الأفقي
     if (data.action === "sync_full_curriculum" && Array.isArray(data.curriculum)) {
-      var sheet = ss.getSheetByName("الدروس") || ss.getSheetByName("دروس");
+      var sheet = ss.getSheetByName("الدروس") || ss.getSheetByName("دروس") || ss.getSheetByName("الدروس ");
+      if (!sheet) {
+        var allSheets = ss.getSheets();
+        for (var s = 0; s < allSheets.length; s++) {
+          var sName = allSheets[s].getName();
+          if (sName.indexOf("درس") !== -1 || sName.indexOf("الدروس") !== -1) {
+            sheet = allSheets[s];
+            break;
+          }
+        }
+      }
       if (!sheet) {
         sheet = ss.insertSheet("الدروس");
       }
@@ -548,11 +624,18 @@ function doPost(e) {
         }
       }
       
+      // التأكد من توفر جميع الأعمدة وتوسيع الورقة تلقائياً (تجنب أخطاء Range Out of Bounds)
+      var totalColsNeeded = 1 + (maxItemsPerLesson * 8);
+      if (totalColsNeeded < 33) totalColsNeeded = 33; // على الأقل 4 تمارين (عمود AG)
+      var curMaxCols = sheet.getMaxColumns();
+      if (curMaxCols < totalColsNeeded) {
+        sheet.insertColumnsAfter(curMaxCols, totalColsNeeded - curMaxCols);
+      }
+      
       // تفريغ المحتويات القديمة من الصف 2 فما دون
       var lastR = sheet.getLastRow();
-      var lastC = Math.max(9, sheet.getLastColumn());
       if (lastR > 1) {
-        sheet.getRange(2, 1, lastR - 1, lastC).clearContent();
+        sheet.getRange(2, 1, lastR - 1, sheet.getMaxColumns()).clearContent();
       }
       
       // التأكد من عناوين الأعمدة في الصف 1
