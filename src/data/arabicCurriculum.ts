@@ -123,12 +123,10 @@ export const ALL_CURRICULUM: WordItem[] = [
     "meaning": "اسم يبدأ بالشين المتفشية والميم الساكنة وصفير السين",
     "category": "الكلمة",
     "lessonSubject": "الكلمات الثلاثية البسيطة",
-    "level": 2,
-    "letterFocus": "ش، س",
-    "harakat": "فَتْحَة - سُكُون - تَنْوِين ضَمّ",
+    "imageUrl": "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=400&auto=format&fit=crop&q=80",
     "makhrajTip": "أعطِ حرف الشين حقه من التفشي، ثم سكّن الميم بوضوح.",
-    "transliteration": "Shamsun (Sun)",
-    "imageUrl": "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=400&auto=format&fit=crop&q=80"
+    "letterFocus": "ش",
+    "repeatCount": 5
   },
   {
     "id": "word-kitab",
