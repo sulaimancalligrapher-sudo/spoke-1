@@ -81,9 +81,9 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
   );
 
-  // Active evaluation mode: Desktop defaults to 'local' (Web Speech), Mobile/Tablet defaults to 'ai' (Gemini)
+  // Active evaluation mode: Defaults to 'ai' (Fast 16kHz Audio-First Gemini) across all devices and browsers
   const [activeEvalMode, setActiveEvalMode] = useState<EvaluationMode>(
-    settings.preferredEvaluationMode || (isMobileDevice ? 'ai' : 'local')
+    settings.preferredEvaluationMode || 'ai'
   );
   const [studentName, setStudentName] = useState(settings.studentName || '');
   const [showMobileQuotaModal, setShowMobileQuotaModal] = useState(false);
@@ -338,18 +338,29 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
     );
 
-    // 1. LOCAL EVALUATION (Web Speech text matcher - Primary for Desktop/PC)
+    // 1. LOCAL EVALUATION (Only if user explicitly chose local mode AND browser captured text)
     if (activeEvalMode === 'local') {
-      const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
-      const evalResult: PronunciationEvaluation = {
-        ...localEval,
-        recordedAudioUrl,
-        engineUsed: 'local',
-      };
-      onEvaluationComplete(evalResult, recordedAudioUrl, studentName);
-      setIsEvaluating(false);
-      triggerCooldown(3);
-      return;
+      if (textToEvaluate.trim()) {
+        const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
+        const evalResult: PronunciationEvaluation = {
+          ...localEval,
+          recordedAudioUrl,
+          engineUsed: 'local',
+        };
+        onEvaluationComplete(evalResult, recordedAudioUrl, studentName);
+        setIsEvaluating(false);
+        triggerCooldown(3);
+        return;
+      } else if (!audioBlob) {
+        // No audio blob and no text: return clear prompt to speak
+        const localEval = evaluateArabicLocal(wordItem.word, '', wordItem.repeatCount || 1);
+        onEvaluationComplete({ ...localEval, recordedAudioUrl, engineUsed: 'local' }, recordedAudioUrl, studentName);
+        setIsEvaluating(false);
+        triggerCooldown(3);
+        return;
+      }
+      // If user is in 'local' mode but browser didn't write text (e.g. Firefox/Safari),
+      // we proceed below to evaluate the recorded audioBlob directly via AI/Acoustic rather than failing with 0%!
     }
 
     // 2. ACOUSTIC EVALUATION (Web Audio Physical Waveform - Free in-browser)
@@ -388,39 +399,35 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       return;
     }
 
-    // 3. AI EVALUATION (Gemini AI - Primary for Mobile & Tablet)
+    // 3. AI EVALUATION (Gemini AI - Direct Audio-First across all devices and browsers)
     const quota = getDailyQuotaStatus();
 
     // Check if daily quota is exceeded (for AI mode):
     if (quota.isExceeded) {
-      if (isMobileDevice) {
-        // Smoothly fall back to acoustic wave analysis so mobile training NEVER stops!
-        if (audioBlob) {
-          try {
-            const acousticResult = await evaluateAcousticLocally(
-              audioBlob,
-              wordItem.word,
-              textToEvaluate,
-              recordedAudioUrl
-            );
-            onEvaluationComplete(
-              {
-                ...acousticResult,
-                engineUsed: 'acoustic',
-                engineNotice:
-                  'تم التحويل التلقائي لنظام الذبذبات الصوتي لاكتمال الحصة اليومية للذكاء الاصطناعي - واصل تدريبك دون توقف!',
-              },
-              recordedAudioUrl,
-              studentName
-            );
-            setIsEvaluating(false);
-            triggerCooldown(4);
-            return;
-          } catch (e) {}
-        }
+      if (audioBlob) {
+        try {
+          const acousticResult = await evaluateAcousticLocally(
+            audioBlob,
+            wordItem.word,
+            textToEvaluate,
+            recordedAudioUrl
+          );
+          onEvaluationComplete(
+            {
+              ...acousticResult,
+              engineUsed: 'acoustic',
+              engineNotice:
+                'تم التحويل التلقائي لنظام الذبذبات الصوتي لاكتمال الحصة اليومية للذكاء الاصطناعي - واصل تدريبك دون توقف!',
+            },
+            recordedAudioUrl,
+            studentName
+          );
+          setIsEvaluating(false);
+          triggerCooldown(4);
+          return;
+        } catch (e) {}
       }
 
-      // On Desktop: graceful fallback to local evaluation
       const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
       onEvaluationComplete(
         {
@@ -437,7 +444,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       return;
     }
 
-    // Compress & Resample to lightweight 16kHz mono WAV (<50KB) before sending to Gemini API
+    // Compress & Resample to lightweight 16kHz mono WAV (~25KB-55KB) before sending to Gemini API
     let audioBase64 = '';
     let mimeType = 'audio/wav';
 
@@ -447,6 +454,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         audioBase64 = compressed.base64;
         mimeType = compressed.mimeType;
       } catch (e) {
+        console.warn('Fallback to standard blobToBase64:', e);
         audioBase64 = await blobToBase64(audioBlob);
         mimeType = audioBlob.type || 'audio/webm';
       }
@@ -463,7 +471,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         headers,
         body: JSON.stringify({
           targetWord: wordItem.word,
-          spokenText: textToEvaluate,
+          spokenText: textToEvaluate || undefined,
           audioBase64: audioBase64 || undefined,
           audioMimeType: mimeType,
           apiKey: settings.geminiApiKey || undefined,
@@ -485,7 +493,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           };
           onEvaluationComplete(evalResult, recordedAudioUrl, studentName);
           setIsEvaluating(false);
-          triggerCooldown(4); // 4-second cooldown to let student read feedback and avoid double-clicking
+          triggerCooldown(4);
           return;
         }
       } else {
@@ -495,6 +503,24 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         if (response.status === 400 && (errJson?.error?.includes('مفتاح') || errJson?.error?.includes('API key'))) {
           setKeyMissingError(true);
           setShowMobileQuotaModal(true);
+          // Don't leave student stranded; evaluate acoustically
+          if (audioBlob) {
+            const acousticResult = await evaluateAcousticLocally(
+              audioBlob,
+              wordItem.word,
+              textToEvaluate,
+              recordedAudioUrl
+            );
+            onEvaluationComplete(
+              {
+                ...acousticResult,
+                engineUsed: 'acoustic',
+                engineNotice: 'تم التقييم الصوتي المباشر. يمكنك إضافة مفتاحك في الإعدادات لتفعيل الذكاء الاصطناعي.',
+              },
+              recordedAudioUrl,
+              studentName
+            );
+          }
           setIsEvaluating(false);
           return;
         }
@@ -511,8 +537,8 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       console.warn('Gemini server evaluation error:', err);
     }
 
-    // If AI evaluation hit any transient error on mobile: fall back to acoustic so student is NEVER blocked!
-    if (isMobileDevice && audioBlob) {
+    // If AI evaluation hit any transient error or rate limit: fall back to acoustic analysis on ANY device!
+    if (audioBlob) {
       try {
         const acousticResult = await evaluateAcousticLocally(
           audioBlob,
@@ -536,7 +562,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       } catch (e) {}
     }
 
-    // On Desktop: graceful fallback to local matcher
+    // Fallback if no audio blob at all
     const fallbackLocal = evaluateArabicLocal(wordItem.word, textToEvaluate);
     onEvaluationComplete(
       {
@@ -597,19 +623,6 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
           <button
             type="button"
-            onClick={() => setActiveEvalMode('acoustic')}
-            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeEvalMode === 'acoustic'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5 text-amber-300" />
-            <span>التحليل الصوتي الفيزيائي (⚡ فوري ومجاني)</span>
-          </button>
-
-          <button
-            type="button"
             onClick={() => setActiveEvalMode('ai')}
             className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               activeEvalMode === 'ai'
@@ -618,7 +631,20 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>الذكاء الاصطناعي</span>
+            <span>الذكاء الاصطناعي (استماع صوتي مباشر ⚡)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveEvalMode('acoustic')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeEvalMode === 'acoustic'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-300" />
+            <span>التحليل الصوتي الفيزيائي (مجاني)</span>
           </button>
 
           <button
@@ -631,7 +657,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             }`}
           >
             <Monitor className="w-3.5 h-3.5" />
-            <span>التعرف النصي</span>
+            <span>التعرف النصي للمتصفح</span>
           </button>
         </div>
       </div>

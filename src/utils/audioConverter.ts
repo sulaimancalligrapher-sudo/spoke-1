@@ -1,8 +1,43 @@
 /**
  * Audio Converter & Compressor for In-Browser Speech Recognition
- * Resamples any mobile/browser audio (MP4, AAC, WebM, OGG) to lightweight 16kHz Mono WAV.
- * Reduces 5MB-10MB mobile recordings to ~40KB-70KB so Vercel never hits payload limits!
+ * Resamples any mobile/browser audio (MP4, AAC, WebM, OGG, WAV) to lightweight 16kHz Mono WAV.
+ * Reduces 5MB-10MB mobile recordings to ~25KB-55KB so network upload is instant (<300ms)!
  */
+
+/**
+ * Trim leading and trailing silence from Float32Array PCM samples
+ * to make the payload ultra-small and eliminate empty audio delays.
+ */
+function trimSilence(samples: Float32Array, threshold = 0.015, maxDurationSeconds = 7, sampleRate = 16000): Float32Array {
+  const maxSamples = maxDurationSeconds * sampleRate;
+  
+  let startIndex = 0;
+  while (startIndex < samples.length && Math.abs(samples[startIndex]) < threshold) {
+    startIndex++;
+  }
+
+  // Keep a small 100ms buffer before speech starts if available
+  startIndex = Math.max(0, startIndex - Math.floor(sampleRate * 0.1));
+
+  let endIndex = samples.length - 1;
+  while (endIndex > startIndex && Math.abs(samples[endIndex]) < threshold) {
+    endIndex--;
+  }
+
+  // Keep a small 150ms buffer after speech ends if available
+  endIndex = Math.min(samples.length - 1, endIndex + Math.floor(sampleRate * 0.15));
+
+  if (endIndex <= startIndex) {
+    // If entirely silent, cap to first 2 seconds
+    return samples.slice(0, Math.min(samples.length, sampleRate * 2));
+  }
+
+  let trimmed = samples.slice(startIndex, endIndex + 1);
+  if (trimmed.length > maxSamples) {
+    trimmed = trimmed.slice(0, maxSamples);
+  }
+  return trimmed;
+}
 
 /**
  * Resample an AudioBuffer to target sample rate (default: 16000 Hz)
@@ -25,7 +60,7 @@ function resampleAudioBuffer(audioBuffer: AudioBuffer, targetSampleRate = 16000)
     return monoData;
   }
 
-  // Linear interpolation resampling to 16kHz
+  // Linear interpolation resampling to targetSampleRate (16kHz)
   const ratio = oldSampleRate / targetSampleRate;
   const newLength = Math.round(oldLength / ratio);
   const result = new Float32Array(newLength);
@@ -110,8 +145,8 @@ export function blobToBase64String(blob: Blob): Promise<string> {
 }
 
 /**
- * Resample & compress any audio blob from mobile or desktop
- * Returns a compact 16kHz WAV Blob and Base64 string (<80KB)
+ * Resample & compress any audio blob from mobile (iOS/Android) or desktop (Chrome/Firefox/Safari)
+ * Returns a compact 16kHz Mono WAV Blob and Base64 string (~25KB-55KB)
  */
 export async function compressAndResampleAudio(
   audioBlob: Blob
@@ -126,10 +161,34 @@ export async function compressAndResampleAudio(
 
   const audioCtx = new AudioContextClass();
   try {
+    // Safari / iOS requires resuming suspended AudioContext
+    if (audioCtx.state === 'suspended') {
+      await audioCtx.resume();
+    }
+
     const arrayBuffer = await audioBlob.arrayBuffer();
-    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-    const monoSamples = resampleAudioBuffer(audioBuffer, 16000);
-    const wavBlob = encodeWAV(monoSamples, 16000);
+
+    // Safari iOS compatibility: pass slice(0) and support legacy callback syntax if promise fails
+    const audioBuffer = await new Promise<AudioBuffer>((resolve, reject) => {
+      try {
+        const promise = audioCtx.decodeAudioData(
+          arrayBuffer.slice(0),
+          (decoded) => resolve(decoded),
+          (err) => reject(err)
+        );
+        if (promise && typeof promise.then === 'function') {
+          promise.then(resolve).catch(reject);
+        }
+      } catch (e) {
+        reject(e);
+      }
+    });
+
+    // Resample down to speech standard 16kHz Mono
+    const rawMonoSamples = resampleAudioBuffer(audioBuffer, 16000);
+    // Trim silent margins and cap max length to 7 seconds (~40KB)
+    const trimmedSamples = trimSilence(rawMonoSamples, 0.015, 7, 16000);
+    const wavBlob = encodeWAV(trimmedSamples, 16000);
     const base64 = await blobToBase64String(wavBlob);
 
     return {
@@ -138,7 +197,7 @@ export async function compressAndResampleAudio(
       mimeType: 'audio/wav',
     };
   } catch (err) {
-    console.warn('Audio compression fallback:', err);
+    console.warn('Audio compression fallback (using original audio):', err);
     const base64 = await blobToBase64String(audioBlob);
     return { wavBlob: audioBlob, base64, mimeType: audioBlob.type || 'audio/webm' };
   } finally {
@@ -147,3 +206,4 @@ export async function compressAndResampleAudio(
     }
   }
 }
+

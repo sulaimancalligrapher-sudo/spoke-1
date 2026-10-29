@@ -94,13 +94,13 @@ export default function App() {
   // Student Submissions Log
   const [submissions, setSubmissions] = useState<StudentSubmissionRecord[]>([]);
 
-  // Settings: Desktop defaults to 'local' (Web Speech), Mobile/Tablet defaults to 'ai' (Gemini)
+  // Settings: Defaults to 'ai' (Direct 16kHz Audio Listening) across all devices and browsers
   const [settings, setSettings] = useState<AudioSettings>({
     speed: 0.9,
     engine: 'browser',
     autoPlayTarget: false,
     repeatTargetTwice: false,
-    preferredEvaluationMode: isMobileDevicePlatform() ? 'ai' : 'local',
+    preferredEvaluationMode: 'ai',
     studentName: '',
   });
 
@@ -236,8 +236,7 @@ export default function App() {
         const parsed = JSON.parse(savedSettings);
         setSettings({
           ...parsed,
-          preferredEvaluationMode:
-            parsed.preferredEvaluationMode || (isMobileDevicePlatform() ? 'ai' : 'local'),
+          preferredEvaluationMode: parsed.preferredEvaluationMode || 'ai',
         });
       }
 

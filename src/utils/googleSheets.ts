@@ -3,7 +3,7 @@ import { removeTashkeel } from './arabicMatcher';
 
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t';
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbyqkLw2qbPSAEzXgaqIKd3j970opvzJHCJezs8EQJ1-PFHQ1hU5p7KskajvMt4RlYEI/exec';
+  'https://script.google.com/macros/s/AKfycbyrk69FH2k9nYAYqoaF3enFR0ZDyQMPDHFRt9sgpnk_5QIgNT4kFbtPOIT5-TQ-4cSr6g/exec';
 
 /**
  * Fetch curriculum (lessons and exercises) directly from Google Sheet tab "الدروس"
