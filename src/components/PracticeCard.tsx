@@ -496,6 +496,9 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         if (data.success && data.evaluation) {
           incrementDailyQuota();
           setTransientErrorNotice(null);
+          if (data.transcript) {
+            setLiveTranscript(data.transcript);
+          }
           const evalResult: PronunciationEvaluation = {
             ...data.evaluation,
             timestamp: Date.now(),

@@ -340,7 +340,7 @@ export async function evaluateAcousticLocally(
     feedback,
     makhrajAdvice,
     vowelAccuracy,
-    detectedWord: targetWord,
+    detectedWord: spokenText && spokenText.trim() ? spokenText : 'رصد الذبذبات الصوتية',
     letterBreakdown,
     timestamp: Date.now(),
     recordedAudioUrl,
