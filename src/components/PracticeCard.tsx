@@ -210,19 +210,22 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     isRecordingRef.current = true;
     setIsRecording(true);
 
-    // 1. Start SpeechRecognition on desktop
+    // 1. Start SpeechRecognition on desktop (graceful non-looping)
     if (isSpeechRecognitionSupported()) {
       try {
+        let recognitionFailed = false;
         const recognizer = createSpeechRecognizer(
           (transcript) => {
             liveTranscriptRef.current = transcript;
             setLiveTranscript(transcript);
           },
           (error) => {
-            console.warn('Speech recognition notice:', error);
+            // Flag as failed so we don't infinitely retry on network / unsupported browser errors
+            recognitionFailed = true;
+            console.warn('Speech recognition notice (ignoring loop):', error);
           },
           () => {
-            if (isRecordingRef.current && speechRecognizerRef.current) {
+            if (isRecordingRef.current && speechRecognizerRef.current && !recognitionFailed) {
               try {
                 speechRecognizerRef.current.start();
               } catch (e) {}
@@ -460,6 +463,11 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       }
     }
 
+    const abortController = new AbortController();
+    const timeoutTimer = setTimeout(() => {
+      abortController.abort();
+    }, 10000); // 10-second hard ceiling to never leave student waiting
+
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (settings.geminiApiKey) {
@@ -469,6 +477,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       const response = await fetch('/api/evaluate', {
         method: 'POST',
         headers,
+        signal: abortController.signal,
         body: JSON.stringify({
           targetWord: wordItem.word,
           spokenText: textToEvaluate || undefined,
@@ -479,6 +488,8 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           notes: `الدرس: ${wordItem.lessonSubject} - الفئة: ${wordItem.category}`,
         }),
       });
+
+      clearTimeout(timeoutTimer);
 
       if (response.ok) {
         const data = await response.json();
@@ -534,7 +545,12 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         }
       }
     } catch (err: any) {
-      console.warn('Gemini server evaluation error:', err);
+      clearTimeout(timeoutTimer);
+      if (err.name === 'AbortError') {
+        console.warn('AI evaluation timed out after 10s, seamlessly falling back to acoustic.');
+      } else {
+        console.warn('Gemini server evaluation error:', err);
+      }
     }
 
     // If AI evaluation hit any transient error or rate limit: fall back to acoustic analysis on ANY device!

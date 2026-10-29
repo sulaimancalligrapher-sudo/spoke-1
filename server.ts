@@ -95,79 +95,91 @@ ${notes ? `ملاحظات إضافية: ${notes}` : ''}
 
     contents.push({ text: promptText });
 
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-3.8-flash'];
+    const primaryModel = 'gemini-flash-latest';
     let lastError: any = null;
     let evalResultText = '';
 
-    for (const modelName of modelsToTry) {
-      try {
-        const response = await aiInstance.models.generateContent({
-          model: modelName,
-          contents: contents.length === 1 ? contents[0].text : { parts: contents },
-          config: {
-            systemInstruction: 'أنت أستاذ لغة عربية خبير في علم الصوتيات ومخارج الحروف والتجويد. قيّم نطق المتعلم بدقة وموضوعية وسرعة.',
-            responseMimeType: 'application/json',
-            responseSchema: {
+    const modelConfig = {
+      systemInstruction: 'أنت أستاذ لغة عربية خبير في علم الصوتيات ومخارج الحروف والتجويد. قيّم نطق المتعلم بدقة وموضوعية وسرعة.',
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          score: {
+            type: Type.INTEGER,
+            description: 'الدرجة الكلية من 0 إلى 100',
+          },
+          grade: {
+            type: Type.STRING,
+            description: 'التقدير اللفظي: ممتاز، رائع، جيد جداً، جيد، أو يحتاج تدريباً',
+          },
+          isMatch: {
+            type: Type.BOOLEAN,
+            description: 'هل نطق الكلمة بنجاح مقبول؟',
+          },
+          repetitionsDetected: {
+            type: Type.INTEGER,
+            description: 'عدد مرات تكرار الكلمة المستهدفة التي رُصدت في التسجيل',
+          },
+          feedback: {
+            type: Type.STRING,
+            description: 'ملاحظة تربوية وتشجيعية مفصلة عن النطق وعدد التكرار',
+          },
+          makhrajAdvice: {
+            type: Type.STRING,
+            description: 'نصيحة دقيقة لكيفية نطق الحرف من مخرجه الصحيح',
+          },
+          vowelAccuracy: {
+            type: Type.STRING,
+            description: 'تقييم الحركات القصيرة والطويلة (الفتحة، الضمة، الكسرة، المدود)',
+          },
+          detectedWord: {
+            type: Type.STRING,
+            description: 'الكلمة التي سمعت بدقة مع التشكيل',
+          },
+          letterBreakdown: {
+            type: Type.ARRAY,
+            description: 'تحليل الحروف حرفاً بحرف',
+            items: {
               type: Type.OBJECT,
               properties: {
-                score: {
-                  type: Type.INTEGER,
-                  description: 'الدرجة الكلية من 0 إلى 100',
-                },
-                grade: {
-                  type: Type.STRING,
-                  description: 'التقدير اللفظي: ممتاز، رائع، جيد جداً، جيد، أو يحتاج تدريباً',
-                },
-                isMatch: {
-                  type: Type.BOOLEAN,
-                  description: 'هل نطق الكلمة بنجاح مقبول؟',
-                },
-                repetitionsDetected: {
-                  type: Type.INTEGER,
-                  description: 'عدد مرات تكرار الكلمة المستهدفة التي رُصدت في التسجيل',
-                },
-                feedback: {
-                  type: Type.STRING,
-                  description: 'ملاحظة تربوية وتشجيعية مفصلة عن النطق وعدد التكرار',
-                },
-                makhrajAdvice: {
-                  type: Type.STRING,
-                  description: 'نصيحة دقيقة لكيفية نطق الحرف من مخرجه الصحيح',
-                },
-                vowelAccuracy: {
-                  type: Type.STRING,
-                  description: 'تقييم الحركات القصيرة والطويلة (الفتحة، الضمة، الكسرة، المدود)',
-                },
-                detectedWord: {
-                  type: Type.STRING,
-                  description: 'الكلمة التي سمعت بدقة مع التشكيل',
-                },
-                letterBreakdown: {
-                  type: Type.ARRAY,
-                  description: 'تحليل الحروف حرفاً بحرف',
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      letter: { type: Type.STRING, description: 'الحرف' },
-                      status: { type: Type.STRING, description: 'صحيح | يحتاج تحسين | مفقود' },
-                      comment: { type: Type.STRING, description: 'ملاحظة صوتية على هذا الحرف' },
-                    },
-                    required: ['letter', 'status'],
-                  },
-                },
+                letter: { type: Type.STRING, description: 'الحرف' },
+                status: { type: Type.STRING, description: 'صحيح | يحتاج تحسين | مفقود' },
+                comment: { type: Type.STRING, description: 'ملاحظة صوتية على هذا الحرف' },
               },
-              required: ['score', 'grade', 'isMatch', 'feedback', 'makhrajAdvice', 'vowelAccuracy', 'letterBreakdown'],
+              required: ['letter', 'status'],
             },
           },
-        });
+        },
+        required: ['score', 'grade', 'isMatch', 'feedback', 'makhrajAdvice', 'vowelAccuracy', 'letterBreakdown'],
+      },
+    };
 
-        if (response && response.text) {
-          evalResultText = response.text;
-          break;
+    try {
+      const response = await aiInstance.models.generateContent({
+        model: primaryModel,
+        contents: contents.length === 1 ? contents[0].text : { parts: contents },
+        config: modelConfig,
+      });
+
+      if (response && response.text) {
+        evalResultText = response.text;
+      }
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`Local primary model ${primaryModel} notice:`, err?.message || err);
+
+      try {
+        const fallbackResp = await aiInstance.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: contents.length === 1 ? contents[0].text : { parts: contents },
+          config: modelConfig,
+        });
+        if (fallbackResp && fallbackResp.text) {
+          evalResultText = fallbackResp.text;
         }
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`Local model ${modelName} notice:`, err?.message || err);
+      } catch (fallbackErr: any) {
+        lastError = fallbackErr;
       }
     }
 
