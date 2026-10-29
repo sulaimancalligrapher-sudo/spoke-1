@@ -168,19 +168,43 @@ export async function compressAndResampleAudio(
 
     const arrayBuffer = await audioBlob.arrayBuffer();
 
-    // Safari iOS compatibility: pass slice(0) and support legacy callback syntax if promise fails
+    // Non-blocking decode: timeout after 1000ms to immediately fall back rather than hanging
     const audioBuffer = await new Promise<AudioBuffer>((resolve, reject) => {
+      let isSettled = false;
+      const timeoutId = setTimeout(() => {
+        if (!isSettled) {
+          isSettled = true;
+          reject(new Error('decodeAudioData timed out'));
+        }
+      }, 1000);
+
+      const safeResolve = (decoded: AudioBuffer) => {
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timeoutId);
+          resolve(decoded);
+        }
+      };
+
+      const safeReject = (err: any) => {
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timeoutId);
+          reject(err);
+        }
+      };
+
       try {
         const promise = audioCtx.decodeAudioData(
           arrayBuffer.slice(0),
-          (decoded) => resolve(decoded),
-          (err) => reject(err)
+          safeResolve,
+          safeReject
         );
         if (promise && typeof promise.then === 'function') {
-          promise.then(resolve).catch(reject);
+          promise.then(safeResolve).catch(safeReject);
         }
       } catch (e) {
-        reject(e);
+        safeReject(e);
       }
     });
 

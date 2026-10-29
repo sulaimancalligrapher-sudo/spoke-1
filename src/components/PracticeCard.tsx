@@ -297,10 +297,10 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     }
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.onstop = async () => {
+      const recorder = mediaRecorderRef.current;
+      recorder.onstop = async () => {
         const detectedMime =
-          mediaRecorderRef.current?.mimeType || getSupportedAudioMimeType() || 'audio/mp4';
+          recorder.mimeType || getSupportedAudioMimeType() || 'audio/mp4';
         const audioBlob = new Blob(audioChunksRef.current, {
           type: detectedMime,
         });
@@ -314,8 +314,15 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         setIsRecording(false);
 
         const currentSpoken = (liveTranscriptRef.current || liveTranscript).trim();
+        console.log('Voice recorded successfully, starting evaluation:', audioBlob.size, 'bytes');
         await evaluateStudentAttempt(audioBlob, currentSpoken, recordedAudioUrl);
       };
+
+      try {
+        recorder.stop();
+      } catch (err) {
+        console.warn('MediaRecorder stop notice:', err);
+      }
     } else {
       setIsRecording(false);
       if (recordingStream) {
