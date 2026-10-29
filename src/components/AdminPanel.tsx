@@ -535,12 +535,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleTestSheetsConnection = async () => {
-    if (!sheetsConfig.webhookUrl) {
+    const targetUrl = (sheetsConfig.webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+    if (!targetUrl) {
       alert('يرجى إدخال رابط Google Sheets Webhook أولاً');
       return;
     }
 
-    setTestStatus({ loading: true, message: 'جاري اختبار الإرسال إلى Google Sheets...' });
+    setTestStatus({ loading: true, message: 'جاري فحص الاتصال مع Google Sheets ومعاينة الورقة النشطة...' });
+
+    // First, inspect the active spreadsheet and sheet tab live
+    try {
+      const inspectRes = await fetchCurriculumFromSheets(targetUrl);
+      if (inspectRes.success) {
+        setTestStatus({
+          loading: false,
+          success: true,
+          message: `الاتصال ممتاز ومكتمل! متصل بملف: (${inspectRes.spreadsheetName || 'Google Sheets'}) | الورقة النشطة: [${inspectRes.sheetName || 'الدروس'}] | عدد التمارين الحالية بالشيت: ${inspectRes.curriculum?.length || 0} كلمة.`,
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn('Inspect fetch error:', e);
+    }
 
     const dummyRecord: StudentSubmissionRecord = {
       id: `test-${Date.now()}`,
@@ -555,7 +571,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       syncedToSheets: false,
     };
 
-    const res = await sendScoreToGoogleSheets(sheetsConfig.webhookUrl, dummyRecord);
+    const res = await sendScoreToGoogleSheets(targetUrl, dummyRecord);
     setTestStatus({
       loading: false,
       success: res.success,
@@ -565,7 +581,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Sync lessons and curriculum directly from sheet "الدروس"
   const handleSyncCurriculumFromSheets = async () => {
-    if (!sheetsConfig.webhookUrl) {
+    const targetUrl = (sheetsConfig.webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+    if (!targetUrl) {
       alert('يرجى إدخال رابط Google Sheets Webhook أولاً');
       return;
     }
@@ -573,7 +590,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIsSyncingSheetsCurriculum(true);
     setSheetsCurriculumStatus(null);
 
-    const res = await fetchCurriculumFromSheets(sheetsConfig.webhookUrl);
+    const res = await fetchCurriculumFromSheets(targetUrl);
     setIsSyncingSheetsCurriculum(false);
 
     if (res.success && res.curriculum && res.curriculum.length > 0) {
@@ -585,9 +602,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         res.categories.forEach((c) => onAddCategory(c));
       }
       onUpdateSheetsConfig({ lastSyncTime: Date.now() });
+      const targetSheetDesc = res.sheetName ? `ورقة [${res.sheetName}]` : 'ورقة "الدروس"';
+      const targetFileDesc = res.spreadsheetName ? ` في ملف (${res.spreadsheetName})` : '';
       setSheetsCurriculumStatus({
         success: true,
-        message: `تم بنجاح جلب ${res.curriculum.length} كلمة وتدريب من ورقة "الدروس" في Google Sheets!`,
+        message: `تم بنجاح جلب ${res.curriculum.length} كلمة وتدريب من ${targetSheetDesc}${targetFileDesc}!`,
       });
     } else {
       setSheetsCurriculumStatus({
@@ -599,7 +618,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Sync entire curriculum from the App into sheet "الدروس" (App -> Google Sheets)
   const handleSyncCurriculumToSheets = async () => {
-    if (!sheetsConfig.webhookUrl) {
+    const targetUrl = (sheetsConfig.webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+    if (!targetUrl) {
       alert('يرجى إدخال رابط Google Sheets Webhook أولاً');
       return;
     }
@@ -608,7 +628,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setSheetsCurriculumStatus(null);
 
     const res = await syncAllCurriculumToSheets(
-      sheetsConfig.webhookUrl,
+      targetUrl,
       curriculum,
       sheetsConfig.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID
     );

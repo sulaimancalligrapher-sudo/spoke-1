@@ -37,7 +37,18 @@ export default async function handler(req: any, res: any) {
       try {
         data = JSON.parse(text);
       } catch {
-        data = { success: response.ok, raw: text };
+        const isHtml = text.trim().startsWith('<') || text.includes('<!DOCTYPE');
+        let errorMsg = 'استجابة غير صالحة من Google Apps Script (لم يتم إرجاع JSON).';
+        if (text.includes('unable to open the file') || text.includes('Page not found')) {
+          errorMsg = 'تعذر فتح الملف في Google Apps Script. تأكد من أن الرابط منسوخ من خيار "تطبيق الويب" (Web App) وصلاحية الوصول (Anyone).';
+        } else if (text.includes('Script error')) {
+          errorMsg = 'حدث خطأ أثناء تنفيذ السكربت في Google Sheets.';
+        }
+        return res.status(502).json({
+          success: false,
+          error: errorMsg,
+          raw: isHtml ? text.substring(0, 300) : text,
+        });
       }
 
       return res.status(response.status || 200).json(data);
@@ -78,7 +89,18 @@ export default async function handler(req: any, res: any) {
       try {
         data = JSON.parse(text);
       } catch {
-        data = { success: response.ok, raw: text };
+        const isHtml = text.trim().startsWith('<') || text.includes('<!DOCTYPE');
+        let errorMsg = 'استجابة غير صالحة من Google Apps Script (لم يتم إرجاع JSON).';
+        if (text.includes('unable to open the file') || text.includes('Page not found')) {
+          errorMsg = 'تعذر فتح السكربت في Google Apps Script. تأكد من أن الرابط منسوخ من خيار "تطبيق الويب" (Web App) وصلاحية الوصول (Anyone).';
+        } else if (text.includes('Script error')) {
+          errorMsg = 'حدث خطأ أثناء تنفيذ السكربت في Google Sheets.';
+        }
+        return res.status(502).json({
+          success: false,
+          error: errorMsg,
+          raw: isHtml ? text.substring(0, 300) : text,
+        });
       }
 
       return res.status(response.status || 200).json(data);

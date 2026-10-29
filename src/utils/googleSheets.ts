@@ -3,7 +3,7 @@ import { removeTashkeel } from './arabicMatcher';
 
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t';
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycby-gs675oYfrXKPdpG2tttTHmH-f4rzWaWQ7rdsAjUylDLb1mRFsRP7B6PV4VCAq-0rTw/exec';
+  'https://script.google.com/macros/s/AKfycbyqkLw2qbPSAEzXgaqIKd3j970opvzJHCJezs8EQJ1-PFHQ1hU5p7KskajvMt4RlYEI/exec';
 
 /**
  * Fetch curriculum (lessons and exercises) directly from Google Sheet tab "الدروس"
@@ -40,16 +40,16 @@ export async function callGoogleSheetsPost(webhookUrl: string, payload: any): Pr
 
     if (proxyRes.ok) {
       const data = await proxyRes.json().catch(() => null);
-      if (data && data.success !== false && !data.error) {
+      if (data && data.success === true && !data.error) {
         return { success: true, data, message: data.message };
       }
-      if (data && data.error) {
-        return { success: false, error: data.error };
+      if (data && (data.success === false || data.error)) {
+        return { success: false, error: data.error || data.message || 'خطأ من مزود Google Sheets' };
       }
     } else {
       const errData = await proxyRes.json().catch(() => null);
-      if (errData && errData.error) {
-        return { success: false, error: errData.error };
+      if (errData && (errData.error || errData.message)) {
+        return { success: false, error: errData.error || errData.message };
       }
     }
   } catch (proxyErr) {
@@ -107,6 +107,9 @@ export async function fetchCurriculumFromSheets(webhookUrl: string): Promise<{
   curriculum?: WordItem[];
   subjects?: string[];
   categories?: string[];
+  sheetName?: string;
+  spreadsheetName?: string;
+  spreadsheetUrl?: string;
   error?: string;
 }> {
   if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
@@ -188,12 +191,14 @@ export async function fetchCurriculumFromSheets(webhookUrl: string): Promise<{
 
   const extractedSubjects: string[] = Array.from(new Set(words.map((w) => w.lessonSubject).filter(Boolean)));
   const extractedCategories: string[] = Array.from(new Set(words.map((w) => w.category).filter(Boolean)));
-
   return {
     success: true,
     curriculum: words,
     subjects: extractedSubjects.length > 0 ? extractedSubjects : undefined,
     categories: extractedCategories.length > 0 ? extractedCategories : undefined,
+    sheetName: data.sheetName,
+    spreadsheetName: data.spreadsheetName,
+    spreadsheetUrl: data.spreadsheetUrl,
   };
 }
 
@@ -447,20 +452,18 @@ function getLessonsSheet(ss) {
   var all = ss.getSheets();
   for (var i = 0; i < all.length; i++) {
     var name = all[i].getName().trim();
-    if (name === "الدروس" || name === "دروس" || name.indexOf("درس") !== -1 || name.indexOf("الدروس") !== -1) {
+    if (name === "الدروس" || name === "دروس") {
       return all[i];
-    }
-  }
-  // إذا لم نجد ورقة باسم الدروس، نستخدم الورقة الأولى بشرط ألا تكون ورقة النتائج
-  if (all.length > 0) {
-    var firstName = all[0].getName();
-    if (firstName.indexOf("نتائج") === -1 && firstName.indexOf("سجل") === -1) {
-      return all[0];
     }
   }
   try {
     return ss.insertSheet("الدروس");
   } catch(e) {
+    for (var j = 0; j < all.length; j++) {
+      if (all[j].getName().indexOf("سجل") === -1 && all[j].getName().indexOf("نتائج") === -1) {
+        return all[j];
+      }
+    }
     return all[0];
   }
 }
@@ -522,6 +525,9 @@ function doGet(e) {
     return ContentService.createTextOutput(JSON.stringify({
       success: true,
       count: curriculum.length,
+      sheetName: sheet.getName(),
+      spreadsheetName: ss.getName(),
+      spreadsheetUrl: ss.getUrl(),
       curriculum: curriculum
     })).setMimeType(ContentService.MimeType.JSON);
     
@@ -775,7 +781,10 @@ function doPost(e) {
         success: true,
         count: data.curriculum.length,
         lessonsCount: subjectsOrder.length,
-        message: "تم تحديث ورقة الدروس بنجاح بنظام الأعمدة الأفقية!"
+        sheetName: sheet.getName(),
+        spreadsheetName: ss.getName(),
+        spreadsheetUrl: ss.getUrl(),
+        message: "تم بنجاح رفع " + data.curriculum.length + " تمريناً إلى ورقة [" + sheet.getName() + "] في ملف (" + ss.getName() + ")!"
       })).setMimeType(ContentService.MimeType.JSON);
     }
     
