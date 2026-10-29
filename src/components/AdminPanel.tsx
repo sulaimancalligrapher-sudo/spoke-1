@@ -76,6 +76,8 @@ import {
   saveWordToGoogleSheets,
   deleteWordFromGoogleSheets,
   syncAllCurriculumToSheets,
+  uploadAudioToDrive,
+  DEFAULT_WEBHOOK_URL,
   DEFAULT_DRIVE_AUDIO_FOLDER_ID,
 } from '../utils/googleSheets';
 import { speakArabicBrowser, playUniversalArabicStream, playCustomAudio, stopAllAudio, blobToBase64 } from '../utils/arabicAudio';
@@ -212,10 +214,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [makhrajTip, setMakhrajTip] = useState('');
   const [repeatCount, setRepeatCount] = useState<number>(1);
 
-  // Teacher Voice Recording State
+  // Teacher Voice Recording State (Inline quick recording)
   const [isRecordingTeacher, setIsRecordingTeacher] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+
+  // Dedicated Voice Recording & Drive Upload Modal States (Issue 3)
+  const [showVoiceModal, setShowVoiceModal] = useState(false);
+  const [voiceRecordSeconds, setVoiceRecordSeconds] = useState(0);
+  const [isRecordingVoiceModal, setIsRecordingVoiceModal] = useState(false);
+  const [modalAudioBlob, setModalAudioBlob] = useState<Blob | null>(null);
+  const [modalAudioBlobUrl, setModalAudioBlobUrl] = useState<string | null>(null);
+  const [modalAudioBase64, setModalAudioBase64] = useState<string | null>(null);
+  const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
+  const [driveUploadResult, setDriveUploadResult] = useState<{ success: boolean; url?: string; message: string } | null>(null);
+  const voiceModalRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceModalChunksRef = useRef<Blob[]>([]);
+  const voiceTimerRef = useRef<any>(null);
 
   // Selected Lesson in View/Filter
   const [viewSelectedSubject, setViewSelectedSubject] = useState(subjects[0] || '');
@@ -328,6 +343,105 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const stopTeacherRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
+    }
+  };
+
+  // Dedicated Voice Recording & Drive Upload Handlers (Issue 3)
+  const handleOpenVoiceModal = () => {
+    setShowVoiceModal(true);
+    setVoiceRecordSeconds(0);
+    setIsRecordingVoiceModal(false);
+    setModalAudioBlob(null);
+    setModalAudioBlobUrl(null);
+    setModalAudioBase64(null);
+    setDriveUploadResult(null);
+  };
+
+  const handleStartVoiceModalRecording = async () => {
+    try {
+      voiceModalChunksRef.current = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      voiceModalRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          voiceModalChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(voiceModalChunksRef.current, { type: 'audio/webm' });
+        const blobUrl = URL.createObjectURL(audioBlob);
+        const base64 = await blobToBase64(audioBlob);
+        setModalAudioBlob(audioBlob);
+        setModalAudioBlobUrl(blobUrl);
+        setModalAudioBase64(base64);
+        stream.getTracks().forEach((track) => track.stop());
+        setIsRecordingVoiceModal(false);
+        if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+      };
+
+      mediaRecorder.start();
+      setIsRecordingVoiceModal(true);
+      setVoiceRecordSeconds(0);
+      voiceTimerRef.current = setInterval(() => {
+        setVoiceRecordSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('Microphone access error:', err);
+      alert('يرجى السماح بالوصول للميكروفون لبدء تسجيل صوت المعلم.');
+    }
+  };
+
+  const handleStopVoiceModalRecording = () => {
+    if (voiceModalRecorderRef.current && voiceModalRecorderRef.current.state !== 'inactive') {
+      voiceModalRecorderRef.current.stop();
+    }
+    if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+  };
+
+  const handleResetVoiceModalRecording = () => {
+    if (modalAudioBlobUrl) URL.revokeObjectURL(modalAudioBlobUrl);
+    setModalAudioBlob(null);
+    setModalAudioBlobUrl(null);
+    setModalAudioBase64(null);
+    setDriveUploadResult(null);
+    setVoiceRecordSeconds(0);
+    setIsRecordingVoiceModal(false);
+  };
+
+  const handleUploadModalAudioToDrive = async () => {
+    if (!modalAudioBase64) {
+      alert('لا يوجد صوت مسجل للرفع.');
+      return;
+    }
+
+    const effectiveWebhook = sheetsConfig.webhookUrl || DEFAULT_WEBHOOK_URL;
+    const targetFolder = sheetsConfig.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID;
+    setIsUploadingToDrive(true);
+    setDriveUploadResult(null);
+
+    const res = await uploadAudioToDrive(
+      effectiveWebhook,
+      modalAudioBase64,
+      wordText.trim() || 'صوت_شرح',
+      targetFolder
+    );
+
+    setIsUploadingToDrive(false);
+    if (res.success && res.audioUrl) {
+      setAudioUrl(res.audioUrl);
+      setDriveUploadResult({
+        success: true,
+        url: res.audioUrl,
+        message: 'تم حفظ الصوت ورفعه إلى Google Drive بنجاح! تم وضعه تلقائياً في حقل رابط الصوت.',
+      });
+    } else {
+      setDriveUploadResult({
+        success: false,
+        message: res.message || 'فشل الرفع إلى Google Drive. يرجى التأكد من نشر نسخة السكربت الجديدة.',
+      });
     }
   };
 
@@ -1228,11 +1342,20 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono dir-ltr text-left focus:outline-hidden focus:border-emerald-500"
                   />
 
-                  {/* أزرار مساعدة سريعة للصوت: رفع ملف أو تسجيل صوت المعلم بالميكروفون */}
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <label className="flex-1 flex items-center justify-center gap-1 py-1 px-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-[11px] font-bold text-slate-700 cursor-pointer transition-colors">
-                      <Upload className="w-3 h-3" />
-                      <span>رفع صوت من جهازي (MP3)</span>
+                  {/* أزرار مساعدة سريعة للصوت: نافذة التسجيل والرفع لـ Drive، رفع ملف محلي، وتسجيل سريع */}
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={handleOpenVoiceModal}
+                      className="flex-1 min-w-[200px] flex items-center justify-center gap-1.5 py-2 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm hover:shadow cursor-pointer"
+                    >
+                      <Mic className="w-3.5 h-3.5" />
+                      <span>نافذة تسجيل الصوت والرفع إلى Drive (معاينة وحفظ)</span>
+                    </button>
+
+                    <label className="flex items-center justify-center gap-1 py-2 px-3 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-bold text-slate-700 cursor-pointer transition-colors">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>رفع ملف (MP3)</span>
                       <input
                         type="file"
                         accept="audio/*"
@@ -1241,27 +1364,16 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                       />
                     </label>
 
-                    <button
-                      type="button"
-                      onClick={isRecordingTeacher ? stopTeacherRecording : startTeacherRecording}
-                      className={`flex-1 flex items-center justify-center gap-1 py-1 px-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                        isRecordingTeacher
-                          ? 'bg-rose-500 text-white animate-pulse'
-                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
-                      }`}
-                    >
-                      {isRecordingTeacher ? (
-                        <>
-                          <MicOff className="w-3 h-3" />
-                          <span>إيقاف وحفظ صوتي</span>
-                        </>
-                      ) : (
-                        <>
-                          <Mic className="w-3 h-3" />
-                          <span>سجل صوتك كمعلم</span>
-                        </>
-                      )}
-                    </button>
+                    {audioUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setAudioUrl('')}
+                        className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                        title="مسح رابط الصوت الحالي"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                   
                   {/* مؤشر حالة الصوت */}
@@ -2985,6 +3097,185 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                 className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
               >
                 إغلاق الدليل
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DEDICATED VOICE RECORDING & GOOGLE DRIVE MODAL (Issue 3) */}
+      {showVoiceModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-slate-100 text-right space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <Mic className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">تسجيل صوت الشرح ورفعه إلى Google Drive</h3>
+                  <p className="text-xs text-slate-500">معاينة الصوت قبل الرفع وحفظ الرابط المباشر في الشيت</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isRecordingVoiceModal) handleStopVoiceModalRecording();
+                  setShowVoiceModal(false);
+                }}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Target Context Info */}
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">الكلمة / النص المستهدف:</span>
+                <span className="font-amiri text-lg font-bold text-slate-900">{wordText || 'تمرين جديد'}</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-200/60 pt-1.5">
+                <span className="text-slate-500">موضوع الدرس:</span>
+                <span className="font-bold text-emerald-800">{lessonSubject}</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-200/60 pt-1.5">
+                <span className="text-slate-500">مجلد الحفظ في Google Drive:</span>
+                <span className="font-mono text-[11px] text-slate-700 font-semibold">{sheetsConfig.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID}</span>
+              </div>
+            </div>
+
+            {/* Step 1 & 2: Recording Controls */}
+            {!modalAudioBlobUrl ? (
+              <div className="p-6 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 text-center space-y-4">
+                {isRecordingVoiceModal ? (
+                  <div className="space-y-4">
+                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-rose-100 text-rose-700 text-sm font-bold animate-pulse">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping" />
+                      <span>جاري تسجيل صوت المعلم: {String(Math.floor(voiceRecordSeconds / 60)).padStart(2, '0')}:{String(voiceRecordSeconds % 60).padStart(2, '0')}</span>
+                    </div>
+                    <p className="text-xs text-slate-500">تحدث بوضوح بالقرب من الميكروفون لشرح الكلمة ومخارج حروفها...</p>
+                    <button
+                      type="button"
+                      onClick={handleStopVoiceModalRecording}
+                      className="px-6 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-bold transition-all shadow-md shadow-rose-600/30 flex items-center justify-center gap-2 mx-auto cursor-pointer"
+                    >
+                      <MicOff className="w-4 h-4" />
+                      <span>إيقاف التسجيل وإنهاء</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
+                      <Mic className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800">جاهز لبدء التسجيل الصوتي</h4>
+                      <p className="text-xs text-slate-500 mt-1">انقر أدناه لبدء تسجيل صوتك. يمكنك التحدث لشرح الكلمة أو نطقها بالطريقة الصحيحة.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleStartVoiceModalRecording}
+                      className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-bold transition-all shadow-md shadow-emerald-600/30 flex items-center justify-center gap-2 mx-auto cursor-pointer"
+                    >
+                      <Mic className="w-4 h-4" />
+                      <span>بدء تسجيل صوت المعلم</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Step 3: Audio Preview & Save to Drive */
+              <div className="p-5 bg-emerald-50/60 rounded-2xl border border-emerald-200/80 space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>تم تسجيل الصوت بنجاح! استمع للمعاينة:</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleResetVoiceModalRecording}
+                    className="text-[11px] text-slate-500 hover:text-slate-800 flex items-center gap-1 font-semibold cursor-pointer"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>إعادة التسجيل</span>
+                  </button>
+                </div>
+
+                {/* Audio Player for immediate preview */}
+                <div className="bg-white p-3 rounded-xl border border-emerald-100 shadow-xs">
+                  <audio
+                    src={modalAudioBlobUrl}
+                    controls
+                    className="w-full h-10 outline-hidden"
+                  />
+                </div>
+
+                {/* Upload to Google Drive Action */}
+                <div className="space-y-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleUploadModalAudioToDrive}
+                    disabled={isUploadingToDrive}
+                    className="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {isUploadingToDrive ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>جاري حفظ ورفع الملف إلى Google Drive...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        <span>☁️ حفظ ورفع في Google Drive ومزامنة الرابط في الشيت</span>
+                      </>
+                    )}
+                  </button>
+                  <p className="text-[10px] text-slate-500 text-center">
+                    سيتم حفظ الملف في مجلد Drive المعتمد وتوليد رابط مباشر يسجل في العامود D بورقة "الدروس".
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Upload Result Feedback */}
+            {driveUploadResult && (
+              <div
+                className={`p-3.5 rounded-2xl border text-xs font-semibold space-y-2 animate-in fade-in duration-200 ${
+                  driveUploadResult.success
+                    ? 'bg-emerald-50 text-emerald-950 border-emerald-300'
+                    : 'bg-rose-50 text-rose-950 border-rose-300'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {driveUploadResult.success ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  )}
+                  <span>{driveUploadResult.message}</span>
+                </div>
+
+                {driveUploadResult.url && (
+                  <div className="bg-white/80 p-2 rounded-lg border border-emerald-200 font-mono text-[10px] dir-ltr text-left break-all select-all">
+                    {driveUploadResult.url}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Bottom Modal Actions */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isRecordingVoiceModal) handleStopVoiceModalRecording();
+                  setShowVoiceModal(false);
+                }}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                {driveUploadResult?.success ? 'تم، العودة إلى الدرس' : 'إغلاق'}
               </button>
             </div>
           </div>

@@ -2,6 +2,8 @@ import { WordItem, StudentSubmissionRecord } from '../types';
 import { removeTashkeel } from './arabicMatcher';
 
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t';
+export const DEFAULT_WEBHOOK_URL =
+  'https://script.google.com/macros/s/AKfycby-gs675oYfrXKPdpG2tttTHmH-f4rzWaWQ7rdsAjUylDLb1mRFsRP7B6PV4VCAq-0rTw/exec';
 
 /**
  * Fetch curriculum (lessons and exercises) directly from Google Sheet tab "الدروس"
@@ -237,6 +239,43 @@ export async function saveWordToGoogleSheets(
 }
 
 /**
+ * Upload an audio recording (Base64) to Google Drive folder 1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t
+ * and return the direct Google Drive playable URL
+ */
+export async function uploadAudioToDrive(
+  webhookUrl: string,
+  audioBase64: string,
+  wordText: string,
+  driveFolderId = DEFAULT_DRIVE_AUDIO_FOLDER_ID
+): Promise<{ success: boolean; audioUrl?: string; fileId?: string; message: string }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'رابط Google Sheets Webhook غير مدخل' };
+  }
+
+  const payload = {
+    action: 'upload_audio',
+    driveFolderId,
+    word: wordText || 'lesson',
+    audioBase64,
+  };
+
+  const res = await callGoogleSheetsPost(webhookUrl, payload);
+  if (res.success && res.data?.audioUrl) {
+    return {
+      success: true,
+      audioUrl: res.data.audioUrl,
+      fileId: res.data.fileId,
+      message: res.data.message || 'تم حفظ ورفع ملف الصوت في Google Drive بنجاح!',
+    };
+  }
+
+  return {
+    success: false,
+    message: res.error || res.message || 'تعذر رفع الصوت إلى Google Drive. تأكد من تحديث كود السكربت بالنسخة الجديدة.',
+  };
+}
+
+/**
  * Delete a word from Google Sheets (Sheet: "الدروس")
  */
 export async function deleteWordFromGoogleSheets(
@@ -401,11 +440,36 @@ export const GOOGLE_APPS_SCRIPT_TEMPLATE = `/**
 
 var DEFAULT_FOLDER_ID = "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t";
 
+// دالة مساعدة ذكية للعثور على ورقة الدروس وتجنب أي خطأ في التسمية
+function getLessonsSheet(ss) {
+  var sheet = ss.getSheetByName("الدروس");
+  if (sheet) return sheet;
+  var all = ss.getSheets();
+  for (var i = 0; i < all.length; i++) {
+    var name = all[i].getName().trim();
+    if (name === "الدروس" || name === "دروس" || name.indexOf("درس") !== -1 || name.indexOf("الدروس") !== -1) {
+      return all[i];
+    }
+  }
+  // إذا لم نجد ورقة باسم الدروس، نستخدم الورقة الأولى بشرط ألا تكون ورقة النتائج
+  if (all.length > 0) {
+    var firstName = all[0].getName();
+    if (firstName.indexOf("نتائج") === -1 && firstName.indexOf("سجل") === -1) {
+      return all[0];
+    }
+  }
+  try {
+    return ss.insertSheet("الدروس");
+  } catch(e) {
+    return all[0];
+  }
+}
+
 // 1. GET: جلب جميع الدروس والتمارين الأفقية فورياً
 function doGet(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName("الدروس") || ss.getSheetByName("دروس") || ss.getSheets()[0];
+    var sheet = getLessonsSheet(ss);
     
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) {
@@ -474,19 +538,46 @@ function doPost(e) {
     var data = JSON.parse(raw);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     
-    // (أ) حفظ أو تعديل تمرين في الصف الأفقي لموضوع الدرس
+    // (أ) حفظ صوت المعلم مباشرة في Google Drive واسترجاع الرابط المباشر
+    if (data.action === "upload_audio" && data.audioBase64) {
+      var folderId = data.driveFolderId || DEFAULT_FOLDER_ID;
+      var folder = DriveApp.getFolderById(folderId);
+      var cleanBase64 = String(data.audioBase64);
+      if (cleanBase64.indexOf("base64,") !== -1) {
+        cleanBase64 = cleanBase64.split("base64,")[1];
+      }
+      var timeId = new Date().getTime();
+      var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), "audio/mp3", "audio_" + timeId + ".mp3");
+      var driveFile = folder.createFile(blob);
+      driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      var fileId = driveFile.getId();
+      var directAudioUrl = "https://drive.google.com/uc?export=download&id=" + fileId;
+      
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        fileId: fileId,
+        audioUrl: directAudioUrl,
+        message: "تم حفظ ورفع الصوت في Google Drive بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (ب) حفظ أو تعديل تمرين في الصف الأفقي لموضوع الدرس
     if (data.action === "save_word" && data.wordItem) {
-      var sheet = ss.getSheetByName("الدروس") || ss.getSheetByName("دروس") || ss.getSheets()[0];
+      var sheet = getLessonsSheet(ss);
       var item = data.wordItem;
       var audioUrl = item.audioUrl || "";
       
-      // رفع الصوت المسجل أو المرفوع إلى مجلد Google Drive المحدد
+      // رفع الصوت المسجل أو المرفوع إلى مجلد Google Drive المحدد إن وجد base64
       if (data.audioBase64) {
         try {
           var folderId = data.driveFolderId || DEFAULT_FOLDER_ID;
           var folder = DriveApp.getFolderById(folderId);
-          var cleanBase64 = data.audioBase64.replace(/^data:audio\\/[a-z0-9_-]+;base64,/, "");
-          var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), "audio/mp3", "audio_" + (item.word || "word") + "_" + Date.now() + ".mp3");
+          var cleanBase64 = String(data.audioBase64);
+          if (cleanBase64.indexOf("base64,") !== -1) {
+            cleanBase64 = cleanBase64.split("base64,")[1];
+          }
+          var timeId = new Date().getTime();
+          var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), "audio/mp3", "audio_" + timeId + ".mp3");
           var driveFile = folder.createFile(blob);
           driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
           audioUrl = "https://drive.google.com/uc?export=download&id=" + driveFile.getId();
@@ -568,9 +659,9 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
     
-    // (ب) حذف تمرين معين من الحزمة المخصصة له
+    // (ج) حذف تمرين معين من الحزمة المخصصة له
     if (data.action === "delete_word" && data.word) {
-      var sheet = ss.getSheetByName("الدروس") || ss.getSheetByName("دروس") || ss.getSheets()[0];
+      var sheet = getLessonsSheet(ss);
       var lastRow = sheet.getLastRow();
       if (lastRow > 1) {
         var lastCol = Math.max(9, sheet.getLastColumn());
@@ -590,22 +681,9 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
     
-    // (ج) تصدير وتحديث المنهج كاملاً من النظام إلى ورقة "الدروس" بالهيكل الأفقي
+    // (د) تصدير وتحديث المنهج كاملاً من النظام إلى ورقة "الدروس" بالهيكل الأفقي
     if (data.action === "sync_full_curriculum" && Array.isArray(data.curriculum)) {
-      var sheet = ss.getSheetByName("الدروس") || ss.getSheetByName("دروس") || ss.getSheetByName("الدروس ");
-      if (!sheet) {
-        var allSheets = ss.getSheets();
-        for (var s = 0; s < allSheets.length; s++) {
-          var sName = allSheets[s].getName();
-          if (sName.indexOf("درس") !== -1 || sName.indexOf("الدروس") !== -1) {
-            sheet = allSheets[s];
-            break;
-          }
-        }
-      }
-      if (!sheet) {
-        sheet = ss.insertSheet("الدروس");
-      }
+      var sheet = getLessonsSheet(ss);
       
       var maxItemsPerLesson = 1;
       var grouped = {};
@@ -624,12 +702,18 @@ function doPost(e) {
         }
       }
       
-      // التأكد من توفر جميع الأعمدة وتوسيع الورقة تلقائياً (تجنب أخطاء Range Out of Bounds)
-      var totalColsNeeded = 1 + (maxItemsPerLesson * 8);
-      if (totalColsNeeded < 33) totalColsNeeded = 33; // على الأقل 4 تمارين (عمود AG)
+      // التأكد من توفر جميع الأعمدة وتوسيع الورقة تلقائياً
+      var totalColsNeeded = 1 + (Math.max(maxItemsPerLesson, 4) * 8);
       var curMaxCols = sheet.getMaxColumns();
       if (curMaxCols < totalColsNeeded) {
         sheet.insertColumnsAfter(curMaxCols, totalColsNeeded - curMaxCols);
+      }
+      
+      // التأكد من توفر صفوف كافية
+      var totalRowsNeeded = Math.max(subjectsOrder.length + 5, 20);
+      var curMaxRows = sheet.getMaxRows();
+      if (curMaxRows < totalRowsNeeded) {
+        sheet.insertRowsAfter(curMaxRows, totalRowsNeeded - curMaxRows);
       }
       
       // تفريغ المحتويات القديمة من الصف 2 فما دون
@@ -638,7 +722,7 @@ function doPost(e) {
         sheet.getRange(2, 1, lastR - 1, sheet.getMaxColumns()).clearContent();
       }
       
-      // التأكد من عناوين الأعمدة في الصف 1
+      // عناوين الأعمدة في الصف 1
       var headerRow = ["موضوع الدرس"];
       for (var k = 1; k <= Math.max(maxItemsPerLesson, 4); k++) {
         headerRow.push(
@@ -656,11 +740,12 @@ function doPost(e) {
       sheet.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
       sheet.getRange(1, 1, 1, headerRow.length).setFontWeight("bold").setBackground("#e6f4ea");
       
-      // كتابة صفوف الدروس
+      // تجهيز مصفوفة الصفوف وكتابتها دفعة واحدة لسرعة وأمان تامين
       if (subjectsOrder.length > 0) {
+        var allRows = [];
         for (var sIdx = 0; sIdx < subjectsOrder.length; sIdx++) {
           var subjectName = subjectsOrder[sIdx];
-          var items = grouped[subjectName];
+          var items = grouped[subjectName] || [];
           var rowData = [subjectName];
           
           for (var itemIdx = 0; itemIdx < items.length; itemIdx++) {
@@ -676,8 +761,14 @@ function doPost(e) {
               parseInt(curItem.repeatCount) || 1
             );
           }
-          sheet.getRange(sIdx + 2, 1, 1, rowData.length).setValues([rowData]);
+          
+          while (rowData.length < headerRow.length) {
+            rowData.push("");
+          }
+          allRows.push(rowData);
         }
+        
+        sheet.getRange(2, 1, allRows.length, headerRow.length).setValues(allRows);
       }
       
       return ContentService.createTextOutput(JSON.stringify({
@@ -688,7 +779,7 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
     
-    // (د) تسجيل درجات وتقييم الطلاب في ورقة "سجل_النتائج"
+    // (هـ) تسجيل درجات وتقييم الطلاب في ورقة "سجل_النتائج"
     var resultSheet = ss.getSheetByName("سجل_النتائج") || ss.getSheetByName("النتائج");
     if (!resultSheet) {
       resultSheet = ss.insertSheet("سجل_النتائج");

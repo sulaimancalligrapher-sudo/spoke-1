@@ -21,7 +21,12 @@ import { StatsModal } from './components/StatsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { GuideModal } from './components/GuideModal';
 import { AdminPanel } from './components/AdminPanel';
-import { sendScoreToGoogleSheets, fetchCurriculumFromSheets } from './utils/googleSheets';
+import {
+  sendScoreToGoogleSheets,
+  fetchCurriculumFromSheets,
+  DEFAULT_WEBHOOK_URL,
+  DEFAULT_DRIVE_AUDIO_FOLDER_ID,
+} from './utils/googleSheets';
 import {
   Sparkles,
   ChevronRight,
@@ -77,11 +82,13 @@ export default function App() {
   // Practice History
   const [history, setHistory] = useState<PracticeHistoryItem[]>([]);
 
-  // Google Sheets Config
+  // Google Sheets Config (Defaulted to verified Webhook URL for seamless cross-device sync)
   const [sheetsConfig, setSheetsConfig] = useState<GoogleSheetsConfig>({
-    enabled: false,
-    webhookUrl: '',
+    enabled: true,
+    webhookUrl: DEFAULT_WEBHOOK_URL,
     autoSync: true,
+    syncCurriculumFromSheets: true,
+    driveFolderId: DEFAULT_DRIVE_AUDIO_FOLDER_ID,
   });
 
   // Student Submissions Log
@@ -235,25 +242,64 @@ export default function App() {
       }
 
       const savedSheets = localStorage.getItem(STORAGE_KEY_SHEETS);
-      if (savedSheets) {
-        const parsedSheets: GoogleSheetsConfig = JSON.parse(savedSheets);
-        setSheetsConfig(parsedSheets);
+      let activeConfig: GoogleSheetsConfig = {
+        enabled: true,
+        webhookUrl: DEFAULT_WEBHOOK_URL,
+        autoSync: true,
+        syncCurriculumFromSheets: true,
+        driveFolderId: DEFAULT_DRIVE_AUDIO_FOLDER_ID,
+      };
 
-        // If Google Sheets is configured and auto-sync is enabled, fetch lessons directly from sheet "الدروس"
-        if (parsedSheets.webhookUrl && parsedSheets.syncCurriculumFromSheets !== false) {
-          fetchCurriculumFromSheets(parsedSheets.webhookUrl).then((res) => {
+      if (savedSheets) {
+        try {
+          const parsedSheets: GoogleSheetsConfig = JSON.parse(savedSheets);
+          activeConfig = {
+            ...activeConfig,
+            ...parsedSheets,
+            webhookUrl: parsedSheets.webhookUrl || DEFAULT_WEBHOOK_URL,
+            driveFolderId: parsedSheets.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID,
+          };
+        } catch (e) {
+          console.warn('Error reading saved sheets config:', e);
+        }
+      }
+      setSheetsConfig(activeConfig);
+
+      // Auto-fetch lessons directly from sheet "الدروس" so mobile & tablet devices always get the latest curriculum
+      if (activeConfig.webhookUrl && activeConfig.syncCurriculumFromSheets !== false) {
+        fetchCurriculumFromSheets(activeConfig.webhookUrl)
+          .then((res) => {
             if (res.success && res.curriculum && res.curriculum.length > 0) {
               setCurriculum(res.curriculum);
-              if (res.subjects && res.subjects.length > 0) setSubjects(res.subjects);
-              if (res.categories && res.categories.length > 0) setCategories(res.categories);
+              if (res.subjects && res.subjects.length > 0) {
+                setSubjects(res.subjects);
+                localStorage.setItem(STORAGE_KEY_SUBJECTS, JSON.stringify(res.subjects));
+              }
+              if (res.categories && res.categories.length > 0) {
+                setCategories(res.categories);
+                localStorage.setItem(STORAGE_KEY_CATEGORIES, JSON.stringify(res.categories));
+              }
               localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(res.curriculum));
-              setSyncNotice(`تمت المزامنة المباشرة للدروس من Google Sheets (${res.curriculum.length} كلمة)`);
+
+              // If current item is not in fetched curriculum, update selected item
+              setSelectedItem((prev) => {
+                const found = res.curriculum!.find((item) => item.id === prev?.id || item.word === prev?.word);
+                return found || res.curriculum![0];
+              });
+              if (res.curriculum[0]?.lessonSubject) {
+                setStudentSubject((prev) => {
+                  if (res.subjects?.includes(prev)) return prev;
+                  return res.curriculum![0].lessonSubject || prev;
+                });
+              }
+
+              setSyncNotice(`🎉 تمت مزامنة الدروس الحية من Google Sheets (${res.curriculum.length} كلمة)`);
               setTimeout(() => setSyncNotice(null), 4000);
             }
-          }).catch((err) => {
-            console.warn('Auto-sync from Google Sheets notice:', err);
+          })
+          .catch((err) => {
+            console.warn('Auto-sync from Google Sheets on startup notice:', err);
           });
-        }
       }
 
       const savedSubmissions = localStorage.getItem(STORAGE_KEY_SUBMISSIONS);
