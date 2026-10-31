@@ -718,7 +718,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>الذكاء الاصطناعي (استماع صوتي مباشر ⚡)</span>
+            <span>الذكاء السحابي (Gemini دقيق ومشكول ✨)</span>
           </button>
 
           <button

@@ -74,15 +74,18 @@ app.post('/api/evaluate', async (req, res) => {
       if (cleanMime === 'audio/x-m4a' || cleanMime === 'audio/m4a') cleanMime = 'audio/mp4';
       if (!cleanMime || cleanMime === 'audio/*') cleanMime = 'audio/webm';
 
-      const asrPrompt = `أنت مفرغ ومدقق صوتي عربي محترف وموضوعي 100%.
-المهمة: الاستماع الدقيق للتسجيل الصوتي المرفق، وكتابة الكلمة أو الحروف أو الجملة التي نطق بها المتحدث حرفياً كما سُمعت في الصوت، مع ضبط التشكيل والحركات (الفتحة، الضمة، الكسرة، السكون، التنوين، الشدة).
+      const asrPrompt = `أنت مفرغ ومدقق صوتي عربي محترف متخصص في اللغة العربية الفصحى وأحكام التجويد والقرآن الكريم.
+المهمة: الاستماع الدقيق للتسجيل الصوتي المرفق، وكتابة الكلمة أو العبارة التي نطق بها المتحدث حرفياً كما سُمعت في الصوت تماماً مع ضبط التشكيل الكامل (الفتحة، الضمة، الكسرة، السكون، التنوين، الشدة).
 
-قواعد حاسمة:
-1. اكتب ما نطق به المتحدث حرفياً وبأمانة مطلقة دون أي تخمين أو تصحيح أو مجاملة.
-2. إذا نطق المتحدث كلمة غريبة أو خاطئة أو غير فصيحة، اكتبها كما نطقها تماماً.
-3. إذا نطق المتحدث الكلمة مكررة أكثر من مرة، اكتب جميع التكرارات مفصولة بمسافة (مثال: "كَتَبَ كَتَبَ").
-4. إذا لم يكن هناك صوت بشري أو كان الصوت صامتاً، اكتب نصاً فارغاً "".
-5. الرد يكون بصيغة JSON فقط: {"transcript": "الكلمة المنطوقة"}`;
+السياق التعليمي المستهدف: الطالب يتدرب على قراءة: "${targetWord}".
+
+قواعد التفريغ الدقيق:
+1. اكتب ما نطق به المتحدث حرفياً وبأمانة مطلقة مع ضبط الحركات والتشكيل الصحيح.
+2. إذا نطق المتحدث الكلمة سليمة بالشكل، اكتبها مضبوطة تماماً بالتشكيل والحركات.
+3. إذا أخطأ المتحدث في حركة أو أبدل حرفاً بآخر، فاكتب ما سُمع في الصوت حرفياً دون تصحيح لتتمكن خوارزمية التقييم من رصد الخطأ وتوجيهه.
+4. إذا كرر المتحدث الكلمة أكثر من مرة، اكتب جميع التكرارات مفصولة بمسافة (مثال: "${targetWord} ${targetWord}").
+5. إذا لم يكن هناك صوت بشري أو كان الصوت صامتاً، اكتب نصاً فارغاً "".
+الرد بصيغة JSON فقط: {"transcript": "الكلمة أو الجملة المنطوقة بالتشكيل"}`;
 
       const contents = [
         {
@@ -96,17 +99,17 @@ app.post('/api/evaluate', async (req, res) => {
 
       try {
         const response = await aiInstance.models.generateContent({
-          model: 'gemini-flash-latest',
+          model: 'gemini-3.8-flash',
           contents: { parts: contents },
           config: {
-            systemInstruction: 'أنت مدقق ومفرغ صوتي عربي سريع ومحايد 100%. اكتب ما تسمعه في الصوت حرفياً دون تعديل أو تخمين.',
+            systemInstruction: 'أنت مدقق ومفرغ صوتي عربي احترافي ومحايد 100%. اكتب ما تسمعه في الصوت حرفياً وبدقة فائقة مع التشكيل دون تكرار عشوائي ودون تحريف.',
             responseMimeType: 'application/json',
             responseSchema: {
               type: Type.OBJECT,
               properties: {
                 transcript: {
                   type: Type.STRING,
-                  description: 'الكلمة أو الجملة المنطوقة بدقة مع التشكيل',
+                  description: 'الكلمة أو الجملة المنطوقة بدقة مع التشكيل والحركات',
                 },
               },
               required: ['transcript'],
@@ -121,7 +124,7 @@ app.post('/api/evaluate', async (req, res) => {
           }
         }
       } catch (err: any) {
-        console.warn('Local ASR primary model notice, trying gemini-3.5-transcribe:', err?.message || err);
+        console.warn('Local ASR gemini-3.8-flash primary notice, trying gemini-3.5-transcribe:', err?.message || err);
         try {
           const transcribeResp = await aiInstance.models.generateContent({
             model: 'gemini-3.5-transcribe',
@@ -131,10 +134,10 @@ app.post('/api/evaluate', async (req, res) => {
             transcript = transcribeResp.text.trim();
           }
         } catch (e2) {
-          console.warn('Local ASR gemini-3.5-transcribe notice, trying gemini-3.8-flash:', e2);
+          console.warn('Local ASR gemini-3.5-transcribe notice, trying gemini-flash-latest:', e2);
           try {
             const fallbackResp = await aiInstance.models.generateContent({
-              model: 'gemini-3.8-flash',
+              model: 'gemini-flash-latest',
               contents: { parts: contents },
               config: {
                 responseMimeType: 'application/json',
