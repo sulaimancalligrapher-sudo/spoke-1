@@ -45,6 +45,7 @@ import { getDailyQuotaStatus, incrementDailyQuota } from '../utils/aiQuota';
 import {
   transcribeWithInBrowserWhisper,
   getWhisperTranscriber,
+  isWhisperModelCachedLocally,
   WhisperProgress,
 } from '../utils/whisperEngine';
 import { AudioWaveform } from './AudioWaveform';
@@ -84,26 +85,36 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null);
 
   const isMobileDevice = typeof navigator !== 'undefined' && (
-    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+    /Android|webOS|iPhone|iPad|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
   );
 
-  // Active evaluation mode: Defaults to 'ai' (Fast 16kHz Audio-First Gemini) across all devices and browsers
+  // Active evaluation mode: Defaults to 'whisper' or settings preference
   const [activeEvalMode, setActiveEvalMode] = useState<EvaluationMode>(
-    settings.preferredEvaluationMode || 'ai'
+    settings.preferredEvaluationMode || 'whisper'
   );
   const [studentName, setStudentName] = useState(settings.studentName || '');
   const [showMobileQuotaModal, setShowMobileQuotaModal] = useState(false);
   const [keyMissingError, setKeyMissingError] = useState(false);
   const [transientErrorNotice, setTransientErrorNotice] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
-  const [whisperStatus, setWhisperStatus] = useState<WhisperProgress | null>(null);
+  
+  // Initialize whisperStatus with persistent storage check so moving between lessons never resets to un-downloaded
+  const [whisperStatus, setWhisperStatus] = useState<WhisperProgress | null>(() => {
+    return isWhisperModelCachedLocally()
+      ? { status: 'ready', progress: 100, message: 'جاهز ومحفوظ في جهازك' }
+      : null;
+  });
   const [isPreloadingWhisper, setIsPreloadingWhisper] = useState(false);
 
   const handlePreloadWhisper = async () => {
     try {
       setIsPreloadingWhisper(true);
       await getWhisperTranscriber((p) => setWhisperStatus(p));
+      try {
+        localStorage.setItem('whisper_model_cached_v1', 'true');
+      } catch (e) {}
+      setWhisperStatus({ status: 'ready', progress: 100, message: 'جاهز ومحفوظ في جهازك' });
     } catch (e: any) {
       setWhisperStatus({ status: 'error', message: e?.message || 'تعذر تحميل النموذج' });
     } finally {
@@ -143,6 +154,11 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     setLiveTranscript('');
     liveTranscriptRef.current = '';
     setRecordDuration(0);
+
+    // Keep Whisper status ready if already cached
+    if (isWhisperModelCachedLocally()) {
+      setWhisperStatus({ status: 'ready', progress: 100, message: 'جاهز ومحفوظ في جهازك' });
+    }
 
     if (settings.autoPlayTarget) {
       const timeout = setTimeout(() => {
@@ -230,8 +246,8 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     isRecordingRef.current = true;
     setIsRecording(true);
 
-    // 1. Start SpeechRecognition on desktop (graceful non-looping)
-    if (isSpeechRecognitionSupported()) {
+    // 1. Start SpeechRecognition on desktop ONLY if local mode is explicitly selected
+    if (activeEvalMode === 'local' && isSpeechRecognitionSupported()) {
       try {
         let recognitionFailed = false;
         const recognizer = createSpeechRecognizer(
@@ -300,7 +316,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     }
   };
 
-  // Stop Recording and Evaluate
+  // Stop Recording and Evaluate with 350ms safety padding to prevent truncation of final syllables
   const stopRecording = () => {
     isRecordingRef.current = false;
 
@@ -338,11 +354,16 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         await evaluateStudentAttempt(audioBlob, currentSpoken, recordedAudioUrl);
       };
 
-      try {
-        recorder.stop();
-      } catch (err) {
-        console.warn('MediaRecorder stop notice:', err);
-      }
+      // 350ms padding buffer before stopping so the last syllable or Haraka is never clipped
+      setTimeout(() => {
+        try {
+          if (recorder.state !== 'inactive') {
+            recorder.stop();
+          }
+        } catch (err) {
+          console.warn('MediaRecorder stop notice:', err);
+        }
+      }, 350);
     } else {
       setIsRecording(false);
       if (recordingStream) {
@@ -424,6 +445,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             setWhisperStatus({ status: 'transcribing', message: 'جاري استماع Whisper الداخلي في متصفحك وكتابة الكلمة...' });
             const whisperTranscript = await transcribeWithInBrowserWhisper(
               audioBlob,
+              wordItem.word,
               (p) => setWhisperStatus(p)
             );
             if (whisperTranscript) {
@@ -784,9 +806,9 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
                 <span className="text-[10px] text-slate-500">جاري التجهيز...</span>
               </div>
             ) : whisperStatus?.status === 'ready' ? (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-xl font-bold text-[11px]">
-                <CheckCircle className="w-3 h-3 text-emerald-600" />
-                جاهز ومحفوظ في جهازك
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100/90 text-emerald-900 border border-emerald-300 rounded-xl font-bold text-xs shadow-xs">
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>محرك الذكاء الداخلي مثبت وجاهز في جهازك</span>
               </span>
             ) : (
               <button

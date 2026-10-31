@@ -15,6 +15,16 @@ type ProgressCallback = (progress: WhisperProgress) => void;
 let transcriberPromise: Promise<any> | null = null;
 let cachedTranscriber: any = null;
 
+const CACHE_KEY = 'whisper_model_cached_v1';
+
+/**
+ * Check if the Whisper model is already cached on this device
+ */
+export function isWhisperModelCachedLocally(): boolean {
+  if (typeof window === 'undefined') return false;
+  return !!cachedTranscriber || localStorage.getItem(CACHE_KEY) === 'true';
+}
+
 /**
  * Convert an Audio Blob (WebM, MP4, WAV, OGG) to 16kHz Mono Float32Array PCM
  * required by the Whisper model.
@@ -39,7 +49,7 @@ export async function convertBlobToWhisperPcm(audioBlob: Blob): Promise<Float32A
           isSettled = true;
           reject(new Error('Audio decoding timed out'));
         }
-      }, 3000);
+      }, 4000);
 
       const onOk = (buf: AudioBuffer) => {
         if (!isSettled) {
@@ -101,7 +111,7 @@ export async function getWhisperTranscriber(onProgress?: ProgressCallback): Prom
   transcriberPromise = (async () => {
     try {
       if (onProgress) {
-        onProgress({ status: 'loading', progress: 5, message: 'بدء تهيئة محرك Whisper الداخلي...' });
+        onProgress({ status: 'loading', progress: 10, message: 'بدء تهيئة محرك Whisper الداخلي...' });
       }
 
       const { pipeline, env } = await import('@xenova/transformers');
@@ -109,6 +119,11 @@ export async function getWhisperTranscriber(onProgress?: ProgressCallback): Prom
       // Configure transformers.js for client-side browser execution
       env.allowLocalModels = false;
       env.useBrowserCache = true;
+
+      // Silence verbose ONNX and transformers console logs
+      if (env.backends?.onnx) {
+        env.backends.onnx.logLevel = 'error';
+      }
 
       const transcriber = await pipeline(
         'automatic-speech-recognition',
@@ -121,7 +136,7 @@ export async function getWhisperTranscriber(onProgress?: ProgressCallback): Prom
                 onProgress({
                   status: 'loading',
                   progress: pct,
-                  message: `جاري تحميل نموذج الذكاء الاصطناعي الداخلي (${pct}%)... يحدث لمرة واحدة فقط ويُحفظ في جهازك`,
+                  message: `جاري تحميل نموذج الذكاء الداخلي (${pct}%)... يحدث لمرة واحدة فقط ويُحفظ في جهازك`,
                 });
               }
             } else if (data.status === 'ready') {
@@ -134,6 +149,10 @@ export async function getWhisperTranscriber(onProgress?: ProgressCallback): Prom
       );
 
       cachedTranscriber = transcriber;
+      try {
+        localStorage.setItem(CACHE_KEY, 'true');
+      } catch (e) {}
+
       if (onProgress) {
         onProgress({ status: 'ready', progress: 100, message: 'جاهز للاستماع' });
       }
@@ -151,10 +170,11 @@ export async function getWhisperTranscriber(onProgress?: ProgressCallback): Prom
 }
 
 /**
- * Transcribe recorded audio blob using in-browser Whisper
+ * Transcribe recorded audio blob using in-browser Whisper with context guidance
  */
 export async function transcribeWithInBrowserWhisper(
   audioBlob: Blob,
+  targetWord?: string,
   onProgress?: ProgressCallback
 ): Promise<string> {
   const transcriber = await getWhisperTranscriber(onProgress);
@@ -165,11 +185,19 @@ export async function transcribeWithInBrowserWhisper(
 
   const pcmData = await convertBlobToWhisperPcm(audioBlob);
 
+  // Guide Whisper decoder with target context to prevent hallucinating english/dialects
+  const cleanPrompt = targetWord && targetWord.trim()
+    ? `قراءة عربية فصيحة: ${targetWord.trim()}`
+    : undefined;
+
   const output = await transcriber(pcmData, {
     language: 'arabic',
     task: 'transcribe',
     chunk_length_s: 30,
     stride_length_s: 5,
+    initial_prompt: cleanPrompt,
+    repetition_penalty: 1.3,
+    no_repeat_ngram_size: 3,
   });
 
   const rawText = (output?.text || '').trim();

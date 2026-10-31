@@ -17,6 +17,17 @@ export function removeTashkeel(text: string): string {
 }
 
 /**
+ * Normalize prolonged vowels where a student or ASR elongated a short vowel (فتحة -> ا, ضمة -> و, كسرة -> ي)
+ */
+export function normalizeProlongedVowels(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/([^\s])ا+/g, '$1')
+    .replace(/([^\s])و+/g, '$1')
+    .replace(/([^\s])ي+/g, '$1');
+}
+
+/**
  * Calculate Levenshtein Distance between two strings
  */
 export function getLevenshteinDistance(a: string, b: string): number {
@@ -69,6 +80,13 @@ export function countTargetRepetitions(target: string, spoken: string): number {
         const maxLen = Math.max(token.length, singleTarget.length);
         if (maxLen > 0 && 1 - dist / maxLen >= 0.65) {
           count++;
+        } else {
+          // Check prolonged vowels
+          const shortToken = normalizeProlongedVowels(token);
+          const shortTarget = normalizeProlongedVowels(singleTarget);
+          if (shortToken === shortTarget) {
+            count++;
+          }
         }
       }
     }
@@ -91,7 +109,7 @@ export function countTargetRepetitions(target: string, spoken: string): number {
 }
 
 /**
- * Client-side phonetic evaluation with repetition counting support
+ * Client-side phonetic evaluation with Tashkeel and repetition counting support
  */
 export function evaluateArabicLocal(
   target: string,
@@ -107,7 +125,7 @@ export function evaluateArabicLocal(
       score: 0,
       grade: 'لم يتم التقاط صوت',
       isMatch: false,
-      feedback: 'لم نتمكن من سماع صوتك بوضوح، يرجى التحدث بالقرب من الميكروفون.',
+      feedback: 'لم نتمكن من سماع نطق واضح في التسجيل، يرجى التحدث بالقرب من الميكروفون.',
       makhrajAdvice: 'تأكد من تفعيل صلاحية الميكروفون والتحدث في بيئة هادئة.',
       vowelAccuracy: 'غير محدد',
       detectedWord: '—',
@@ -121,8 +139,11 @@ export function evaluateArabicLocal(
 
   const detectedCount = countTargetRepetitions(normTarget, normSpoken);
 
+  // Check if student elongated vowels (e.g. كَتَبَ pronounced or transcribed as كاتا)
+  const isProlongedMatch = normalizeProlongedVowels(normTarget) === normalizeProlongedVowels(normSpoken);
+
   // Exact match (single occurrence when repeatCount <= 1)
-  if (normTarget === normSpoken && requiredRepetitions <= 1) {
+  if ((normTarget === normSpoken || isProlongedMatch) && requiredRepetitions <= 1) {
     const letters: LetterPhoneme[] = normTarget.split('').map((l) => ({
       letter: l,
       status: 'صحيح',
@@ -130,12 +151,14 @@ export function evaluateArabicLocal(
     }));
 
     return {
-      score: 95,
-      grade: 'ممتاز',
+      score: isProlongedMatch && normTarget !== normSpoken ? 90 : 96,
+      grade: 'ممتاز ومتقن',
       isMatch: true,
-      feedback: 'أحسنت صنعاً! نطقك للكلمة فصيح ومتقن وواضح المخارج.',
+      feedback: isProlongedMatch && normTarget !== normSpoken
+        ? 'أحسنت! نطق صحيح، مع ملاحظة عدم إشباع الحركة القصيرة لحرف مد.'
+        : 'أحسنت صنعاً! نطقك للكلمة فصيح ومتقن وواضح المخارج.',
       makhrajAdvice: 'استمر على هذا المستوى الرائع في تفخيم المفخم وترقيق المرقق.',
-      vowelAccuracy: 'ممتازة ومتطابقة مع الحركات',
+      vowelAccuracy: 'متطابقة مع التشكيل',
       detectedWord: spoken,
       letterBreakdown: letters,
       timestamp: Date.now(),
@@ -231,7 +254,7 @@ export function evaluateArabicLocal(
     } else if (finalScore >= 50) {
       grade = 'جيد - يحتاج تدريباً';
       isMatch = false;
-      feedback = 'بداية طيبة، استمع مجدداً للنموذج الصوتي وحاول تقليد مخرج الحرف.';
+      feedback = 'بداية طيبة، استمع مجدداً للنموذج الصوتي وحاول تقليد مخرج الحرف بدقة.';
     }
   }
 
@@ -241,7 +264,7 @@ export function evaluateArabicLocal(
     isMatch,
     feedback,
     makhrajAdvice: 'استمع للتسجيل الصوتي وركّز على حركة الشفتين واللسان عند نطق الحرف المستهدف.',
-    vowelAccuracy: finalScore > 75 ? 'جيدة' : 'تحتاج انتباه للحركات القصيرة',
+    vowelAccuracy: finalScore >= 75 ? 'متطابقة مع التشكيل' : 'تحتاج انتباه لضبط الحركات',
     detectedWord: spoken,
     letterBreakdown: breakdown,
     timestamp: Date.now(),
