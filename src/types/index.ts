@@ -1,4 +1,4 @@
-export type EvaluationMode = 'acoustic' | 'ai' | 'local';
+export type EvaluationMode = 'acoustic' | 'ai' | 'local' | 'whisper';
 
 export interface AcousticWaveformMetrics {
   speechDuration: number;

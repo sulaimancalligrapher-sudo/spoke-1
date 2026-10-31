@@ -23,6 +23,8 @@ import {
   Clock,
   AlertTriangle,
   Monitor,
+  Cpu,
+  DownloadCloud,
 } from 'lucide-react';
 import {
   speakArabicBrowser,
@@ -40,6 +42,11 @@ import { evaluateArabicLocal } from '../utils/arabicMatcher';
 import { evaluateAcousticLocally } from '../utils/acousticEvaluator';
 import { compressAndResampleAudio } from '../utils/audioConverter';
 import { getDailyQuotaStatus, incrementDailyQuota } from '../utils/aiQuota';
+import {
+  transcribeWithInBrowserWhisper,
+  getWhisperTranscriber,
+  WhisperProgress,
+} from '../utils/whisperEngine';
 import { AudioWaveform } from './AudioWaveform';
 
 interface PracticeCardProps {
@@ -90,6 +97,19 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   const [keyMissingError, setKeyMissingError] = useState(false);
   const [transientErrorNotice, setTransientErrorNotice] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [whisperStatus, setWhisperStatus] = useState<WhisperProgress | null>(null);
+  const [isPreloadingWhisper, setIsPreloadingWhisper] = useState(false);
+
+  const handlePreloadWhisper = async () => {
+    try {
+      setIsPreloadingWhisper(true);
+      await getWhisperTranscriber((p) => setWhisperStatus(p));
+    } catch (e: any) {
+      setWhisperStatus({ status: 'error', message: e?.message || 'تعذر تحميل النموذج' });
+    } finally {
+      setIsPreloadingWhisper(false);
+    }
+  };
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -397,7 +417,60 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         return;
       }
 
-      // 3. AI EVALUATION (Gemini AI "Digital Ear" - Audio-First across all devices and browsers)
+      // 3. IN-BROWSER WHISPER EVALUATION (WebAssembly Transformers.js - 100% Serverless, zero API keys)
+      if (activeEvalMode === 'whisper') {
+        if (audioBlob) {
+          try {
+            setWhisperStatus({ status: 'transcribing', message: 'جاري استماع Whisper الداخلي في متصفحك وكتابة الكلمة...' });
+            const whisperTranscript = await transcribeWithInBrowserWhisper(
+              audioBlob,
+              (p) => setWhisperStatus(p)
+            );
+            if (whisperTranscript) {
+              setLiveTranscript(whisperTranscript);
+            }
+            const evalResult = evaluateArabicLocal(
+              wordItem.word,
+              whisperTranscript,
+              wordItem.repeatCount || 1
+            );
+            onEvaluationComplete(
+              {
+                ...evalResult,
+                detectedWord: whisperTranscript || '—',
+                engineUsed: 'whisper',
+                recordedAudioUrl,
+                engineNotice: 'تم الاستماع والتفريغ عبر ذكاء Whisper الداخلي في متصفحك مباشرة بدون خوادم وبدون مفاتيح.',
+              },
+              recordedAudioUrl,
+              studentName
+            );
+            setWhisperStatus(null);
+            triggerCooldown(3);
+            return;
+          } catch (whisperErr: any) {
+            console.warn('Whisper WebAssembly notice:', whisperErr);
+            setWhisperStatus({ status: 'error', message: whisperErr?.message || 'خطأ في معالجة الصوت' });
+            setTransientErrorNotice('تعذر تشغيل نموذج Whisper الداخلي في هذا المتصفح، تم التقييم عبر النظام السريع.');
+          }
+        }
+
+        const localFallback = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
+        onEvaluationComplete(
+          {
+            ...localFallback,
+            recordedAudioUrl,
+            engineUsed: 'whisper',
+            engineNotice: 'تم التقييم المحلي لعدم توفر تسجيل صوتي.',
+          },
+          recordedAudioUrl,
+          studentName
+        );
+        triggerCooldown(3);
+        return;
+      }
+
+      // 4. AI EVALUATION (Gemini AI "Digital Ear" - Audio-First across all devices and browsers)
       const quota = getDailyQuotaStatus();
 
       // Check if daily quota is exceeded (for AI mode):
@@ -663,6 +736,19 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
           <button
             type="button"
+            onClick={() => setActiveEvalMode('whisper')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeEvalMode === 'whisper'
+                ? 'bg-cyan-700 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <Cpu className="w-3.5 h-3.5 text-cyan-300" />
+            <span>الذكاء الداخلي (Whisper بدون سيرفر 🚀)</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveEvalMode('local')}
             className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               activeEvalMode === 'local'
@@ -675,6 +761,51 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Whisper In-Browser Status Banner */}
+      {activeEvalMode === 'whisper' && (
+        <div className="mb-6 p-3.5 bg-cyan-50/70 border border-cyan-200/80 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-cyan-950 font-medium">
+            <Cpu className="w-4 h-4 text-cyan-700 shrink-0" />
+            <div>
+              <p className="font-bold text-cyan-900">
+                محرك Whisper الداخلي (WebAssembly):
+              </p>
+              <p className="text-[11px] text-cyan-800">
+                يعمل بالكامل داخل متصفحك دون إرسال صوتك لأي خادم، وبدون مفاتيح API، ومتوافق مع كل المتصفحات.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {whisperStatus?.status === 'loading' && typeof whisperStatus.progress === 'number' ? (
+              <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-cyan-200">
+                <Loader2 className="w-3.5 h-3.5 text-cyan-600 animate-spin" />
+                <span className="font-bold text-cyan-900">{whisperStatus.progress}%</span>
+                <span className="text-[10px] text-slate-500">جاري التجهيز...</span>
+              </div>
+            ) : whisperStatus?.status === 'ready' ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-xl font-bold text-[11px]">
+                <CheckCircle className="w-3 h-3 text-emerald-600" />
+                جاهز ومحفوظ في جهازك
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handlePreloadWhisper}
+                disabled={isPreloadingWhisper}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-700 hover:bg-cyan-800 text-white rounded-xl font-bold cursor-pointer transition-colors shadow-xs"
+              >
+                {isPreloadingWhisper ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <DownloadCloud className="w-3.5 h-3.5" />
+                )}
+                <span>تجهيز النموذج مسبقاً (40MB)</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Main Arabic Display Stage with Optional Image */}
       <div className="text-center py-4 sm:py-6 border-b border-slate-100">

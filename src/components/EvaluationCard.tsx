@@ -204,7 +204,12 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
               </span>
 
               {/* Engine Badge */}
-              {evaluation.engineUsed === 'acoustic' ? (
+              {evaluation.engineUsed === 'whisper' ? (
+                <span className="flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[11px] font-bold bg-cyan-100 text-cyan-900 border border-cyan-300">
+                  <Sparkles className="w-3.5 h-3.5 text-cyan-600" />
+                  <span>الذكاء الاصطناعي الداخلي (Whisper WebAssembly - بدون سيرفر) 🚀</span>
+                </span>
+              ) : evaluation.engineUsed === 'acoustic' ? (
                 <span className="flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
                   <Zap className="w-3.5 h-3.5 text-emerald-600" />
                   <span>التحليل الصوتي الفيزيائي المباشر (Acoustic Matching) ⚡</span>
