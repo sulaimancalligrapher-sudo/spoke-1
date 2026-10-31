@@ -122,32 +122,74 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Preferred Evaluation Engine */}
-          <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl">
-            <label className="block text-xs font-bold text-slate-800 mb-2 flex items-center gap-1.5">
-              <Zap className="w-4 h-4 text-emerald-600" />
-              <span>نظام تقييم نطق الطالب الافتراضي:</span>
+          {/* Preferred Evaluation Engine (Admin / Settings) */}
+          <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl">
+            <label className="block text-xs font-bold text-slate-800 mb-2 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Zap className="w-4 h-4 text-emerald-600" />
+                <span>محرك تقييم النطق المعتمد للطلاب (إعدادات الإدارة):</span>
+              </span>
+              <span className="text-[10px] text-slate-400 font-semibold">اختياري</span>
             </label>
 
             <div className="space-y-2">
               <button
                 type="button"
-                onClick={() => onUpdateSettings({ preferredEvaluationMode: 'acoustic' })}
+                onClick={() => onUpdateSettings({ preferredEvaluationMode: 'whisper' })}
                 className={`w-full p-2.5 rounded-xl border text-right transition-all cursor-pointer flex items-center justify-between ${
-                  (settings.preferredEvaluationMode || 'acoustic') === 'acoustic'
-                    ? 'bg-emerald-50 border-emerald-400 text-emerald-950 shadow-xs'
+                  (settings.preferredEvaluationMode || 'whisper') === 'whisper'
+                    ? 'bg-cyan-50 border-cyan-500 text-cyan-950 shadow-xs ring-1 ring-cyan-500/30'
                     : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
                 }`}
               >
                 <div>
                   <div className="text-xs font-bold flex items-center gap-1.5">
-                    <span>التحليل الصوتي الفيزيائي المباشر (Acoustic Matching)</span>
-                    <span className="text-[10px] bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded-md font-bold">
-                      موصى به ⚡
+                    <span>الذكاء الداخلي (Whisper بدون سيرفر 🚀)</span>
+                    <span className="text-[10px] bg-cyan-200 text-cyan-900 px-1.5 py-0.5 rounded-md font-bold">
+                      المعتمد الأساسي 🌟
                     </span>
                   </div>
                   <div className="text-[10px] text-slate-500 mt-0.5">
-                    يعمل فورياً داخل الهاتف والكمبيوتر، مجاني 100% للأبد وبدون خوادم أو رصيد
+                    يعمل داخل المتصفح مباشرة، متوافق 100% مع الآيفون وأندرويد وفايرفوكس بدون خوادم وبلا رصيد
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ preferredEvaluationMode: 'local' })}
+                className={`w-full p-2.5 rounded-xl border text-right transition-all cursor-pointer flex items-center justify-between ${
+                  settings.preferredEvaluationMode === 'local'
+                    ? 'bg-slate-100 border-slate-500 text-slate-900 shadow-xs'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                }`}
+              >
+                <div>
+                  <div className="text-xs font-bold flex items-center gap-1.5">
+                    <span>التعرف النصي للمتصفح (النظام الاحتياطي 🌐)</span>
+                    <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded-md font-bold">
+                      Chrome فقط
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">
+                    نظام سريع يعمل عبر محرك جوجل للمتصفح عند تعطل الأنظمة الأخرى
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onUpdateSettings({ preferredEvaluationMode: 'acoustic' })}
+                className={`w-full p-2.5 rounded-xl border text-right transition-all cursor-pointer flex items-center justify-between ${
+                  settings.preferredEvaluationMode === 'acoustic'
+                    ? 'bg-emerald-50 border-emerald-400 text-emerald-950 shadow-xs'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                }`}
+              >
+                <div>
+                  <div className="text-xs font-bold">التحليل الصوتي الفيزيائي المباشر (Acoustic Matching 📊)</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">
+                    مطابقة ذبذبات وترددات الصوت بالمعالجة المادية
                   </div>
                 </div>
               </button>
@@ -162,9 +204,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 }`}
               >
                 <div>
-                  <div className="text-xs font-bold">الذكاء الاصطناعي السحابي (Gemini AI)</div>
+                  <div className="text-xs font-bold">الذكاء السحابي (Gemini AI المتصل ✨)</div>
                   <div className="text-[10px] text-slate-500 mt-0.5">
-                    تحليل لغوي سحابي متقدم لمخارج الحروف والتجويد (يتطلب مفتاح API وحصة يومية)
+                    تحليل صوتي متقدم مع التشكيل الكامل (يتطلب تفعيل مفتاح Vercel في الأعلى)
                   </div>
                 </div>
               </button>

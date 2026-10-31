@@ -99,6 +99,12 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   const [transientErrorNotice, setTransientErrorNotice] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
   
+  // Countdown & Safe Stop states
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [isSafeStopping, setIsSafeStopping] = useState(false);
+  const [showFirstTimeDownloadModal, setShowFirstTimeDownloadModal] = useState(false);
+  const countdownTimerRef = useRef<any>(null);
+
   // Initialize whisperStatus with persistent storage check so moving between lessons never resets to un-downloaded
   const [whisperStatus, setWhisperStatus] = useState<WhisperProgress | null>(() => {
     return isWhisperModelCachedLocally()
@@ -107,7 +113,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   });
   const [isPreloadingWhisper, setIsPreloadingWhisper] = useState(false);
 
-  const handlePreloadWhisper = async () => {
+  const handlePreloadWhisper = async (): Promise<boolean> => {
     try {
       setIsPreloadingWhisper(true);
       await getWhisperTranscriber((p) => setWhisperStatus(p));
@@ -115,8 +121,10 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         localStorage.setItem('whisper_model_cached_v1', 'true');
       } catch (e) {}
       setWhisperStatus({ status: 'ready', progress: 100, message: 'جاهز ومحفوظ في جهازك' });
+      return true;
     } catch (e: any) {
       setWhisperStatus({ status: 'error', message: e?.message || 'تعذر تحميل النموذج' });
+      return false;
     } finally {
       setIsPreloadingWhisper(false);
     }
@@ -172,6 +180,9 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   useEffect(() => {
     return () => {
       stopAllAudio();
+      if (countdownTimerRef.current) {
+        clearTimeout(countdownTimerRef.current);
+      }
       stopRecording();
     };
   }, []);
@@ -232,17 +243,84 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     }
   };
 
-  // Start Voice Recording
-  const startRecording = async () => {
-    if (cooldownSeconds > 0 || isEvaluating) {
+  // Handle Microphone Click: checks model download -> starts 3-second countdown -> records -> safe stop
+  const handleMicClick = async () => {
+    if (cooldownSeconds > 0 || isEvaluating || isSafeStopping) {
       return;
     }
 
+    // If already recording, stop safely
+    if (isRecording) {
+      stopRecording();
+      return;
+    }
+
+    // If currently in countdown, allow canceling
+    if (countdown !== null) {
+      if (countdownTimerRef.current) {
+        clearTimeout(countdownTimerRef.current);
+        countdownTimerRef.current = null;
+      }
+      setCountdown(null);
+      if (recordingStream) {
+        recordingStream.getTracks().forEach((track) => track.stop());
+        setRecordingStream(null);
+      }
+      return;
+    }
+
+    // Check if Whisper model needs first-time download
+    if (activeEvalMode === 'whisper' && !isWhisperModelCachedLocally()) {
+      setShowFirstTimeDownloadModal(true);
+      const success = await handlePreloadWhisper();
+      setShowFirstTimeDownloadModal(false);
+      if (!success) {
+        setTransientErrorNotice('تعذر تنزيل محرك الذكاء الداخلي. تم التحويل للنظام الاحتياطي.');
+        setActiveEvalMode('local');
+        return;
+      }
+    }
+
+    startCountdownAndRecord();
+  };
+
+  // Start 3-second countdown with pre-warmed audio hardware
+  const startCountdownAndRecord = async () => {
     setTransientErrorNotice(null);
     setLiveTranscript('');
     liveTranscriptRef.current = '';
     setRecordDuration(0);
     audioChunksRef.current = [];
+
+    // 1. Pre-warm microphone hardware in background so no audio is clipped
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setRecordingStream(stream);
+    } catch (err: any) {
+      console.warn('getUserMedia error:', err);
+      setTransientErrorNotice('يرجى تفعيل صلاحية الميكروفون في المتصفح للتسجيل.');
+      return;
+    }
+
+    // 2. Start 3-second visual countdown for student preparation
+    setCountdown(3);
+
+    countdownTimerRef.current = setTimeout(() => {
+      setCountdown(2);
+      countdownTimerRef.current = setTimeout(() => {
+        setCountdown(1);
+        countdownTimerRef.current = setTimeout(() => {
+          setCountdown(null);
+          beginActualRecording(stream);
+        }, 1000);
+      }, 1000);
+    }, 1000);
+  };
+
+  // Begin recording after countdown finishes
+  const beginActualRecording = (stream: MediaStream | null) => {
+    if (!stream) return;
     isRecordingRef.current = true;
     setIsRecording(true);
 
@@ -256,7 +334,6 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             setLiveTranscript(transcript);
           },
           (error) => {
-            // Flag as failed so we don't infinitely retry on network / unsupported browser errors
             recognitionFailed = true;
             console.warn('Speech recognition notice (ignoring loop):', error);
           },
@@ -286,15 +363,8 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       });
     }, 1000);
 
-    // 3. Audio stream handling for Audio-First evaluation:
+    // 3. Audio stream handling:
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!isRecordingRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      setRecordingStream(stream);
-
       const mimeType = getSupportedAudioMimeType();
       let mediaRecorder: MediaRecorder;
       try {
@@ -310,14 +380,19 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         }
       };
 
-      mediaRecorder.start(250);
+      mediaRecorder.start(200);
     } catch (err: any) {
       console.warn('MediaRecorder audio stream notice:', err);
     }
   };
 
-  // Stop Recording and Evaluate with 350ms safety padding to prevent truncation of final syllables
+  // Stop Recording and Evaluate with 400ms safety padding to prevent truncation of final syllables
   const stopRecording = () => {
+    if (countdownTimerRef.current) {
+      clearTimeout(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+    setCountdown(null);
     isRecordingRef.current = false;
 
     if (timerIntervalRef.current) {
@@ -332,9 +407,12 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       speechRecognizerRef.current = null;
     }
 
+    setIsSafeStopping(true);
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       const recorder = mediaRecorderRef.current;
       recorder.onstop = async () => {
+        setIsSafeStopping(false);
         const detectedMime =
           recorder.mimeType || getSupportedAudioMimeType() || 'audio/mp4';
         const audioBlob = new Blob(audioChunksRef.current, {
@@ -354,7 +432,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         await evaluateStudentAttempt(audioBlob, currentSpoken, recordedAudioUrl);
       };
 
-      // 350ms padding buffer before stopping so the last syllable or Haraka is never clipped
+      // 400ms padding buffer before stopping so the last syllable or Haraka is never clipped
       setTimeout(() => {
         try {
           if (recorder.state !== 'inactive') {
@@ -362,9 +440,12 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           }
         } catch (err) {
           console.warn('MediaRecorder stop notice:', err);
+          setIsSafeStopping(false);
+          setIsRecording(false);
         }
-      }, 350);
+      }, 400);
     } else {
+      setIsSafeStopping(false);
       setIsRecording(false);
       if (recordingStream) {
         recordingStream.getTracks().forEach((track) => track.stop());
@@ -724,111 +805,6 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         </div>
       </div>
 
-      {/* Multi Evaluation Engine Selector */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-2 p-2.5 bg-slate-50 border border-slate-200/80 rounded-2xl mb-6">
-        <span className="text-xs font-bold text-slate-700 pr-1">
-          نظام التقييم:
-        </span>
-        <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
-          <button
-            type="button"
-            onClick={() => setActiveEvalMode('ai')}
-            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeEvalMode === 'ai'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>الذكاء السحابي (Gemini دقيق ومشكول ✨)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveEvalMode('acoustic')}
-            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeEvalMode === 'acoustic'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5 text-amber-300" />
-            <span>التحليل الصوتي الفيزيائي (مجاني)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveEvalMode('whisper')}
-            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeEvalMode === 'whisper'
-                ? 'bg-cyan-700 text-white shadow-xs'
-                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Cpu className="w-3.5 h-3.5 text-cyan-300" />
-            <span>الذكاء الداخلي (Whisper بدون سيرفر 🚀)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveEvalMode('local')}
-            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeEvalMode === 'local'
-                ? 'bg-slate-800 text-white shadow-xs'
-                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Monitor className="w-3.5 h-3.5" />
-            <span>التعرف النصي للمتصفح</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Whisper In-Browser Status Banner */}
-      {activeEvalMode === 'whisper' && (
-        <div className="mb-6 p-3.5 bg-cyan-50/70 border border-cyan-200/80 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2 text-cyan-950 font-medium">
-            <Cpu className="w-4 h-4 text-cyan-700 shrink-0" />
-            <div>
-              <p className="font-bold text-cyan-900">
-                محرك Whisper الداخلي (WebAssembly):
-              </p>
-              <p className="text-[11px] text-cyan-800">
-                يعمل بالكامل داخل متصفحك دون إرسال صوتك لأي خادم، وبدون مفاتيح API، ومتوافق مع كل المتصفحات.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {whisperStatus?.status === 'loading' && typeof whisperStatus.progress === 'number' ? (
-              <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-cyan-200">
-                <Loader2 className="w-3.5 h-3.5 text-cyan-600 animate-spin" />
-                <span className="font-bold text-cyan-900">{whisperStatus.progress}%</span>
-                <span className="text-[10px] text-slate-500">جاري التجهيز...</span>
-              </div>
-            ) : whisperStatus?.status === 'ready' ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100/90 text-emerald-900 border border-emerald-300 rounded-xl font-bold text-xs shadow-xs">
-                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>محرك الذكاء الداخلي مثبت وجاهز في جهازك</span>
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={handlePreloadWhisper}
-                disabled={isPreloadingWhisper}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-700 hover:bg-cyan-800 text-white rounded-xl font-bold cursor-pointer transition-colors shadow-xs"
-              >
-                {isPreloadingWhisper ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <DownloadCloud className="w-3.5 h-3.5" />
-                )}
-                <span>تجهيز النموذج مسبقاً (40MB)</span>
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Main Arabic Display Stage with Optional Image */}
       <div className="text-center py-4 sm:py-6 border-b border-slate-100">
         {/* Attached Picture if available */}
@@ -967,10 +943,20 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
                   {cooldownSeconds}ث
                 </span>
               </div>
+            ) : countdown !== null ? (
+              <div className="w-20 h-20 rounded-full flex flex-col items-center justify-center bg-cyan-600 text-white shadow-xl shadow-cyan-600/40 animate-pulse scale-110 border-4 border-cyan-300 select-none">
+                <span className="text-3xl font-extrabold font-mono leading-none">{countdown}</span>
+                <span className="text-[9px] font-bold mt-1 text-cyan-100">استعد...</span>
+              </div>
+            ) : isSafeStopping ? (
+              <div className="w-20 h-20 rounded-full flex flex-col items-center justify-center bg-amber-500 text-white shadow-lg shadow-amber-500/30 animate-pulse select-none">
+                <Loader2 className="w-7 h-7 animate-spin" />
+                <span className="text-[9px] font-bold mt-1">حفظ الصوت...</span>
+              </div>
             ) : (
               <button
-                onClick={isRecording ? stopRecording : startRecording}
-                disabled={isEvaluating}
+                onClick={handleMicClick}
+                disabled={isEvaluating || isSafeStopping}
                 className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 cursor-pointer shadow-lg ${
                   isRecording
                     ? 'bg-rose-500 text-white hover:bg-rose-600 animate-mic-pulse shadow-rose-500/40 scale-105'
@@ -981,7 +967,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
                 {isRecording ? (
                   <div className="flex flex-col items-center justify-center">
                     <MicOff className="w-8 h-8" />
-                    <span className="text-[10px] font-bold mt-0.5">
+                    <span className="text-[10px] font-bold mt-0.5 font-mono">
                       00:{recordDuration < 10 ? `0${recordDuration}` : recordDuration}
                     </span>
                   </div>
@@ -997,10 +983,20 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
               <span className="text-amber-800 font-bold bg-amber-50 border border-amber-200 px-3 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse">
                 <span>⏳ استعد للمحاولة التالية خلال {cooldownSeconds} ثوانٍ...</span>
               </span>
+            ) : countdown !== null ? (
+              <span className="text-cyan-800 font-bold bg-cyan-50 border border-cyan-300 px-4 py-1.5 rounded-full inline-flex items-center gap-1.5 animate-pulse shadow-xs">
+                <span>⏱️ استعد! سيبدأ الاستماع بعد {countdown} ثوانٍ...</span>
+              </span>
+            ) : isSafeStopping ? (
+              <span className="text-amber-800 font-bold bg-amber-50 border border-amber-300 px-3.5 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse">
+                <span>💾 جاري حفظ مقطع الصوت بالكامل...</span>
+              </span>
             ) : isRecording ? (
-              'تحدّث الآن بوضوح... اضغط على الزر مرة أخرى للتقييم'
+              <span className="text-rose-700 font-bold bg-rose-50 border border-rose-300 px-3.5 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse">
+                <span>🎙️ تحدّث الآن بوضوح... اضغط على الزر مرة أخرى للتقييم</span>
+              </span>
             ) : (
-              'اضغط على الميكروفون ثم انطق الكلمة بوضوح'
+              'اضغط على الميكروفون ثم استعد للنطق بوضوح'
             )}
           </p>
 
@@ -1021,21 +1017,6 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             </div>
           )}
 
-
-
-          {isEvaluating && (
-            <div className="mt-5 flex items-center gap-2.5 px-4 py-2 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold animate-pulse">
-              <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
-              <span>
-                {activeEvalMode === 'acoustic'
-                  ? 'جاري التحليل الصوتي الفيزيائي المباشر...'
-                  : activeEvalMode === 'ai'
-                  ? 'جاري تقييم النطق عبر الذكاء الاصطناعي...'
-                  : 'جاري تقييم النطق عبر النظام الداخلي...'}
-              </span>
-            </div>
-          )}
-
           {transientErrorNotice && (
             <div className="mt-4 w-full p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl text-xs flex flex-col sm:flex-row items-center justify-between gap-2 animate-in fade-in">
               <div className="flex items-center gap-2 text-center sm:text-right">
@@ -1045,7 +1026,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
               <button
                 onClick={() => {
                   setTransientErrorNotice(null);
-                  startRecording();
+                  handleMicClick();
                 }}
                 className="px-3 py-1 bg-amber-600 text-white rounded-xl font-bold hover:bg-amber-700 text-xs shrink-0 cursor-pointer shadow-xs"
               >
@@ -1139,6 +1120,64 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
                 حسناً، فهمت
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Evaluation Processing Lock Overlay - Prevents all clicks during analysis */}
+      {isEvaluating && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 sm:p-8 text-center shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-3xl bg-emerald-50 text-emerald-700 flex items-center justify-center mx-auto mb-4 border border-emerald-200 shadow-sm animate-pulse">
+              <Sparkles className="w-8 h-8 text-emerald-600 animate-pulse" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 mb-1.5 font-cairo">
+              جاري تحليل نطقك وتدقيق الحركات...
+            </h3>
+            <p className="text-xs text-slate-500 mb-5 leading-relaxed">
+              يقوم محرك الذكاء بفحص مخارج الحركات ومطابقة الكلمة، استعد لرؤية النتيجة!
+            </p>
+            <div className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-800 rounded-xl text-xs font-bold border border-emerald-200">
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+              <span>لحظات قليلة وتظهر النتيجة...</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* First-Time Whisper Setup Modal (Automatic on first click) */}
+      {showFirstTimeDownloadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 sm:p-7 text-center shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-3xl bg-cyan-50 text-cyan-700 flex items-center justify-center mx-auto mb-4 border border-cyan-200 shadow-sm">
+              <Cpu className="w-8 h-8 text-cyan-600 animate-spin" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 mb-1.5 font-cairo">
+              تجهيز محرك الذكاء الاصطناعي في جهازك
+            </h3>
+            <p className="text-xs text-slate-500 mb-5 leading-relaxed">
+              يحدث لمرة واحدة فقط لتنزيل ملف الذكاء (40MB) وحفظه في جهازك ليعمل التطبيق بدون إنترنت وبلا خوادم.
+            </p>
+            
+            {whisperStatus?.status === 'loading' && typeof whisperStatus.progress === 'number' ? (
+              <div className="space-y-2">
+                <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-200">
+                  <div
+                    className="bg-cyan-600 h-full rounded-full transition-all duration-300"
+                    style={{ width: `${whisperStatus.progress}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-[11px] font-bold text-cyan-900">
+                  <span>جاري التثبيت في جهازك...</span>
+                  <span className="font-mono">{whisperStatus.progress}%</span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center gap-2 py-2 text-xs font-bold text-cyan-700">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>بدء التجهيز السريع...</span>
+              </div>
+            )}
           </div>
         </div>
       )}
