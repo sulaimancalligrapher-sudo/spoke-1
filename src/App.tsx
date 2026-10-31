@@ -94,13 +94,13 @@ export default function App() {
   // Student Submissions Log
   const [submissions, setSubmissions] = useState<StudentSubmissionRecord[]>([]);
 
-  // Settings: Defaults to 'ai' (Direct 16kHz Audio Listening) across all devices and browsers
+  // Settings: Defaults to 'whisper' (In-Browser WebAssembly Whisper) across all devices and browsers
   const [settings, setSettings] = useState<AudioSettings>({
     speed: 0.9,
     engine: 'browser',
     autoPlayTarget: false,
     repeatTargetTwice: false,
-    preferredEvaluationMode: 'ai',
+    preferredEvaluationMode: 'whisper',
     studentName: '',
   });
 
@@ -236,7 +236,7 @@ export default function App() {
         const parsed = JSON.parse(savedSettings);
         setSettings({
           ...parsed,
-          preferredEvaluationMode: parsed.preferredEvaluationMode || 'ai',
+          preferredEvaluationMode: parsed.preferredEvaluationMode || 'whisper',
         });
       }
 

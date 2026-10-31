@@ -89,10 +89,17 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
   );
 
-  // Active evaluation mode: Defaults to 'whisper' or settings preference
-  const [activeEvalMode, setActiveEvalMode] = useState<EvaluationMode>(
-    settings.preferredEvaluationMode || 'whisper'
-  );
+  // Active evaluation mode: Exclusively Whisper by default, completely isolated
+  const [activeEvalMode, setActiveEvalMode] = useState<EvaluationMode>('whisper');
+
+  useEffect(() => {
+    if (settings.preferredEvaluationMode) {
+      setActiveEvalMode(settings.preferredEvaluationMode);
+    } else {
+      setActiveEvalMode('whisper');
+    }
+  }, [settings.preferredEvaluationMode]);
+
   const [studentName, setStudentName] = useState(settings.studentName || '');
   const [showMobileQuotaModal, setShowMobileQuotaModal] = useState(false);
   const [keyMissingError, setKeyMissingError] = useState(false);
@@ -466,60 +473,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     try {
       const textToEvaluate = spokenText || liveTranscriptRef.current || liveTranscript || manualText || '';
 
-      // 1. LOCAL EVALUATION (Only if user explicitly chose local mode AND text is present)
-      if (activeEvalMode === 'local') {
-        if (textToEvaluate.trim()) {
-          const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
-          const evalResult: PronunciationEvaluation = {
-            ...localEval,
-            recordedAudioUrl,
-            engineUsed: 'local',
-          };
-          onEvaluationComplete(evalResult, recordedAudioUrl, studentName);
-          triggerCooldown(3);
-          return;
-        } else if (!audioBlob) {
-          const localEval = evaluateArabicLocal(wordItem.word, '', wordItem.repeatCount || 1);
-          onEvaluationComplete({ ...localEval, recordedAudioUrl, engineUsed: 'local' }, recordedAudioUrl, studentName);
-          triggerCooldown(3);
-          return;
-        }
-      }
-
-      // 2. ACOUSTIC EVALUATION (Web Audio Physical Waveform)
-      if (activeEvalMode === 'acoustic') {
-        if (audioBlob) {
-          try {
-            const acousticResult = await evaluateAcousticLocally(
-              audioBlob,
-              wordItem.word,
-              textToEvaluate,
-              recordedAudioUrl
-            );
-            onEvaluationComplete(acousticResult, recordedAudioUrl, studentName);
-            triggerCooldown(3);
-            return;
-          } catch (err) {
-            console.warn('Acoustic evaluation notice:', err);
-          }
-        }
-
-        const localFallback = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
-        onEvaluationComplete(
-          {
-            ...localFallback,
-            recordedAudioUrl,
-            engineUsed: 'acoustic',
-            engineNotice: 'تم التقييم النصي السريع لعدم توفر ملف صوتي مسجل.',
-          },
-          recordedAudioUrl,
-          studentName
-        );
-        triggerCooldown(3);
-        return;
-      }
-
-      // 3. IN-BROWSER WHISPER EVALUATION (WebAssembly Transformers.js - 100% Serverless, zero API keys)
+      // 1. DEDICATED IN-BROWSER WHISPER (Primary, 100% Dedicated & Isolated - No Fallback)
       if (activeEvalMode === 'whisper') {
         if (audioBlob) {
           try {
@@ -543,7 +497,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
                 detectedWord: whisperTranscript || '—',
                 engineUsed: 'whisper',
                 recordedAudioUrl,
-                engineNotice: 'تم الاستماع والتفريغ عبر ذكاء Whisper الداخلي في متصفحك مباشرة بدون خوادم وبدون مفاتيح.',
+                engineNotice: 'تم التقييم بنجاح عبر محرك الذكاء الاصطناعي الداخلي (Whisper) داخل جهازك مباشرة دون خوادم.',
               },
               recordedAudioUrl,
               studentName
@@ -552,19 +506,52 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             triggerCooldown(3);
             return;
           } catch (whisperErr: any) {
-            console.warn('Whisper WebAssembly notice:', whisperErr);
+            console.error('Whisper transcription error:', whisperErr);
             setWhisperStatus({ status: 'error', message: whisperErr?.message || 'خطأ في معالجة الصوت' });
-            setTransientErrorNotice('تعذر تشغيل نموذج Whisper الداخلي في هذا المتصفح، تم التقييم عبر النظام السريع.');
+            setTransientErrorNotice('تعذر تشغيل محرك Whisper الداخلي: ' + (whisperErr?.message || 'يرجى إعادة المحاولة'));
+            const localFallback = evaluateArabicLocal(wordItem.word, '', wordItem.repeatCount || 1);
+            onEvaluationComplete(
+              {
+                ...localFallback,
+                score: 0,
+                grade: 'تعذر المعالجة',
+                feedback: 'تعذر على محرك Whisper الداخلي تحليل الصوت. يرجى إعادة المحاولة والتحدث بوضوح.',
+                engineUsed: 'whisper',
+                engineNotice: 'خطأ في محرك Whisper: ' + (whisperErr?.message || 'خطأ غير متوقع'),
+                recordedAudioUrl,
+              },
+              recordedAudioUrl,
+              studentName
+            );
+            triggerCooldown(3);
+            return;
           }
+        } else {
+          const localFallback = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
+          onEvaluationComplete(
+            {
+              ...localFallback,
+              recordedAudioUrl,
+              engineUsed: 'whisper',
+              engineNotice: 'لم يتم التقاط ملف صوتي للتفريغ.',
+            },
+            recordedAudioUrl,
+            studentName
+          );
+          triggerCooldown(3);
+          return;
         }
+      }
 
-        const localFallback = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
+      // 2. ISOLATED LOCAL ENGINE (Chrome Speech Recognition)
+      if (activeEvalMode === 'local') {
+        const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
         onEvaluationComplete(
           {
-            ...localFallback,
+            ...localEval,
             recordedAudioUrl,
-            engineUsed: 'whisper',
-            engineNotice: 'تم التقييم المحلي لعدم توفر تسجيل صوتي.',
+            engineUsed: 'local',
+            engineNotice: 'تم التقييم عبر التعرف النصي للمتصفح.',
           },
           recordedAudioUrl,
           studentName
@@ -573,11 +560,8 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         return;
       }
 
-      // 4. AI EVALUATION (Gemini AI "Digital Ear" - Audio-First across all devices and browsers)
-      const quota = getDailyQuotaStatus();
-
-      // Check if daily quota is exceeded (for AI mode):
-      if (quota.isExceeded) {
+      // 3. ISOLATED ACOUSTIC MATCHING (Physical Waveform Analysis)
+      if (activeEvalMode === 'acoustic') {
         if (audioBlob) {
           try {
             const acousticResult = await evaluateAcousticLocally(
@@ -586,28 +570,20 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
               textToEvaluate,
               recordedAudioUrl
             );
-            onEvaluationComplete(
-              {
-                ...acousticResult,
-                engineUsed: 'acoustic',
-                engineNotice:
-                  'تم التحويل التلقائي لنظام الذبذبات الصوتي لاكتمال الحصة اليومية للذكاء الاصطناعي - واصل تدريبك دون توقف!',
-              },
-              recordedAudioUrl,
-              studentName
-            );
-            triggerCooldown(4);
+            onEvaluationComplete(acousticResult, recordedAudioUrl, studentName);
+            triggerCooldown(3);
             return;
-          } catch (e) {}
+          } catch (err: any) {
+            console.warn('Acoustic evaluation error:', err);
+          }
         }
-
-        const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
+        const fallback = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
         onEvaluationComplete(
           {
-            ...localEval,
+            ...fallback,
             recordedAudioUrl,
-            engineUsed: 'local',
-            engineNotice: 'تم التقييم بالمحرك المحلي لاكتمال الحصة اليومية المجانية للذكاء الاصطناعي.',
+            engineUsed: 'acoustic',
+            engineNotice: 'تم التقييم النصي السريع لعدم توفر ملف صوتي.',
           },
           recordedAudioUrl,
           studentName
@@ -616,153 +592,78 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         return;
       }
 
-      // Direct Base64 conversion via standard FileReader (<5ms, zero Web Audio decode hanging on iOS/Safari/Firefox)
-      let audioBase64 = '';
-      let mimeType = audioBlob ? (audioBlob.type || getSupportedAudioMimeType() || 'audio/webm') : 'audio/webm';
+      // 4. ISOLATED CLOUD AI (Gemini AI)
+      if (activeEvalMode === 'ai') {
+        let audioBase64 = '';
+        const mimeType = audioBlob ? (audioBlob.type || getSupportedAudioMimeType() || 'audio/webm') : 'audio/webm';
+        if (audioBlob) {
+          try {
+            audioBase64 = await blobToBase64(audioBlob);
+          } catch (e) {}
+        }
 
-      if (audioBlob) {
         try {
-          audioBase64 = await blobToBase64(audioBlob);
-        } catch (e) {
-          console.warn('Direct blobToBase64 conversion notice:', e);
-        }
-      }
-
-      const abortController = new AbortController();
-      const timeoutTimer = setTimeout(() => {
-        abortController.abort();
-      }, 10000); // 10-second hard ceiling to never leave student waiting
-
-      try {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (settings.geminiApiKey) {
-          headers['x-gemini-key'] = settings.geminiApiKey;
-        }
-
-        const response = await fetch('/api/evaluate', {
-          method: 'POST',
-          headers,
-          signal: abortController.signal,
-          body: JSON.stringify({
-            targetWord: wordItem.word,
-            spokenText: textToEvaluate || undefined,
-            audioBase64: audioBase64 || undefined,
-            audioMimeType: mimeType,
-            apiKey: settings.geminiApiKey || undefined,
-            repeatCount: wordItem.repeatCount || 1,
-            notes: `الدرس: ${wordItem.lessonSubject} - الفئة: ${wordItem.category}`,
-          }),
-        });
-
-        clearTimeout(timeoutTimer);
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && data.evaluation) {
-            incrementDailyQuota();
-            setTransientErrorNotice(null);
-            if (data.transcript) {
-              setLiveTranscript(data.transcript);
-            }
-            const evalResult: PronunciationEvaluation = {
-              ...data.evaluation,
-              timestamp: Date.now(),
-              recordedAudioUrl,
-              engineUsed: 'ai',
-            };
-            onEvaluationComplete(evalResult, recordedAudioUrl, studentName);
-            triggerCooldown(4);
-            return;
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (settings.geminiApiKey) {
+            headers['x-gemini-key'] = settings.geminiApiKey;
           }
-        } else {
-          const errJson = await response.json().catch(() => null);
-          console.warn('Gemini server returned error status:', response.status, errJson);
 
-          if (
-            response.status === 400 &&
-            (errJson?.isKeyMissing || errJson?.error?.includes('مفتاح') || errJson?.error?.includes('API key'))
-          ) {
-            setKeyMissingError(true);
-            setShowMobileQuotaModal(true);
-            setTransientErrorNotice('يرجى إدخال مفتاح Gemini API في الإعدادات لتفعيل الذكاء الاصطناعي على هذا الجهاز.');
-            if (audioBlob) {
-              try {
-                const acousticResult = await evaluateAcousticLocally(
-                  audioBlob,
-                  wordItem.word,
-                  textToEvaluate,
-                  recordedAudioUrl
-                );
-                onEvaluationComplete(
-                  {
-                    ...acousticResult,
-                    engineUsed: 'acoustic',
-                    engineNotice: 'تم التقييم الصوتي المباشر. يمكنك إضافة مفتاحك في الإعدادات لتفعيل الذكاء الاصطناعي.',
-                  },
+          const response = await fetch('/api/evaluate', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              targetWord: wordItem.word,
+              spokenText: textToEvaluate || undefined,
+              audioBase64: audioBase64 || undefined,
+              audioMimeType: mimeType,
+              apiKey: settings.geminiApiKey || undefined,
+              repeatCount: wordItem.repeatCount || 1,
+              notes: `الدرس: ${wordItem.lessonSubject} - الفئة: ${wordItem.category}`,
+            }),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.evaluation) {
+              incrementDailyQuota();
+              if (data.transcript) {
+                setLiveTranscript(data.transcript);
+              }
+              onEvaluationComplete(
+                {
+                  ...data.evaluation,
+                  timestamp: Date.now(),
                   recordedAudioUrl,
-                  studentName
-                );
-                triggerCooldown(3);
-                return;
-              } catch (e) {}
+                  engineUsed: 'ai',
+                },
+                recordedAudioUrl,
+                studentName
+              );
+              triggerCooldown(4);
+              return;
             }
+          } else {
+            const errJson = await response.json().catch(() => null);
+            setTransientErrorNotice(errJson?.error || 'تعذر تقييم الصوت عبر الذكاء السحابي.');
           }
-
-          if (response.status === 429 || errJson?.isRateLimited) {
-            setTransientErrorNotice(
-              errJson?.error || '⏳ يرجى الانتظار بضع ثوانٍ ثم النقر على الميكروفون مجدداً (تجاوز معدل السرعة).'
-            );
-          } else if (errJson?.error) {
-            setTransientErrorNotice(errJson.error);
-          }
+        } catch (err: any) {
+          setTransientErrorNotice('خطأ في الاتصال بالذكاء السحابي: ' + (err?.message || ''));
         }
-      } catch (err: any) {
-        clearTimeout(timeoutTimer);
-        if (err.name === 'AbortError') {
-          console.warn('AI evaluation timed out after 10s, seamlessly falling back.');
-          setTransientErrorNotice('استغرق الاتصال بالذكاء الاصطناعي وقتاً أطول من المتوقع، تم التقييم عبر النظام السريع.');
-        } else {
-          console.warn('Gemini server evaluation error:', err);
-        }
-      }
 
-      // Seamless fallback if AI evaluation faced network error or rate limit
-      if (audioBlob) {
-        try {
-          const acousticResult = await evaluateAcousticLocally(
-            audioBlob,
-            wordItem.word,
-            textToEvaluate,
-            recordedAudioUrl
-          );
-          onEvaluationComplete(
-            {
-              ...acousticResult,
-              engineUsed: 'acoustic',
-              engineNotice:
-                'تم التقييم عبر نظام الذبذبات الصوتي المباشر لمواصلة التدريب دون انقطاع.',
-            },
+        const fallback = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
+        onEvaluationComplete(
+          {
+            ...fallback,
             recordedAudioUrl,
-            studentName
-          );
-          triggerCooldown(3);
-          return;
-        } catch (e) {}
-      }
-
-      // Final fallback if no audio blob or acoustic failed
-      const fallbackLocal = evaluateArabicLocal(wordItem.word, textToEvaluate);
-      onEvaluationComplete(
-        {
-          ...fallbackLocal,
+            engineUsed: 'ai',
+            engineNotice: 'تعذر الاتصال بالذكاء السحابي، يمكنك التحقق من المفتاح في الإعدادات.',
+          },
           recordedAudioUrl,
-          engineUsed: 'local',
-          engineNotice: 'تم التقييم بالمحرك المحلي.',
-        },
-        recordedAudioUrl,
-        studentName
-      );
-      triggerCooldown(3);
+          studentName
+        );
+        triggerCooldown(3);
+        return;
+      }
     } finally {
       setIsEvaluating(false);
     }
