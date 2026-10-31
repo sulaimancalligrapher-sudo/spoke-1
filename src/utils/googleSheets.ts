@@ -3,7 +3,7 @@ import { removeTashkeel } from './arabicMatcher';
 
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t';
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbyrk69FH2k9nYAYqoaF3enFR0ZDyQMPDHFRt9sgpnk_5QIgNT4kFbtPOIT5-TQ-4cSr6g/exec';
+  'https://script.google.com/macros/s/AKfycbw0t92egd9cqe2VR89z37Kvn8BPoLHndqexds4kpaLLPHpwnnNngeI-QGG6KCvVGEFfiQ/exec';
 
 /**
  * Fetch curriculum (lessons and exercises) directly from Google Sheet tab "الدروس"
@@ -182,10 +182,24 @@ export async function fetchCurriculumFromSheets(webhookUrl: string): Promise<{
       autoReadText: item.autoReadText ? String(item.autoReadText).trim() : undefined,
       makhrajTip: String(item.makhrajTip || '').trim() || 'انطق الكلمة بوضوح ومخارج سليمة.',
       letterFocus: String(item.word || '').trim()[0],
-      repeatCount:
-        typeof item.repeatCount === 'number' && item.repeatCount > 0
-          ? item.repeatCount
-          : parseInt(item.repeatCount) || 1,
+      repeatCount: (() => {
+        const raw = String(item.repeatCount || '1').trim();
+        if (raw.includes(',')) {
+          const p = parseInt(raw.split(',')[0]);
+          return !isNaN(p) && p > 0 ? p : 1;
+        }
+        const parsed = parseInt(raw);
+        return !isNaN(parsed) && parsed > 0 ? parsed : 1;
+      })(),
+      difficultyLevel: (() => {
+        if (item.difficultyLevel === 'easy' || item.difficultyLevel === 'hard' || item.difficultyLevel === 'medium') {
+          return item.difficultyLevel;
+        }
+        const raw = String(item.repeatCount || '').trim().toLowerCase();
+        if (raw.includes('سهل') || raw.includes('easy')) return 'easy';
+        if (raw.includes('متقدم') || raw.includes('hard') || raw.includes('صارم')) return 'hard';
+        return 'medium';
+      })(),
     }))
     .filter((w: WordItem) => Boolean(w.word));
 
@@ -230,6 +244,7 @@ export async function saveWordToGoogleSheets(
       meaning: wordItem.meaning,
       makhrajTip: wordItem.makhrajTip || '',
       repeatCount: wordItem.repeatCount || 1,
+      difficultyLevel: wordItem.difficultyLevel || 'medium',
     },
     audioBase64: audioBase64 || undefined,
   };
@@ -330,6 +345,7 @@ export async function syncAllCurriculumToSheets(
       meaning: item.meaning || '',
       makhrajTip: item.makhrajTip || '',
       repeatCount: item.repeatCount || 1,
+      difficultyLevel: item.difficultyLevel || 'medium',
     })),
   };
 
@@ -504,8 +520,29 @@ function doGet(e) {
         var autoReadText = String(row[col + 3] || "").trim();
         var meaning = String(row[col + 5] || "").trim();
         var makhrajTip = String(row[col + 6] || "").trim();
-        var repeatCount = parseInt(row[col + 7]) || 1;
-        if (repeatCount < 1) repeatCount = 1;
+        var repeatRaw = String(row[col + 7] || "").trim();
+        var repeatCount = 1;
+        var difficultyLevel = "medium";
+        if (repeatRaw) {
+          if (repeatRaw.indexOf(",") !== -1) {
+            var parts = repeatRaw.split(",");
+            var p1 = parseInt(parts[0].trim());
+            if (!isNaN(p1) && p1 >= 1) repeatCount = p1;
+            var p2 = parts[1].trim().toLowerCase();
+            if (p2 === "سهل" || p2 === "easy" || p2 === "مبتدئ") difficultyLevel = "easy";
+            else if (p2 === "متقدم" || p2 === "hard" || p2 === "صارم") difficultyLevel = "hard";
+            else difficultyLevel = "medium";
+          } else {
+            var pInt = parseInt(repeatRaw);
+            if (!isNaN(pInt) && pInt >= 1) {
+              repeatCount = pInt;
+            } else if (repeatRaw === "سهل" || repeatRaw === "easy") {
+              difficultyLevel = "easy";
+            } else if (repeatRaw === "متقدم" || repeatRaw === "hard") {
+              difficultyLevel = "hard";
+            }
+          }
+        }
         
         curriculum.push({
           id: "sheet-r" + (r + 2) + "-c" + col,
@@ -517,7 +554,8 @@ function doGet(e) {
           word: wordText,
           meaning: meaning || "تمرين قرائي",
           makhrajTip: makhrajTip || "انطق الكلمة بوضوح ومخارج سليمة.",
-          repeatCount: repeatCount
+          repeatCount: repeatCount,
+          difficultyLevel: difficultyLevel
         });
       }
     }
@@ -641,7 +679,12 @@ function doPost(e) {
         item.word,
         item.meaning || "",
         item.makhrajTip || "",
-        parseInt(item.repeatCount) || 1
+        (function() {
+          var rep = parseInt(item.repeatCount) || 1;
+          var diff = item.difficultyLevel || "medium";
+          var diffArabic = diff === "easy" ? "سهل" : (diff === "hard" ? "متقدم" : "متوسط");
+          return rep + "," + diffArabic;
+        })()
       ]];
       
       if (lessonRowIndex !== -1 && wordColIndex !== -1) {
@@ -764,7 +807,12 @@ function doPost(e) {
               curItem.word || "",
               curItem.meaning || "",
               curItem.makhrajTip || "",
-              parseInt(curItem.repeatCount) || 1
+              (function() {
+                var rep = parseInt(curItem.repeatCount) || 1;
+                var diff = curItem.difficultyLevel || "medium";
+                var diffArabic = diff === "easy" ? "سهل" : (diff === "hard" ? "متقدم" : "متوسط");
+                return rep + "," + diffArabic;
+              })()
             );
           }
           

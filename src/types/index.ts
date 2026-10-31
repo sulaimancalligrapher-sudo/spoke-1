@@ -1,4 +1,5 @@
 export type EvaluationMode = 'acoustic' | 'ai' | 'local' | 'whisper';
+export type DifficultyLevel = 'easy' | 'medium' | 'hard';
 
 export interface AcousticWaveformMetrics {
   speechDuration: number;
@@ -26,6 +27,7 @@ export interface WordItem {
   harakat?: string;
   transliteration?: string;
   repeatCount?: number; // عدد مرات التكرار المطلوبة (افتراضي 1)
+  difficultyLevel?: DifficultyLevel; // مستوى تدقيق النطق: 'easy' (سهل) | 'medium' (متوسط) | 'hard' (متقدم)
 }
 
 export interface LetterPhoneme {
@@ -50,6 +52,7 @@ export interface PronunciationEvaluation {
   acousticMetrics?: AcousticWaveformMetrics;
   repetitionsDetected?: number; // عدد التكرارات التي رصدها النظام
   requiredRepetitions?: number; // عدد التكرارات المطلوبة
+  difficultyLevel?: DifficultyLevel; // مستوى التدقيق المطبق
 }
 
 export interface PracticeHistoryItem {

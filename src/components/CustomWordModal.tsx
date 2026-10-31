@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { WordItem } from '../types';
-import { X, Plus, Sparkles, Keyboard } from 'lucide-react';
+import { WordItem, DifficultyLevel } from '../types';
+import { X, Plus, Sparkles, Keyboard, Gauge } from 'lucide-react';
 import { removeTashkeel } from '../utils/arabicMatcher';
 
 interface CustomWordModalProps {
@@ -29,6 +29,7 @@ export const CustomWordModal: React.FC<CustomWordModalProps> = ({
   const [word, setWord] = useState('');
   const [meaning, setMeaning] = useState('');
   const [makhrajTip, setMakhrajTip] = useState('');
+  const [difficultyLevel, setDifficultyLevel] = useState<DifficultyLevel>('medium');
 
   if (!isOpen) return null;
 
@@ -50,12 +51,14 @@ export const CustomWordModal: React.FC<CustomWordModalProps> = ({
       level: 2,
       makhrajTip: makhrajTip.trim() || 'انطق الكلمة بوضوح مع مراعاة الحركات المشكّلة.',
       letterFocus: word.trim()[0] || 'ك',
+      difficultyLevel: difficultyLevel,
     };
 
     onAddWord(newItem);
     setWord('');
     setMeaning('');
     setMakhrajTip('');
+    setDifficultyLevel('medium');
     onClose();
   };
 

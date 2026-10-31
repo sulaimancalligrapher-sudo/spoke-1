@@ -1,7 +1,60 @@
-import { LetterPhoneme, PronunciationEvaluation } from '../types';
+import { LetterPhoneme, PronunciationEvaluation, DifficultyLevel } from '../types';
 
 // Arabic Diacritics Regex (Fatha, Damma, Kasra, Sukun, Shaddah, Tanween)
 export const TASHKEEL_REGEX = /[\u064B-\u0652\u0670\u0640]/g;
+
+// Arabic Letter Names and Pronunciation Aliases (Single Letter Recognition)
+export const ARABIC_LETTER_NAMES: Record<string, string[]> = {
+  'ا': ['الف', 'ألف', 'همزة', 'ا', 'ء', 'آ'],
+  'أ': ['الف', 'ألف', 'همزة', 'ا', 'ء', 'أ'],
+  'إ': ['الف', 'ألف', 'همزة', 'ا', 'ء', 'إ'],
+  'ء': ['همزة', 'الف', 'ء'],
+  'ب': ['باء', 'با', 'ب'],
+  'ت': ['تاء', 'تا', 'ت'],
+  'ث': ['ثاء', 'ثا', 'ث'],
+  'ج': ['جيم', 'جي', 'ج'],
+  'ح': ['حاء', 'حا', 'ح'],
+  'خ': ['خاء', 'خا', 'خ'],
+  'د': ['دال', 'دا', 'د'],
+  'ذ': ['ذال', 'ذا', 'ذ'],
+  'ر': ['راء', 'را', 'ر'],
+  'ز': ['زاي', 'زا', 'زين', 'ز'],
+  'س': ['سين', 'سي', 'س'],
+  'ش': ['شين', 'شي', 'ش'],
+  'ص': ['صاد', 'صا', 'ص'],
+  'ض': ['ضاد', 'ضا', 'ض'],
+  'ط': ['طاء', 'طا', 'ط'],
+  'ظ': ['ظاء', 'ظا', 'ظ'],
+  'ع': ['عين', 'عي', 'ع'],
+  'غ': ['غين', 'غي', 'غ'],
+  'ف': ['فاء', 'فا', 'ف'],
+  'ق': ['قاف', 'قا', 'ق'],
+  'ك': ['كاف', 'كا', 'ك'],
+  'ل': ['لام', 'لا', 'ل'],
+  'م': ['ميم', 'مي', 'م'],
+  'ن': ['نون', 'نو', 'ن'],
+  'ه': ['هاء', 'ها', 'ه'],
+  'و': ['واو', 'وا', 'و'],
+  'ي': ['ياء', 'يا', 'ي'],
+};
+
+// Similar phonetic cousins allowed in Easy difficulty mode
+export const PHONETIC_COUSINS: Record<string, string[]> = {
+  'س': ['ص', 'ث'],
+  'ص': ['س'],
+  'ت': ['ط', 'د'],
+  'ط': ['ت'],
+  'ذ': ['ز', 'ظ', 'د'],
+  'ز': ['ذ', 'ظ'],
+  'ظ': ['ذ', 'ض', 'ز'],
+  'د': ['ض', 'ت'],
+  'ض': ['د', 'ظ'],
+  'ه': ['ح', 'ء'],
+  'ح': ['ه', 'خ'],
+  'ك': ['ق'],
+  'ق': ['ك', 'غ'],
+  'ث': ['س', 'ذ'],
+};
 
 /**
  * Remove Arabic Tashkeel (diacritics) for structural comparison
@@ -111,14 +164,18 @@ export function countTargetRepetitions(target: string, spoken: string): number {
 /**
  * Client-side phonetic evaluation with Tashkeel and repetition counting support
  */
+/**
+ * Client-side phonetic evaluation with Tashkeel, difficulty levels, and single/two letter recognition
+ */
 export function evaluateArabicLocal(
   target: string,
   spoken: string,
-  repeatCount: number = 1
+  repeatCount: number = 1,
+  difficultyLevel: DifficultyLevel = 'medium'
 ): PronunciationEvaluation {
   const requiredRepetitions = typeof repeatCount === 'number' && repeatCount > 0 ? repeatCount : 1;
-  const normTarget = removeTashkeel(target);
-  const normSpoken = removeTashkeel(spoken);
+  const normTarget = removeTashkeel(target).trim();
+  const normSpoken = removeTashkeel(spoken).trim();
 
   if (!normSpoken) {
     return {
@@ -134,10 +191,82 @@ export function evaluateArabicLocal(
       engineUsed: 'local',
       requiredRepetitions,
       repetitionsDetected: 0,
+      difficultyLevel,
     };
   }
 
   const detectedCount = countTargetRepetitions(normTarget, normSpoken);
+
+  // 1. SPECIALIZED SINGLE-LETTER RECOGNITION (e.g. "حَ" or "ح")
+  if (normTarget.length === 1) {
+    const letterAliases = ARABIC_LETTER_NAMES[normTarget] || [normTarget];
+    const spokenTokens = normSpoken.split(/\s+/).filter(Boolean);
+    const isSingleMatch =
+      normTarget === normSpoken ||
+      spokenTokens.includes(normTarget) ||
+      letterAliases.some((alias) => normSpoken === alias || spokenTokens.includes(alias) || normSpoken.includes(alias));
+
+    if (isSingleMatch) {
+      const letters: LetterPhoneme[] = [
+        {
+          letter: normTarget,
+          status: 'صحيح',
+          comment: 'نطق سليم ومتقن لصوت أو اسم الحرف',
+        },
+      ];
+
+      return {
+        score: 96,
+        grade: 'ممتاز ومتقن',
+        isMatch: true,
+        feedback: `نطق رائع ومتقن لمخرج وصوت حرف (${target})!`,
+        makhrajAdvice: 'أحسنت! مخارج الحروف نقية وصحيحة.',
+        vowelAccuracy: 'متطابقة مع التشكيل',
+        detectedWord: spoken,
+        letterBreakdown: letters,
+        timestamp: Date.now(),
+        engineUsed: 'local',
+        requiredRepetitions,
+        repetitionsDetected: Math.max(1, detectedCount),
+        difficultyLevel,
+      };
+    }
+  }
+
+  // 2. SPECIALIZED TWO-LETTER WORD RECOGNITION (e.g. "قُمْ")
+  if (normTarget.length === 2) {
+    const spokenTokens = normSpoken.split(/\s+/).filter(Boolean);
+    const isTwoMatch =
+      normTarget === normSpoken ||
+      spokenTokens.includes(normTarget) ||
+      normSpoken.includes(normTarget) ||
+      normalizeProlongedVowels(normSpoken) === normTarget ||
+      getLevenshteinDistance(normTarget, normSpoken) <= 1;
+
+    if (isTwoMatch) {
+      const letters: LetterPhoneme[] = normTarget.split('').map((l) => ({
+        letter: l,
+        status: 'صحيح',
+        comment: 'تم نطقه بدقة ووضوح',
+      }));
+
+      return {
+        score: 95,
+        grade: 'ممتاز ومتقن',
+        isMatch: true,
+        feedback: `أحسنت صنعاً! نطق صحيح ومتقن للمقطع (${target}).`,
+        makhrajAdvice: 'أداء صوتي فصيح وسليم.',
+        vowelAccuracy: 'متطابقة مع التشكيل',
+        detectedWord: spoken,
+        letterBreakdown: letters,
+        timestamp: Date.now(),
+        engineUsed: 'local',
+        requiredRepetitions,
+        repetitionsDetected: Math.max(1, detectedCount),
+        difficultyLevel,
+      };
+    }
+  }
 
   // Check if student elongated vowels (e.g. كَتَبَ pronounced or transcribed as كاتا)
   const isProlongedMatch = normalizeProlongedVowels(normTarget) === normalizeProlongedVowels(normSpoken);
@@ -154,9 +283,10 @@ export function evaluateArabicLocal(
       score: isProlongedMatch && normTarget !== normSpoken ? 90 : 96,
       grade: 'ممتاز ومتقن',
       isMatch: true,
-      feedback: isProlongedMatch && normTarget !== normSpoken
-        ? 'أحسنت! نطق صحيح، مع ملاحظة عدم إشباع الحركة القصيرة لحرف مد.'
-        : 'أحسنت صنعاً! نطقك للكلمة فصيح ومتقن وواضح المخارج.',
+      feedback:
+        isProlongedMatch && normTarget !== normSpoken
+          ? 'أحسنت! نطق صحيح، مع ملاحظة عدم إشباع الحركة القصيرة لحرف مد.'
+          : 'أحسنت صنعاً! نطقك للكلمة فصيح ومتقن وواضح المخارج.',
       makhrajAdvice: 'استمر على هذا المستوى الرائع في تفخيم المفخم وترقيق المرقق.',
       vowelAccuracy: 'متطابقة مع التشكيل',
       detectedWord: spoken,
@@ -165,6 +295,7 @@ export function evaluateArabicLocal(
       engineUsed: 'local',
       requiredRepetitions: 1,
       repetitionsDetected: 1,
+      difficultyLevel,
     };
   }
 
@@ -174,7 +305,7 @@ export function evaluateArabicLocal(
   const ratio = Math.max(0, 1 - distance / maxLen);
   let baseScore = Math.round(ratio * 100);
 
-  // Positional letter-by-letter analysis
+  // Positional letter-by-letter analysis with difficulty-aware phonetic proximity
   const breakdown: LetterPhoneme[] = [];
   const targetChars = normTarget.split('');
   const spokenChars = normSpoken.split('');
@@ -189,6 +320,14 @@ export function evaluateArabicLocal(
         status: 'صحيح',
         comment: 'تم نطقه بدقة وفي موضعه',
       });
+    } else if (difficultyLevel === 'easy' && spokenChar && PHONETIC_COUSINS[char]?.includes(spokenChar)) {
+      // In easy mode, accept close phonetic cousins without penalty
+      breakdown.push({
+        letter: char,
+        status: 'صحيح',
+        comment: `نطق قريب ومقبول في المستوى السهل (${spokenChar} ≈ ${char})`,
+      });
+      baseScore = Math.min(100, baseScore + 10);
     } else if (spokenChars.includes(char)) {
       breakdown.push({
         letter: char,
@@ -215,6 +354,13 @@ export function evaluateArabicLocal(
     baseScore = Math.max(baseScore, 92);
   }
 
+  // Difficulty multiplier
+  if (difficultyLevel === 'easy') {
+    baseScore = Math.min(100, Math.round(baseScore * 1.2) + 8);
+  } else if (difficultyLevel === 'hard') {
+    baseScore = Math.round(baseScore * 0.95);
+  }
+
   let finalScore = baseScore;
   let grade = 'غير مطابق';
   let isMatch = false;
@@ -229,12 +375,19 @@ export function evaluateArabicLocal(
       isMatch = true;
       feedback = `رائع جداً! أكملت تكرار الكلمة بنجاح (${detectedCount} مرات من ${requiredRepetitions} مطلوبة) بنطق واضح ومخارج سليمة.`;
     } else if (detectedCount > 0) {
-      // Partial repetitions: deduct proportionally as requested
-      const completionRatio = detectedCount / requiredRepetitions;
-      finalScore = Math.round(baseScore * completionRatio);
-      grade = finalScore >= 60 ? 'جيد - نقص في التكرار' : 'غير مكتمل التكرار';
-      isMatch = false;
-      feedback = `نطقك صحيح ولكنك كررت الكلمة ${detectedCount} ${detectedCount === 1 ? 'مرة واحدة' : 'مرات'} فقط من أصل ${requiredRepetitions} مرات مطلوبة. تم خصم درجات لنقص التكرار، نرجو إكمال التكرار المطلوب للحصول على الدرجة الكاملة!`;
+      // Partial repetitions: lenient in easy mode, standard in medium/hard
+      if (difficultyLevel === 'easy' && detectedCount >= requiredRepetitions - 1) {
+        finalScore = Math.max(82, Math.round(baseScore * 0.9));
+        grade = 'جيد جداً - مشجع';
+        isMatch = true;
+        feedback = `أحسنت! كررت الكلمة ${detectedCount} من ${requiredRepetitions} مرات بنطق جيد في المستوى السهل.`;
+      } else {
+        const completionRatio = detectedCount / requiredRepetitions;
+        finalScore = Math.round(baseScore * completionRatio);
+        grade = finalScore >= 60 ? 'جيد - نقص في التكرار' : 'غير مكتمل التكرار';
+        isMatch = false;
+        feedback = `نطقك صحيح ولكنك كررت الكلمة ${detectedCount} ${detectedCount === 1 ? 'مرة واحدة' : 'مرات'} فقط من أصل ${requiredRepetitions} مرات مطلوبة. تم خصم درجات لنقص التكرار، نرجو إكمال التكرار المطلوب للحصول على الدرجة الكاملة!`;
+      }
     } else {
       finalScore = Math.min(finalScore, 35);
       grade = 'لم يكتمل التكرار';
@@ -242,19 +395,50 @@ export function evaluateArabicLocal(
       feedback = `المطلوب تكرار الكلمة (${requiredRepetitions} مرات). لم يتم رصد الكلمة المستهدفة بوضوح، يرجى إعادة المحاولة ونطقها ${requiredRepetitions} مرات.`;
     }
   } else {
-    // Single repetition
-    if (finalScore >= 85) {
-      grade = 'رائع وممتاز';
-      isMatch = true;
-      feedback = 'نطق ممتاز جداً! مخارج الحروف نقية وواضحة.';
-    } else if (finalScore >= 70) {
-      grade = 'جيد جداً';
-      isMatch = true;
-      feedback = 'أداء جيد جداً، هناك بعض الحروف أو الحركات تحتاج تركيزاً طفيفاً.';
-    } else if (finalScore >= 50) {
-      grade = 'جيد - يحتاج تدريباً';
-      isMatch = false;
-      feedback = 'بداية طيبة، استمع مجدداً للنموذج الصوتي وحاول تقليد مخرج الحرف بدقة.';
+    // Single repetition thresholds by difficulty
+    if (difficultyLevel === 'easy') {
+      if (finalScore >= 70) {
+        grade = 'رائع وممتاز';
+        isMatch = true;
+        feedback = 'أحسنت! نطق ممتاز ومشجع، بداية موفقة جداً!';
+      } else if (finalScore >= 55) {
+        grade = 'جيد جداً';
+        isMatch = true;
+        feedback = 'نطق جيد جداً ومقبول، واصل التدريب!';
+      } else if (finalScore >= 40) {
+        grade = 'جيد - خطوة ممتازة';
+        isMatch = true;
+        feedback = 'محاولة جيدة، استمع للصوت النموذجي وكرر.';
+      }
+    } else if (difficultyLevel === 'hard') {
+      if (finalScore >= 90) {
+        grade = 'رائع ومتقن تماماً';
+        isMatch = true;
+        feedback = 'إتقان تام وتجويد فصيح لكافة الحركات والمخارج!';
+      } else if (finalScore >= 80) {
+        grade = 'جيد جداً';
+        isMatch = true;
+        feedback = 'أداء جيد جداً، مع ملاحظة تدقيق إضافي على الحركات الدقيقة.';
+      } else if (finalScore >= 65) {
+        grade = 'يحتاج تدريباً مكثفاً';
+        isMatch = false;
+        feedback = 'في المستوى المتقدم يلزم نطق كل حركة بدقة تامة دون تساهل.';
+      }
+    } else {
+      // Medium (default)
+      if (finalScore >= 85) {
+        grade = 'رائع وممتاز';
+        isMatch = true;
+        feedback = 'نطق ممتاز جداً! مخارج الحروف نقية وواضحة.';
+      } else if (finalScore >= 70) {
+        grade = 'جيد جداً';
+        isMatch = true;
+        feedback = 'أداء جيد جداً، هناك بعض الحروف أو الحركات تحتاج تركيزاً طفيفاً.';
+      } else if (finalScore >= 50) {
+        grade = 'جيد - يحتاج تدريباً';
+        isMatch = false;
+        feedback = 'بداية طيبة، استمع مجدداً للنموذج الصوتي وحاول تقليد مخرج الحرف بدقة.';
+      }
     }
   }
 
@@ -271,5 +455,6 @@ export function evaluateArabicLocal(
     engineUsed: 'local',
     requiredRepetitions,
     repetitionsDetected: detectedCount,
+    difficultyLevel,
   };
 }

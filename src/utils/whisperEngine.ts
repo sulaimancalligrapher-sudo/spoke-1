@@ -88,6 +88,15 @@ export async function convertBlobToWhisperPcm(audioBlob: Blob): Promise<Float32A
       }
     }
 
+    // Acoustic padding for short utterances (under 1.2 seconds, i.e., 19,200 samples at 16kHz)
+    // Short letters like "حَ" or "قُمْ" often fail in Whisper if audio buffer is too brief
+    if (monoPcm.length < 19200) {
+      const paddedPcm = new Float32Array(19200);
+      const offset = Math.floor((19200 - monoPcm.length) / 2);
+      paddedPcm.set(monoPcm, offset);
+      return paddedPcm;
+    }
+
     return monoPcm;
   } finally {
     if (audioCtx.state !== 'closed') {
@@ -185,10 +194,21 @@ export async function transcribeWithInBrowserWhisper(
 
   const pcmData = await convertBlobToWhisperPcm(audioBlob);
 
+  const plainTarget = targetWord ? targetWord.replace(/[\u064B-\u0652\u0670\u0640\s-]/g, '').trim() : '';
+  const isSingleLetter = plainTarget.length === 1;
+  const isTwoLetters = plainTarget.length === 2;
+
   // Guide Whisper decoder with target context to prevent hallucinating english/dialects
-  const cleanPrompt = targetWord && targetWord.trim()
-    ? `قراءة عربية فصيحة: ${targetWord.trim()}`
-    : undefined;
+  let cleanPrompt: string | undefined = undefined;
+  if (targetWord && targetWord.trim()) {
+    if (isSingleLetter) {
+      cleanPrompt = `قراءة ونطق حرف هجائي عربي مفرد: ${targetWord.trim()} (نطق الحرف: ${targetWord.trim()})`;
+    } else if (isTwoLetters) {
+      cleanPrompt = `قراءة مقطع أو كلمة عربية قصيرة: ${targetWord.trim()}`;
+    } else {
+      cleanPrompt = `قراءة عربية فصيحة: ${targetWord.trim()}`;
+    }
+  }
 
   const output = await transcriber(pcmData, {
     language: 'arabic',
@@ -196,12 +216,19 @@ export async function transcribeWithInBrowserWhisper(
     chunk_length_s: 30,
     stride_length_s: 5,
     initial_prompt: cleanPrompt,
+    temperature: 0.0,
     repetition_penalty: 1.3,
     no_repeat_ngram_size: 3,
   });
 
   const rawText = (output?.text || '').trim();
   // Clean punctuation
-  const cleanText = rawText.replace(/[.,!؟;:]/g, '').trim();
+  let cleanText = rawText.replace(/[.,!؟;:_#%&*()<>[\]{}"']/g, '').trim();
+
+  // If Whisper produced non-Arabic hallucination (e.g. English subtitles or noise) on short audio, discard hallucination
+  const arabicRegex = /[\u0600-\u06FF]/;
+  if (cleanPrompt && !arabicRegex.test(cleanText) && cleanText.length > 0) {
+    cleanText = '';
+  }
   return cleanText;
 }

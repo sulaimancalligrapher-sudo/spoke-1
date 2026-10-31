@@ -25,6 +25,7 @@ import {
   Monitor,
   Cpu,
   DownloadCloud,
+  Gauge,
 } from 'lucide-react';
 import {
   speakArabicBrowser,
@@ -488,7 +489,8 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             const evalResult = evaluateArabicLocal(
               wordItem.word,
               whisperTranscript,
-              wordItem.repeatCount || 1
+              wordItem.repeatCount || 1,
+              wordItem.difficultyLevel || 'medium'
             );
             onEvaluationComplete(
               {
@@ -508,7 +510,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             console.error('Whisper transcription error:', whisperErr);
             setWhisperStatus({ status: 'error', message: whisperErr?.message || 'خطأ في معالجة الصوت' });
             setTransientErrorNotice('تعذر تشغيل محرك Whisper الداخلي: ' + (whisperErr?.message || 'حدث خطأ أثناء معالجة الصوت. لم يتم التحويل لأي نظام بديل بناءً على طلبك.'));
-            const baseEval = evaluateArabicLocal(wordItem.word, '', wordItem.repeatCount || 1);
+            const baseEval = evaluateArabicLocal(wordItem.word, '', wordItem.repeatCount || 1, wordItem.difficultyLevel || 'medium');
             onEvaluationComplete(
               {
                 ...baseEval,
@@ -536,7 +538,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
       // 2. ISOLATED LOCAL ENGINE (Chrome Speech Recognition)
       if (activeEvalMode === 'local') {
-        const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
+        const localEval = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1, wordItem.difficultyLevel || 'medium');
         onEvaluationComplete(
           {
             ...localEval,
@@ -715,15 +717,36 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           </div>
         )}
 
-        {/* شارة التكرار المطلوبة - واضحة ومستقلة تماماً فوق نص الدرس */}
-        {wordItem.repeatCount && wordItem.repeatCount > 1 && (
-          <div className="flex justify-center mb-5">
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-amber-50 border-2 border-amber-300 text-amber-950 rounded-2xl text-xs sm:text-sm font-bold shadow-xs">
-              <RotateCcw className="w-4 h-4 text-amber-700 shrink-0" />
-              <span>🔁 المطلوب: كرر نطق هذا النص ({wordItem.repeatCount}) مرات متتالية بوضوح</span>
-            </div>
+        {/* شارات التدريب: مستوى التدقيق المحدد + تكرار النطق المطلوب */}
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-5">
+          {/* شارة مستوى تدقيق وتقييم النطق */}
+          <div
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl text-xs font-bold border shadow-xs ${
+              wordItem.difficultyLevel === 'easy'
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                : wordItem.difficultyLevel === 'hard'
+                ? 'bg-purple-50 border-purple-300 text-purple-900'
+                : 'bg-sky-50 border-sky-300 text-sky-900'
+            }`}
+          >
+            <Gauge className="w-3.5 h-3.5" />
+            <span>
+              {wordItem.difficultyLevel === 'easy'
+                ? 'مستوى التدقيق: سهل 🟢 (تساهل تشجيعي للمبتدئين)'
+                : wordItem.difficultyLevel === 'hard'
+                ? 'مستوى التدقيق: متقدم 🔴 (صارم في الحركات والمخارج)'
+                : 'مستوى التدقيق: متوسط 🟡 (متوازن)'}
+            </span>
           </div>
-        )}
+
+          {/* شارة التكرار المطلوبة إن وجدت */}
+          {wordItem.repeatCount && wordItem.repeatCount > 1 && (
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-amber-50 border-2 border-amber-300 text-amber-950 rounded-2xl text-xs font-bold shadow-xs">
+              <RotateCcw className="w-4 h-4 text-amber-700 shrink-0" />
+              <span>🔁 كرر ({wordItem.repeatCount}) مرات متتالية</span>
+            </div>
+          )}
+        </div>
 
         <div className="inline-block relative">
           <h2

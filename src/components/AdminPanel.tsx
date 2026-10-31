@@ -4,6 +4,7 @@ import {
   GoogleSheetsConfig,
   StudentSubmissionRecord,
   EvaluationMode,
+  DifficultyLevel,
 } from '../types';
 import {
   ALL_CURRICULUM,
@@ -213,6 +214,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [meaning, setMeaning] = useState('');
   const [makhrajTip, setMakhrajTip] = useState('');
   const [repeatCount, setRepeatCount] = useState<number>(1);
+  const [difficultyLevel, setDifficultyLevel] = useState<DifficultyLevel>('medium');
 
   // Teacher Voice Recording State (Inline quick recording)
   const [isRecordingTeacher, setIsRecordingTeacher] = useState(false);
@@ -264,6 +266,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setMeaning(item.meaning || '');
     setMakhrajTip(item.makhrajTip || '');
     setRepeatCount(item.repeatCount || 1);
+    setDifficultyLevel(item.difficultyLevel || 'medium');
     setLessonsSubTab('add');
 
     window.scrollTo({ top: 120, behavior: 'smooth' });
@@ -279,6 +282,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setAudioUrl('');
     setAutoReadText('');
     setRepeatCount(1);
+    setDifficultyLevel('medium');
     setLessonsSubTab('list');
   };
 
@@ -472,6 +476,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       makhrajTip: makhrajTip.trim() || 'انطق الكلمة بوضوح مع مراعاة الحركات المشكّلة.',
       letterFocus: wordText.trim()[0],
       repeatCount: repeatCount > 1 ? repeatCount : 1,
+      difficultyLevel: difficultyLevel,
     };
 
     if (editingId) {
@@ -516,6 +521,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setAutoReadText('');
     setCustomSubjectInput('');
     setRepeatCount(1);
+    setDifficultyLevel('medium');
   };
 
   // Test play audio from field
@@ -1559,6 +1565,79 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                   </span>
                 </div>
 
+                {/* 10. مستوى تدقيق وتقييم النطق */}
+                <div className="p-3 bg-sky-50/70 border border-sky-200/80 rounded-2xl">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-sky-950 flex items-center gap-1.5">
+                      <Gauge className="w-3.5 h-3.5 text-sky-600" />
+                      <span>10- مستوى تدقيق وتقييم النطق:</span>
+                    </label>
+                    <span className="text-[11px] text-sky-800 font-bold">
+                      {difficultyLevel === 'easy'
+                        ? '🟢 سهل (متساهل)'
+                        : difficultyLevel === 'hard'
+                        ? '🔴 متقدم (صارم)'
+                        : '🟡 متوسط (متوازن)'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDifficultyLevel('easy')}
+                      className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
+                        difficultyLevel === 'easy'
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-300'
+                      }`}
+                    >
+                      <div className="text-xs font-bold flex items-center justify-between">
+                        <span>سهل (مبتدئ)</span>
+                        <span>🟢</span>
+                      </div>
+                      <span className={`text-[10px] mt-1 ${difficultyLevel === 'easy' ? 'text-emerald-100' : 'text-slate-500'}`}>
+                        تساهل في مخارج الحروف القريبة والحركات وتشجيع الطالب
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setDifficultyLevel('medium')}
+                      className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
+                        difficultyLevel === 'medium'
+                          ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:border-sky-300'
+                      }`}
+                    >
+                      <div className="text-xs font-bold flex items-center justify-between">
+                        <span>متوسط (افتراضي)</span>
+                        <span>🟡</span>
+                      </div>
+                      <span className={`text-[10px] mt-1 ${difficultyLevel === 'medium' ? 'text-sky-100' : 'text-slate-500'}`}>
+                        تدقيق متوازن في الحروف مع تساهل في سكون أواخر الكلمة
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setDifficultyLevel('hard')}
+                      className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
+                        difficultyLevel === 'hard'
+                          ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:border-purple-300'
+                      }`}
+                    >
+                      <div className="text-xs font-bold flex items-center justify-between">
+                        <span>متقدم (إتقان)</span>
+                        <span>🔴</span>
+                      </div>
+                      <span className={`text-[10px] mt-1 ${difficultyLevel === 'hard' ? 'text-purple-100' : 'text-slate-500'}`}>
+                        تدقيق صارم في كل حركة والهمزات والتكرارات دون تساهل
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Submit button */}
                 <div className="flex gap-2 pt-1">
                   {editingId && (
@@ -1735,6 +1814,19 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                             {item.repeatCount && item.repeatCount > 1 && (
                               <span className="text-[10px] text-amber-800 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded-md font-bold" title={`يتطلب تكرار الكلمة ${item.repeatCount} مرات`}>
                                 🔁 {item.repeatCount}×
+                              </span>
+                            )}
+                            {item.difficultyLevel === 'easy' ? (
+                              <span className="text-[10px] text-emerald-800 bg-emerald-100 border border-emerald-300 px-1.5 py-0.5 rounded-md font-bold" title="مستوى التدقيق: سهل (مبتدئ)">
+                                🟢 سهل
+                              </span>
+                            ) : item.difficultyLevel === 'hard' ? (
+                              <span className="text-[10px] text-purple-800 bg-purple-100 border border-purple-300 px-1.5 py-0.5 rounded-md font-bold" title="مستوى التدقيق: متقدم (صارم)">
+                                🔴 متقدم
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-sky-800 bg-sky-100 border border-sky-300 px-1.5 py-0.5 rounded-md font-bold" title="مستوى التدقيق: متوسط (متوازن)">
+                                🟡 متوسط
                               </span>
                             )}
                           </div>

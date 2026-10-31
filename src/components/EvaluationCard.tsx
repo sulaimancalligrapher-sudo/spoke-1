@@ -203,6 +203,21 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
                 </span>
               </span>
 
+              {/* Difficulty Level Badge */}
+              {targetWordItem.difficultyLevel === 'easy' || evaluation.difficultyLevel === 'easy' ? (
+                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                  <span>المستوى: سهل 🟢</span>
+                </span>
+              ) : targetWordItem.difficultyLevel === 'hard' || evaluation.difficultyLevel === 'hard' ? (
+                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-50 text-purple-900 border border-purple-300">
+                  <span>المستوى: متقدم 🔴</span>
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-900 border border-sky-300">
+                  <span>المستوى: متوسط 🟡</span>
+                </span>
+              )}
+
               {/* Engine Badge */}
               {evaluation.engineUsed === 'whisper' ? (
                 <span className="flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[11px] font-bold bg-cyan-100 text-cyan-900 border border-cyan-300">
