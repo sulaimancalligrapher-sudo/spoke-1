@@ -282,8 +282,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       const success = await handlePreloadWhisper();
       setShowFirstTimeDownloadModal(false);
       if (!success) {
-        setTransientErrorNotice('تعذر تنزيل محرك الذكاء الداخلي. تم التحويل للنظام الاحتياطي.');
-        setActiveEvalMode('local');
+        setTransientErrorNotice('تعذر تشغيل أو تحميل محرك الذكاء الداخلي (Whisper). لم يتم التحويل لأي نظام بديل. يرجى التأكد من اتصال الإنترنت وإعادة المحاولة.');
         return;
       }
     }
@@ -508,17 +507,20 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           } catch (whisperErr: any) {
             console.error('Whisper transcription error:', whisperErr);
             setWhisperStatus({ status: 'error', message: whisperErr?.message || 'خطأ في معالجة الصوت' });
-            setTransientErrorNotice('تعذر تشغيل محرك Whisper الداخلي: ' + (whisperErr?.message || 'يرجى إعادة المحاولة'));
-            const localFallback = evaluateArabicLocal(wordItem.word, '', wordItem.repeatCount || 1);
+            setTransientErrorNotice('تعذر تشغيل محرك Whisper الداخلي: ' + (whisperErr?.message || 'حدث خطأ أثناء معالجة الصوت. لم يتم التحويل لأي نظام بديل بناءً على طلبك.'));
+            const baseEval = evaluateArabicLocal(wordItem.word, '', wordItem.repeatCount || 1);
             onEvaluationComplete(
               {
-                ...localFallback,
+                ...baseEval,
                 score: 0,
                 grade: 'تعذر المعالجة',
-                feedback: 'تعذر على محرك Whisper الداخلي تحليل الصوت. يرجى إعادة المحاولة والتحدث بوضوح.',
+                isMatch: false,
+                feedback: 'تعذر على محرك Whisper الداخلي تحليل الصوت. لم يتم التبديل لأي نظام آخر بناءً على الإعدادات. يرجى إعادة المحاولة والتحدث بوضوح.',
+                detectedWord: '—',
                 engineUsed: 'whisper',
-                engineNotice: 'خطأ في محرك Whisper: ' + (whisperErr?.message || 'خطأ غير متوقع'),
+                engineNotice: 'خطأ في محرك Whisper: لم يتم التحويل لأي نظام بديل.',
                 recordedAudioUrl,
+                timestamp: Date.now(),
               },
               recordedAudioUrl,
               studentName
@@ -527,18 +529,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             return;
           }
         } else {
-          const localFallback = evaluateArabicLocal(wordItem.word, textToEvaluate, wordItem.repeatCount || 1);
-          onEvaluationComplete(
-            {
-              ...localFallback,
-              recordedAudioUrl,
-              engineUsed: 'whisper',
-              engineNotice: 'لم يتم التقاط ملف صوتي للتفريغ.',
-            },
-            recordedAudioUrl,
-            studentName
-          );
-          triggerCooldown(3);
+          setTransientErrorNotice('لم يتم التقاط أي ملف صوتي من الميكروفون لتحليله بواسطة Whisper. يرجى الضغط والتحدث بوضوح.');
           return;
         }
       }

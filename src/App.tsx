@@ -234,9 +234,12 @@ export default function App() {
       const savedSettings = localStorage.getItem(STORAGE_KEY_SETTINGS);
       if (savedSettings) {
         const parsed = JSON.parse(savedSettings);
+        // Strict isolation: default to 'whisper', reset legacy 'acoustic'/'ai' cached values
+        const cleanMode: EvaluationMode =
+          parsed.preferredEvaluationMode === 'local' ? 'local' : 'whisper';
         setSettings({
           ...parsed,
-          preferredEvaluationMode: parsed.preferredEvaluationMode || 'whisper',
+          preferredEvaluationMode: cleanMode,
         });
       }
 
