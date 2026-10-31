@@ -50,8 +50,15 @@ export default async function handler(req: any, res: any) {
 
     // 1. AI Task: "Digital Ear" Speech-to-Text (Transcribe audio without bias or knowing the target word)
     if (audioBase64) {
-      let cleanMime = (audioMimeType || 'audio/wav').split(';')[0].trim().toLowerCase();
+      let rawBase64 = (audioBase64 || '').trim();
+      const commaIndex = rawBase64.indexOf(',');
+      if (commaIndex !== -1) {
+        rawBase64 = rawBase64.substring(commaIndex + 1);
+      }
+
+      let cleanMime = (audioMimeType || 'audio/webm').split(';')[0].trim().toLowerCase();
       if (cleanMime === 'audio/x-m4a' || cleanMime === 'audio/m4a') cleanMime = 'audio/mp4';
+      if (!cleanMime || cleanMime === 'audio/*') cleanMime = 'audio/webm';
 
       const asrPrompt = `أنت مفرغ ومدقق صوتي عربي محترف وموضوعي 100%.
 المهمة: الاستماع الدقيق للتسجيل الصوتي المرفق، وكتابة الكلمة أو الحروف أو الجملة التي نطق بها المتحدث حرفياً كما سُمعت في الصوت، مع ضبط التشكيل والحركات (الفتحة، الضمة، الكسرة، السكون، التنوين، الشدة).
@@ -67,7 +74,7 @@ export default async function handler(req: any, res: any) {
         {
           inlineData: {
             mimeType: cleanMime,
-            data: audioBase64,
+            data: rawBase64,
           },
         },
         { text: asrPrompt },
@@ -100,28 +107,39 @@ export default async function handler(req: any, res: any) {
           }
         }
       } catch (err: any) {
-        console.warn('ASR primary model notice, trying fallback:', err?.message || err);
+        console.warn('ASR primary model notice, trying gemini-3.5-transcribe:', err?.message || err);
         try {
-          const fallbackResp = await ai.models.generateContent({
-            model: 'gemini-3.8-flash',
+          const transcribeResp = await ai.models.generateContent({
+            model: 'gemini-3.5-transcribe',
             contents: { parts: contents },
-            config: {
-              responseMimeType: 'application/json',
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: { transcript: { type: Type.STRING } },
-                required: ['transcript'],
-              },
-            },
           });
-          if (fallbackResp && fallbackResp.text) {
-            const parsed = JSON.parse(fallbackResp.text);
-            if (parsed && typeof parsed.transcript === 'string') {
-              transcript = parsed.transcript.trim();
-            }
+          if (transcribeResp && transcribeResp.text) {
+            transcript = transcribeResp.text.trim();
           }
-        } catch (e) {
-          console.warn('ASR fallback failed:', e);
+        } catch (e2) {
+          console.warn('ASR gemini-3.5-transcribe notice, trying gemini-3.8-flash:', e2);
+          try {
+            const fallbackResp = await ai.models.generateContent({
+              model: 'gemini-3.8-flash',
+              contents: { parts: contents },
+              config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                  type: Type.OBJECT,
+                  properties: { transcript: { type: Type.STRING } },
+                  required: ['transcript'],
+                },
+              },
+            });
+            if (fallbackResp && fallbackResp.text) {
+              const parsed = JSON.parse(fallbackResp.text);
+              if (parsed && typeof parsed.transcript === 'string') {
+                transcript = parsed.transcript.trim();
+              }
+            }
+          } catch (e3) {
+            console.warn('All ASR transcription attempts failed:', e3);
+          }
         }
       }
     }

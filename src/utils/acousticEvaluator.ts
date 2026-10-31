@@ -53,8 +53,43 @@ export async function analyzeAudioBlob(audioBlob: Blob): Promise<{
 
   const audioCtx = new AudioContextClass();
   try {
+    if (audioCtx.state === 'suspended') {
+      await audioCtx.resume().catch(() => {});
+    }
     const arrayBuffer = await audioBlob.arrayBuffer();
-    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    const audioBuffer = await new Promise<AudioBuffer>((resolve, reject) => {
+      let isSettled = false;
+      const timer = setTimeout(() => {
+        if (!isSettled) {
+          isSettled = true;
+          reject(new Error('decodeAudioData timed out'));
+        }
+      }, 1200);
+
+      const onOk = (buf: AudioBuffer) => {
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timer);
+          resolve(buf);
+        }
+      };
+      const onErr = (e: any) => {
+        if (!isSettled) {
+          isSettled = true;
+          clearTimeout(timer);
+          reject(e);
+        }
+      };
+
+      try {
+        const p = audioCtx.decodeAudioData(arrayBuffer.slice(0), onOk, onErr);
+        if (p && typeof p.then === 'function') {
+          p.then(onOk).catch(onErr);
+        }
+      } catch (err) {
+        onErr(err);
+      }
+    });
     const rawData = audioBuffer.getChannelData(0);
     const sampleRate = audioBuffer.sampleRate;
     const totalDuration = audioBuffer.duration;
