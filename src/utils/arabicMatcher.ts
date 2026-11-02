@@ -171,7 +171,8 @@ export function evaluateArabicLocal(
   target: string,
   spoken: string,
   repeatCount: number = 1,
-  difficultyLevel: DifficultyLevel = 'medium'
+  difficultyLevel: DifficultyLevel = 'medium',
+  acousticPulses?: number
 ): PronunciationEvaluation {
   const requiredRepetitions = typeof repeatCount === 'number' && repeatCount > 0 ? repeatCount : 1;
   const normTarget = removeTashkeel(target).trim();
@@ -195,7 +196,29 @@ export function evaluateArabicLocal(
     };
   }
 
-  const detectedCount = countTargetRepetitions(normTarget, normSpoken);
+  const rawTextualCount = countTargetRepetitions(normTarget, normSpoken);
+  let verifiedByEnergy = false;
+  let detectedCount = rawTextualCount;
+
+  // Physical Energy Clump Fusion:
+  // If Whisper transcribed fewer words (due to language model compression/deduplication)
+  // but the target word was recognized in text, and physical audio pulses indicate repetitions!
+  if (requiredRepetitions > 1 && detectedCount < requiredRepetitions && acousticPulses && acousticPulses >= 1) {
+    const hasWordMatch =
+      rawTextualCount >= 1 ||
+      normSpoken.includes(normTarget) ||
+      getLevenshteinDistance(normTarget, normSpoken) <= Math.max(1, Math.floor(normTarget.length * 0.35));
+
+    if (hasWordMatch) {
+      if (acousticPulses >= requiredRepetitions) {
+        detectedCount = requiredRepetitions;
+        verifiedByEnergy = true;
+      } else if (acousticPulses > detectedCount) {
+        detectedCount = acousticPulses;
+        verifiedByEnergy = true;
+      }
+    }
+  }
 
   // 1. SPECIALIZED SINGLE-LETTER RECOGNITION (e.g. "حَ" or "ح")
   if (normTarget.length === 1) {
@@ -373,7 +396,11 @@ export function evaluateArabicLocal(
       finalScore = Math.min(100, Math.max(88, baseScore));
       grade = 'ممتاز ومتقن';
       isMatch = true;
-      feedback = `رائع جداً! أكملت تكرار الكلمة بنجاح (${detectedCount} مرات من ${requiredRepetitions} مطلوبة) بنطق واضح ومخارج سليمة.`;
+      if (verifiedByEnergy) {
+        feedback = `رائع جداً! تم التحقق من تكرار الكلمة (${requiredRepetitions} مرات متتالية) بنجاح عبر التحليل الصوتي لنبضات الطاقة (Acoustic Energy Clumps)! مخارج الحروف واضحة وسليمة.`;
+      } else {
+        feedback = `رائع جداً! أكملت تكرار الكلمة بنجاح (${detectedCount} مرات من ${requiredRepetitions} مطلوبة) بنطق واضح ومخارج سليمة.`;
+      }
     } else if (detectedCount > 0) {
       // Partial repetitions: lenient in easy mode, standard in medium/hard
       if (difficultyLevel === 'easy' && detectedCount >= requiredRepetitions - 1) {
@@ -455,6 +482,7 @@ export function evaluateArabicLocal(
     engineUsed: 'local',
     requiredRepetitions,
     repetitionsDetected: detectedCount,
+    repetitionsVerifiedByEnergy: verifiedByEnergy,
     difficultyLevel,
   };
 }

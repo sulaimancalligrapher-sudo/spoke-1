@@ -461,6 +461,43 @@ export const GOOGLE_APPS_SCRIPT_TEMPLATE = `/**
 
 var DEFAULT_FOLDER_ID = "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t";
 
+/**
+ * -----------------------------------------------------------------------
+ * خطوة تفويض الصلاحيات (Authorization) - لمرة واحدة فقط:
+ * إذا ظهر لك تنبيه: "You do not have permission to call DriveApp.getFolderById"
+ * 1. افتح محرر السكربت من الشيت: Extensions -> Apps Script
+ * 2. اختر دالة authorizePermissions من القائمة المنسدلة بالأعلى
+ * 3. اضغط على زر "تشغيل / Run"
+ * 4. ستفتح نافذة جوجل لمنح الإذن لـ Google Drive والشيت: اضغط Review Permissions ثم اضغط Allow.
+ * 5. اضغط على Deploy -> Manage Deployments -> أيقونة القلم (Edit) -> اختر New Version -> ثم اضغط Deploy.
+ * -----------------------------------------------------------------------
+ */
+function authorizePermissions() {
+  var root = DriveApp.getRootFolder();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  Logger.log("تم تفويض Google Drive بنجاح: " + root.getName());
+  Logger.log("تم تفويض Google Sheets بنجاح: " + ss.getName());
+}
+
+function getOrCreateAudioFolder(folderId) {
+  if (folderId) {
+    try {
+      return DriveApp.getFolderById(folderId);
+    } catch (e) {
+      Logger.log("Folder by id failed, falling back: " + e);
+    }
+  }
+  try {
+    var folders = DriveApp.getFoldersByName("فصيح_أصوات_الدروس");
+    if (folders.hasNext()) {
+      return folders.next();
+    }
+    return DriveApp.createFolder("فصيح_أصوات_الدروس");
+  } catch (err) {
+    return DriveApp.getRootFolder();
+  }
+}
+
 // دالة مساعدة ذكية للعثور على ورقة الدروس وتجنب أي خطأ في التسمية
 function getLessonsSheet(ss) {
   var sheet = ss.getSheetByName("الدروس");
@@ -584,8 +621,7 @@ function doPost(e) {
     
     // (أ) حفظ صوت المعلم مباشرة في Google Drive واسترجاع الرابط المباشر
     if (data.action === "upload_audio" && data.audioBase64) {
-      var folderId = data.driveFolderId || DEFAULT_FOLDER_ID;
-      var folder = DriveApp.getFolderById(folderId);
+      var folder = getOrCreateAudioFolder(data.driveFolderId || DEFAULT_FOLDER_ID);
       var cleanBase64 = String(data.audioBase64);
       if (cleanBase64.indexOf("base64,") !== -1) {
         cleanBase64 = cleanBase64.split("base64,")[1];
@@ -593,7 +629,9 @@ function doPost(e) {
       var timeId = new Date().getTime();
       var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), "audio/mp3", "audio_" + timeId + ".mp3");
       var driveFile = folder.createFile(blob);
-      driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      try {
+        driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      } catch (sErr) {}
       var fileId = driveFile.getId();
       var directAudioUrl = "https://drive.google.com/uc?export=download&id=" + fileId;
       
@@ -614,8 +652,7 @@ function doPost(e) {
       // رفع الصوت المسجل أو المرفوع إلى مجلد Google Drive المحدد إن وجد base64
       if (data.audioBase64) {
         try {
-          var folderId = data.driveFolderId || DEFAULT_FOLDER_ID;
-          var folder = DriveApp.getFolderById(folderId);
+          var folder = getOrCreateAudioFolder(data.driveFolderId || DEFAULT_FOLDER_ID);
           var cleanBase64 = String(data.audioBase64);
           if (cleanBase64.indexOf("base64,") !== -1) {
             cleanBase64 = cleanBase64.split("base64,")[1];
@@ -623,7 +660,9 @@ function doPost(e) {
           var timeId = new Date().getTime();
           var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), "audio/mp3", "audio_" + timeId + ".mp3");
           var driveFile = folder.createFile(blob);
-          driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+          try {
+            driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+          } catch (sErr) {}
           audioUrl = "https://drive.google.com/uc?export=download&id=" + driveFile.getId();
         } catch (uploadErr) {
           Logger.log("Drive upload error: " + uploadErr);
@@ -868,9 +907,14 @@ function doPost(e) {
       .setMimeType(ContentService.MimeType.JSON);
       
   } catch (err) {
+    var errStr = err.toString();
+    var friendlyError = errStr;
+    if (errStr.indexOf("DriveApp") !== -1 || errStr.indexOf("permission") !== -1 || errStr.indexOf("drive.readonly") !== -1) {
+      friendlyError = "تنبيه صلاحيات Google Drive: يحتاج السكربت إلى موافقتك على صلاحية Drive لمرة واحدة. يرجى فتح محرر Apps Script واختيار دالة authorizePermissions ثم الضغط على Run والموافقة، ثم عمل Deploy -> New Version.";
+    }
     return ContentService.createTextOutput(JSON.stringify({
       success: false,
-      error: err.toString()
+      error: friendlyError
     })).setMimeType(ContentService.MimeType.JSON);
   }
 }

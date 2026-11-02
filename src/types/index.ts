@@ -52,7 +52,17 @@ export interface PronunciationEvaluation {
   acousticMetrics?: AcousticWaveformMetrics;
   repetitionsDetected?: number; // عدد التكرارات التي رصدها النظام
   requiredRepetitions?: number; // عدد التكرارات المطلوبة
+  repetitionsVerifiedByEnergy?: boolean; // هل تم التحقق من التكرار عبر نبضات الطاقة الفيزيائية
   difficultyLevel?: DifficultyLevel; // مستوى التدقيق المطبق
+  textMatchScore?: number; // نسبة مطابقة النص مع النموذج
+  acousticMatchScore?: number; // نسبة مطابقة البصمة الصوتية مع تسجيل المعلم
+  acousticComparison?: {
+    similarityScore: number;
+    durationRatio: number;
+    teacherDuration: number;
+    studentDuration: number;
+    feedback: string;
+  };
 }
 
 export interface PracticeHistoryItem {

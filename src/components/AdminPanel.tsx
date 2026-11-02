@@ -3374,6 +3374,28 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                     {driveUploadResult.url}
                   </div>
                 )}
+
+                {!driveUploadResult.success && (driveUploadResult.message.includes('permission') || driveUploadResult.message.includes('DriveApp') || driveUploadResult.message.includes('صلاحيات')) && (
+                  <div className="bg-white/90 p-3 rounded-xl border border-rose-200 text-slate-700 text-[11px] space-y-2 mt-2">
+                    <div className="font-bold text-rose-800 flex items-center gap-1.5">
+                      <span>💡 حل سريع لتفعيل صلاحية Google Drive في الشيت:</span>
+                    </div>
+                    <ol className="list-decimal list-inside space-y-1 text-slate-600 leading-relaxed pr-1">
+                      <li>انسخ كود السكربت المحدث بالضغط على الزر أدناه.</li>
+                      <li>في Google Sheets، افتح: <strong>ملحقات (Extensions) &larr; Apps Script</strong> والصق الكود.</li>
+                      <li>من القائمة المنسدلة بالأعلى، اختر دالة: <code className="bg-slate-100 px-1 py-0.5 rounded text-indigo-700 font-bold">authorizePermissions</code> ثم اضغط <strong>تشغيل (Run)</strong>.</li>
+                      <li>ستظهر نافذة تطلب منح الإذن لـ Google Drive: اضغط <strong>Review Permissions</strong> ثم <strong>Allow</strong>.</li>
+                      <li>اضغط <strong>نشر (Deploy) &larr; إدارة عمليات النشر (Manage Deployments) &larr; تعديل &larr; New Version</strong>.</li>
+                    </ol>
+                    <button
+                      type="button"
+                      onClick={handleCopyScriptCode}
+                      className="w-full py-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <span>📋 نسخ كود Google Apps Script المحدّث</span>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

@@ -246,7 +246,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
             <p className="text-sm text-slate-500 mt-1">{evaluation.feedback}</p>
 
             {/* Repetition Status Badge */}
-            {(targetWordItem.repeatCount && targetWordItem.repeatCount > 1 || (evaluation.requiredRepetitions && evaluation.requiredRepetitions > 1)) && (
+            {((evaluation.requiredRepetitions && evaluation.requiredRepetitions > 1) || (targetWordItem.repeatCount && targetWordItem.repeatCount > 1)) && (
               <div
                 className={`mt-2.5 p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs font-bold ${
                   (evaluation.repetitionsDetected || 0) >= (evaluation.requiredRepetitions || targetWordItem.repeatCount || 1)
@@ -268,7 +268,9 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
                   }`}
                 >
                   {(evaluation.repetitionsDetected || 0) >= (evaluation.requiredRepetitions || targetWordItem.repeatCount || 1)
-                    ? '✓ اكتمل التكرار'
+                    ? evaluation.repetitionsVerifiedByEnergy
+                      ? '✓ تم التحقق بنبضات الصوت'
+                      : '✓ اكتمل التكرار'
                     : '⚠ ناقص - تم تعديل الدرجة'}
                 </span>
               </div>
@@ -345,6 +347,54 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Teacher Reference Voice Comparison (The Hybrid Approach) */}
+      {evaluation.acousticComparison && (
+        <div className="bg-gradient-to-br from-indigo-50/80 via-purple-50/60 to-white border border-indigo-200/90 rounded-2xl p-4.5 mb-6 shadow-xs">
+          <div className="flex items-center justify-between mb-3 border-b border-indigo-100 pb-2.5">
+            <h4 className="text-xs font-bold text-indigo-950 flex items-center gap-2">
+              <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-xs">🎧</span>
+              <span>المقارنة المباشرة مع تسجيل المعلم (الأسلوب الهجين 50% نص + 50% بصمة صوتية)</span>
+            </h4>
+            <span className="text-[11px] bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full font-bold">
+              MFCC + DTW
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+            <div className="bg-white p-3 rounded-xl border border-indigo-100 text-center shadow-2xs">
+              <span className="text-[10px] text-slate-500 block mb-0.5">مطابقة النص والحروف (Whisper)</span>
+              <span className="text-base font-extrabold text-indigo-600 font-mono">
+                {evaluation.textMatchScore ?? evaluation.score}%
+              </span>
+              <span className="text-[9px] text-slate-400 block mt-0.5">وزن 50% من التقييم</span>
+            </div>
+
+            <div className="bg-white p-3 rounded-xl border border-indigo-100 text-center shadow-2xs">
+              <span className="text-[10px] text-slate-500 block mb-0.5">تطابق البصمة مع صوت المعلم</span>
+              <span className="text-base font-extrabold text-purple-600 font-mono">
+                {evaluation.acousticComparison.similarityScore}%
+              </span>
+              <span className="text-[9px] text-slate-400 block mt-0.5">وزن 50% من التقييم</span>
+            </div>
+
+            <div className="bg-white p-3 rounded-xl border border-indigo-100 text-center shadow-2xs">
+              <span className="text-[10px] text-slate-500 block mb-0.5">مقياس زمن النطق والمدود</span>
+              <span className="text-base font-extrabold text-emerald-600 font-mono">
+                {evaluation.acousticComparison.studentDuration}ث
+              </span>
+              <span className="text-[9px] text-slate-400 block mt-0.5">
+                (صوت المعلم: {evaluation.acousticComparison.teacherDuration}ث)
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-indigo-50/60 p-2.5 rounded-xl border border-indigo-100/80 text-xs text-indigo-900 flex items-start gap-2">
+            <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+            <span>{evaluation.acousticComparison.feedback}</span>
+          </div>
+        </div>
+      )}
 
       {/* Acoustic Waveform & Voice Metrics (for in-browser physical matching) */}
       {evaluation.acousticMetrics && (

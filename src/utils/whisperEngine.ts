@@ -179,11 +179,12 @@ export async function getWhisperTranscriber(onProgress?: ProgressCallback): Prom
 }
 
 /**
- * Transcribe recorded audio blob using in-browser Whisper with context guidance
+ * Transcribe recorded audio blob using in-browser Whisper with context guidance and repetition support
  */
 export async function transcribeWithInBrowserWhisper(
   audioBlob: Blob,
   targetWord?: string,
+  repeatCount: number = 1,
   onProgress?: ProgressCallback
 ): Promise<string> {
   const transcriber = await getWhisperTranscriber(onProgress);
@@ -197,11 +198,15 @@ export async function transcribeWithInBrowserWhisper(
   const plainTarget = targetWord ? targetWord.replace(/[\u064B-\u0652\u0670\u0640\s-]/g, '').trim() : '';
   const isSingleLetter = plainTarget.length === 1;
   const isTwoLetters = plainTarget.length === 2;
+  const isRepetition = typeof repeatCount === 'number' && repeatCount > 1;
 
   // Guide Whisper decoder with target context to prevent hallucinating english/dialects
   let cleanPrompt: string | undefined = undefined;
   if (targetWord && targetWord.trim()) {
-    if (isSingleLetter) {
+    if (isRepetition) {
+      const repeatedPhrase = Array(repeatCount).fill(targetWord.trim()).join(' ');
+      cleanPrompt = `تمرين نطق وتكرار صوتي: كرر الكلمة ${repeatCount} مرات متتالية بالضبط دون حذف: ${repeatedPhrase}`;
+    } else if (isSingleLetter) {
       cleanPrompt = `قراءة ونطق حرف هجائي عربي مفرد: ${targetWord.trim()} (نطق الحرف: ${targetWord.trim()})`;
     } else if (isTwoLetters) {
       cleanPrompt = `قراءة مقطع أو كلمة عربية قصيرة: ${targetWord.trim()}`;
@@ -210,6 +215,8 @@ export async function transcribeWithInBrowserWhisper(
     }
   }
 
+  // When repetition is enabled, we explicitly set repetition_penalty to 1.0 (neutral)
+  // and no_repeat_ngram_size to 0, allowing Whisper to emit identical repeated tokens!
   const output = await transcriber(pcmData, {
     language: 'arabic',
     task: 'transcribe',
@@ -217,8 +224,8 @@ export async function transcribeWithInBrowserWhisper(
     stride_length_s: 5,
     initial_prompt: cleanPrompt,
     temperature: 0.0,
-    repetition_penalty: 1.3,
-    no_repeat_ngram_size: 3,
+    repetition_penalty: isRepetition ? 1.0 : 1.05,
+    no_repeat_ngram_size: isRepetition ? 0 : 0,
   });
 
   const rawText = (output?.text || '').trim();

@@ -518,3 +518,311 @@ export function blobToBase64(blob: Blob): Promise<string> {
     reader.readAsDataURL(blob);
   });
 }
+
+/**
+ * Physical Speech Pulse / Energy Clump Detector
+ * Analyzes audio waveform energy to detect distinct vocal bursts separated by silence.
+ * Confirms word repetitions even if Whisper deduplicated identical words.
+ */
+export async function detectSpeechPulses(audioBlob: Blob): Promise<number> {
+  if (!audioBlob || audioBlob.size === 0) return 0;
+
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextClass) return 1;
+
+  const audioCtx = new AudioContextClass();
+  try {
+    const arrayBuffer = await audioBlob.arrayBuffer();
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    const pcm = audioBuffer.getChannelData(0);
+    const sampleRate = audioBuffer.sampleRate;
+
+    // Window configuration (30ms frames, 15ms hop)
+    const frameSize = Math.floor(sampleRate * 0.03);
+    const hopSize = Math.floor(sampleRate * 0.015);
+    const numFrames = Math.floor((pcm.length - frameSize) / hopSize);
+
+    if (numFrames <= 0) return 0;
+
+    const frameEnergies: number[] = new Array(numFrames);
+    let maxEnergy = 0;
+    let avgEnergy = 0;
+
+    for (let f = 0; f < numFrames; f++) {
+      const start = f * hopSize;
+      let sumSq = 0;
+      for (let i = 0; i < frameSize; i++) {
+        const val = pcm[start + i];
+        sumSq += val * val;
+      }
+      const rms = Math.sqrt(sumSq / frameSize);
+      frameEnergies[f] = rms;
+      if (rms > maxEnergy) maxEnergy = rms;
+      avgEnergy += rms;
+    }
+    avgEnergy /= numFrames;
+
+    if (maxEnergy < 0.015) return 0; // Pure background silence or very quiet
+
+    // Adaptive speech threshold
+    const speechThreshold = Math.max(0.018, avgEnergy * 0.7, maxEnergy * 0.16);
+
+    // Group active frames into speech bursts
+    const minBurstDurationFrames = Math.floor(0.12 / 0.015); // >= 120ms to count as speech burst
+    const maxSilenceBridgeFrames = Math.floor(0.14 / 0.015); // <= 140ms silence is bridged (stops / plosives)
+
+    interface SpeechSegment {
+      start: number;
+      end: number;
+    }
+
+    const rawSegments: SpeechSegment[] = [];
+    let inBurst = false;
+    let burstStart = 0;
+
+    for (let f = 0; f < numFrames; f++) {
+      const isActive = frameEnergies[f] >= speechThreshold;
+      if (isActive && !inBurst) {
+        inBurst = true;
+        burstStart = f;
+      } else if (!isActive && inBurst) {
+        inBurst = false;
+        rawSegments.push({ start: burstStart, end: f });
+      }
+    }
+    if (inBurst) {
+      rawSegments.push({ start: burstStart, end: numFrames });
+    }
+
+    if (rawSegments.length === 0) return 0;
+
+    // Merge bursts that are separated by short pauses (< 140ms)
+    const merged: SpeechSegment[] = [rawSegments[0]];
+    for (let i = 1; i < rawSegments.length; i++) {
+      const prev = merged[merged.length - 1];
+      const curr = rawSegments[i];
+      const gap = curr.start - prev.end;
+
+      if (gap <= maxSilenceBridgeFrames) {
+        prev.end = curr.end; // bridge across unvoiced consonant gap
+      } else {
+        merged.push(curr);
+      }
+    }
+
+    // Filter out very brief acoustic clicks (< 120ms)
+    const validBursts = merged.filter((seg) => seg.end - seg.start >= minBurstDurationFrames);
+
+    return validBursts.length;
+  } catch (err) {
+    console.warn('Acoustic pulse detection fallback:', err);
+    return 1;
+  } finally {
+    if (audioCtx.state !== 'closed') {
+      audioCtx.close().catch(() => {});
+    }
+  }
+}
+
+export interface AcousticComparisonResult {
+  similarityScore: number; // 0 - 100
+  durationRatio: number; // student / teacher
+  teacherDuration: number; // in seconds
+  studentDuration: number; // in seconds
+  feedback: string;
+}
+
+/**
+ * Compares student's audio against teacher's reference audio recording
+ * using Filterbank Spectral Envelopes + Dynamic Time Warping (DTW) + Duration analysis
+ */
+export async function compareStudentToTeacherAudio(
+  studentBlob: Blob,
+  teacherAudioUrl: string
+): Promise<AcousticComparisonResult | null> {
+  if (!studentBlob || !teacherAudioUrl) return null;
+
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextClass) return null;
+
+  const audioCtx = new AudioContextClass();
+  try {
+    // 1. Fetch teacher audio buffer
+    let teacherArrayBuffer: ArrayBuffer;
+    const directUrl = getDirectAudioUrl(teacherAudioUrl);
+
+    try {
+      const res = await fetch(directUrl);
+      if (!res.ok) throw new Error('Fetch failed');
+      teacherArrayBuffer = await res.arrayBuffer();
+    } catch (fetchErr) {
+      // Fallback via server proxy if direct fetch suffers CORS
+      const proxyUrl = `/api/proxy-audio?url=${encodeURIComponent(directUrl)}`;
+      const pRes = await fetch(proxyUrl);
+      if (!pRes.ok) return null;
+      teacherArrayBuffer = await pRes.arrayBuffer();
+    }
+
+    // 2. Decode both buffers
+    const teacherBuffer = await audioCtx.decodeAudioData(teacherArrayBuffer);
+    const studentArrayBuffer = await studentBlob.arrayBuffer();
+    const studentBuffer = await audioCtx.decodeAudioData(studentArrayBuffer);
+
+    const teacherPcm = teacherBuffer.getChannelData(0);
+    const studentPcm = studentBuffer.getChannelData(0);
+
+    // 3. Trim leading & trailing silence from both signals
+    const trimAudio = (pcm: Float32Array, sr: number) => {
+      const frameLen = Math.floor(sr * 0.02);
+      let start = 0;
+      let end = pcm.length;
+
+      for (let i = 0; i < pcm.length - frameLen; i += frameLen) {
+        let sum = 0;
+        for (let j = 0; j < frameLen; j++) sum += Math.abs(pcm[i + j]);
+        if (sum / frameLen > 0.02) {
+          start = i;
+          break;
+        }
+      }
+
+      for (let i = pcm.length - frameLen; i > start; i -= frameLen) {
+        let sum = 0;
+        for (let j = 0; j < frameLen; j++) sum += Math.abs(pcm[i + j]);
+        if (sum / frameLen > 0.02) {
+          end = i + frameLen;
+          break;
+        }
+      }
+
+      const trimmedLen = Math.max(0, end - start);
+      const trimmed = new Float32Array(trimmedLen);
+      trimmed.set(pcm.subarray(start, end));
+      const durationSec = trimmedLen / sr;
+      return { pcm: trimmed, duration: durationSec };
+    };
+
+    const trimmedTeacher = trimAudio(teacherPcm, teacherBuffer.sampleRate);
+    const trimmedStudent = trimAudio(studentPcm, studentBuffer.sampleRate);
+
+    if (trimmedTeacher.duration < 0.15 || trimmedStudent.duration < 0.15) {
+      return null;
+    }
+
+    // 4. Extract Filterbank spectral frames (16 frequency bands)
+    const extractFilterbankFeatures = (pcm: Float32Array, sr: number): number[][] => {
+      const frameSize = 512;
+      const hopSize = 256;
+      const numFrames = Math.floor((pcm.length - frameSize) / hopSize);
+      if (numFrames <= 0) return [];
+
+      const numBands = 16;
+      const features: number[][] = [];
+
+      for (let f = 0; f < numFrames; f++) {
+        const start = f * hopSize;
+        const frameBands = new Array(numBands).fill(0);
+
+        // Simple band energy accumulation across 16 sub-bands
+        const subBandSize = Math.floor((frameSize / 2) / numBands);
+        for (let b = 0; b < numBands; b++) {
+          let bandEnergy = 0;
+          for (let k = 0; k < subBandSize; k++) {
+            const sample = pcm[start + b * subBandSize + k] || 0;
+            bandEnergy += sample * sample;
+          }
+          // Log energy compression
+          frameBands[b] = Math.log1p(bandEnergy * 100);
+        }
+
+        // Normalize frame vector (unit norm)
+        let normSq = 0;
+        for (let b = 0; b < numBands; b++) normSq += frameBands[b] * frameBands[b];
+        const norm = Math.sqrt(normSq) || 1;
+        for (let b = 0; b < numBands; b++) frameBands[b] /= norm;
+
+        features.push(frameBands);
+      }
+      return features;
+    };
+
+    const teacherFeatures = extractFilterbankFeatures(trimmedTeacher.pcm, teacherBuffer.sampleRate);
+    const studentFeatures = extractFilterbankFeatures(trimmedStudent.pcm, studentBuffer.sampleRate);
+
+    if (teacherFeatures.length === 0 || studentFeatures.length === 0) {
+      return null;
+    }
+
+    // 5. Dynamic Time Warping (DTW)
+    // Distance metric: Cosine distance between normalized feature vectors
+    const vectorDist = (a: number[], b: number[]): number => {
+      let dot = 0;
+      for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+      // Cosine distance = 1 - dot product (range 0.0 exact to 2.0 orthogonal/opposite)
+      return Math.max(0, 1 - dot);
+    };
+
+    const M = teacherFeatures.length;
+    const N = studentFeatures.length;
+
+    // Use flat arrays for memory efficiency
+    const dtw = new Float32Array(M * N);
+    for (let i = 0; i < M * N; i++) dtw[i] = Infinity;
+
+    dtw[0] = vectorDist(teacherFeatures[0], studentFeatures[0]);
+
+    for (let i = 1; i < M; i++) {
+      dtw[i * N] = dtw[(i - 1) * N] + vectorDist(teacherFeatures[i], studentFeatures[0]);
+    }
+    for (let j = 1; j < N; j++) {
+      dtw[j] = dtw[j - 1] + vectorDist(teacherFeatures[0], studentFeatures[j]);
+    }
+
+    for (let i = 1; i < M; i++) {
+      for (let j = 1; j < N; j++) {
+        const cost = vectorDist(teacherFeatures[i], studentFeatures[j]);
+        const prevMin = Math.min(
+          dtw[(i - 1) * N + j], // insertion
+          dtw[i * N + (j - 1)], // deletion
+          dtw[(i - 1) * N + (j - 1)] // match
+        );
+        dtw[i * N + j] = cost + prevMin;
+      }
+    }
+
+    const totalCost = dtw[(M - 1) * N + (N - 1)];
+    const avgCost = totalCost / (M + N);
+
+    // Map average cost (usually 0.05 to 0.45) to percentage (0 - 100)
+    let similarityScore = Math.round(Math.max(10, Math.min(98, 100 - avgCost * 120)));
+
+    // 6. Timing and Duration (Vowel Elongation / Madd) Analysis
+    const durationRatio = trimmedStudent.duration / (trimmedTeacher.duration || 1);
+    let feedback = '';
+
+    if (durationRatio < 0.6) {
+      similarityScore = Math.max(30, Math.round(similarityScore * 0.88));
+      feedback = 'نطقك أسرع من صوت المعلم؛ أعطِ حروف المد والحركات القصيرة حقها الزمني دون تعجل.';
+    } else if (durationRatio > 1.6) {
+      similarityScore = Math.max(30, Math.round(similarityScore * 0.9));
+      feedback = 'نطقك أطول من المعتاد؛ تجنّب إطالة الحركات القصيرة لتصبح حروف مد.';
+    } else {
+      feedback = 'تناسق صوتي ونغمي ممتاز مع مخارج حروف المعلم وسرعة النطق النموذجية.';
+    }
+
+    return {
+      similarityScore,
+      durationRatio: parseFloat(durationRatio.toFixed(2)),
+      teacherDuration: parseFloat(trimmedTeacher.duration.toFixed(2)),
+      studentDuration: parseFloat(trimmedStudent.duration.toFixed(2)),
+      feedback,
+    };
+  } catch (err) {
+    console.warn('Acoustic comparison error:', err);
+    return null;
+  } finally {
+    if (audioCtx.state !== 'closed') {
+      audioCtx.close().catch(() => {});
+    }
+  }
+}
