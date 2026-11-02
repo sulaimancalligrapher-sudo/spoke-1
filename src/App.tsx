@@ -255,11 +255,20 @@ export default function App() {
       if (savedSheets) {
         try {
           const parsedSheets: GoogleSheetsConfig = JSON.parse(savedSheets);
+          const sanitizedFolderId =
+            parsedSheets.driveFolderId === '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'
+              ? ''
+              : (parsedSheets.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID);
+          const sanitizedWebhook =
+            !parsedSheets.webhookUrl || parsedSheets.webhookUrl.includes('AKfycbyqkLw2qbPSAEzXgaq')
+              ? DEFAULT_WEBHOOK_URL
+              : parsedSheets.webhookUrl;
+
           activeConfig = {
             ...activeConfig,
             ...parsedSheets,
-            webhookUrl: parsedSheets.webhookUrl || DEFAULT_WEBHOOK_URL,
-            driveFolderId: parsedSheets.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID,
+            webhookUrl: sanitizedWebhook,
+            driveFolderId: sanitizedFolderId,
           };
         } catch (e) {
           console.warn('Error reading saved sheets config:', e);

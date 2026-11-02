@@ -421,8 +421,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       return;
     }
 
-    const effectiveWebhook = sheetsConfig.webhookUrl || DEFAULT_WEBHOOK_URL;
-    const targetFolder = sheetsConfig.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID;
+    const effectiveWebhook = (sheetsConfig.webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+    const rawFolder = (sheetsConfig.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID || '').trim();
+    const targetFolder = rawFolder === '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t' ? '' : rawFolder;
     setIsUploadingToDrive(true);
     setDriveUploadResult(null);
 
@@ -2008,24 +2009,30 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
 
               <div>
                 <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
-                  <span>2- معرف مجلد Google Drive لحفظ الأصوات المسجلة والمرفوعة تلقائياً:</span>
+                  <span>2- مجلد Google Drive لحفظ أصوات الدروس (تلقائي واختياري):</span>
                   <span className="text-[11px] text-emerald-700 font-normal">
-                    المجلد المحدد: 1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t
+                    {sheetsConfig.driveFolderId && sheetsConfig.driveFolderId !== '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'
+                      ? `مجلد مخصص: ${sheetsConfig.driveFolderId}`
+                      : 'مجلد تلقائي: فصيح_أصوات_الدروس'}
                   </span>
                 </label>
                 <input
                   type="text"
-                  value={sheetsConfig.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID}
+                  value={
+                    sheetsConfig.driveFolderId === '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'
+                      ? ''
+                      : (sheetsConfig.driveFolderId || '')
+                  }
                   onChange={(e) =>
                     onUpdateSheetsConfig({
-                      driveFolderId: e.target.value.trim() || DEFAULT_DRIVE_AUDIO_FOLDER_ID,
+                      driveFolderId: e.target.value.trim(),
                     })
                   }
-                  placeholder="1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t"
+                  placeholder="اتركه فارغاً ليتم الحفظ تلقائياً في مجلد (فصيح_أصوات_الدروس) في حسابك"
                   className="w-full px-4 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-900 focus:outline-hidden focus:border-emerald-500 dir-ltr text-left"
                 />
                 <span className="text-[11px] text-slate-500 mt-1 block">
-                  عند تسجيل صوتك كمعلم أو رفع ملف صوت، يتم حفظه فوراً في هذا المجلد وتوليد رابط تشغيل مباشر في العامود D.
+                  💡 لا يلزم كتابة أي شيء هنا! يقوم السكربت تلقائياً بإنشاء مجلد باسم (فصيح_أصوات_الدروس) في Google Drive الخاص بك وحفظ تسجيلات المعلم فيه مباشرة وتوليد رابط تشغيل في العامود D.
                 </span>
               </div>
 
