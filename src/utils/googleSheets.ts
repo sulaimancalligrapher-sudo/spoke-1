@@ -1,9 +1,9 @@
 import { WordItem, StudentSubmissionRecord } from '../types';
 import { removeTashkeel } from './arabicMatcher';
 
-export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '';
+export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t';
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbyhu_Nr9vFQmhuZqZ15gv4s_iDEltojRQfTxeLiYOEMN98VlvQ8z8RuMpDc74yeAQg_Sw/exec';
+  'https://script.google.com/macros/s/AKfycbyBkcgIbQS_PYBE6Cr6JJWoszJ7QP1smlUTDGYclxk5GZoz4iqfkOfYIZwPDpIM5GCUFg/exec';
 
 /**
  * Fetch curriculum (lessons and exercises) directly from Google Sheet tab "الدروس"
@@ -482,10 +482,10 @@ function authorizePermissions() {
 }
 
 function getOrCreateAudioFolder(folderId) {
-  // 1. إذا أدخل المعلم معرف مجلد خاص به (غير المعرف التجريبي القديم)
+  // 1. إذا أدخل المعلم معرف مجلد خاص به في Google Drive
   if (folderId && typeof folderId === "string") {
     var fId = folderId.trim();
-    if (fId.length > 15 && fId.indexOf("1YuCKWxGj") === -1) {
+    if (fId.length > 15) {
       try {
         var customFolder = DriveApp.getFolderById(fId);
         return customFolder;

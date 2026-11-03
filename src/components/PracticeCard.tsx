@@ -67,6 +67,7 @@ interface PracticeCardProps {
   currentIndex: number;
   totalCount: number;
   onUpdateSettings: (settings: Partial<AudioSettings>) => void;
+  onOpenLessons?: () => void;
 }
 
 export const PracticeCard: React.FC<PracticeCardProps> = ({
@@ -78,6 +79,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   currentIndex,
   totalCount,
   onUpdateSettings,
+  onOpenLessons,
 }) => {
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -362,14 +364,20 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       }
     }
 
-    // 2. Start duration timer
+    // 2. Start duration timer with auto-stop (6s for single word/letter, up to 9s for repetitions)
+    const maxRecordingSeconds =
+      wordItem.repeatCount && wordItem.repeatCount > 1
+        ? Math.min(10, Math.max(7, wordItem.repeatCount * 2 + 3))
+        : 6;
+
     timerIntervalRef.current = setInterval(() => {
       setRecordDuration((prev) => {
-        if (prev >= 12) {
+        const next = prev + 1;
+        if (next >= maxRecordingSeconds) {
           stopRecording();
-          return prev;
+          return next;
         }
-        return prev + 1;
+        return next;
       });
     }, 1000);
 
@@ -761,9 +769,19 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-50/60 rounded-full blur-3xl -z-10 pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-80 h-80 bg-sky-50/60 rounded-full blur-3xl -z-10 pointer-events-none" />
 
-      {/* Header: Lesson Subject, Category & Student Name */}
+      {/* Header: Lesson Subject, Category, Open Lessons & Student Name */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-slate-100">
         <div className="flex items-center gap-2 flex-wrap">
+          {onOpenLessons && (
+            <button
+              onClick={onOpenLessons}
+              className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/90 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+              title="فتح قائمة الدروس واختيار درس آخر"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+              <span>فتح الدروس 📚</span>
+            </button>
+          )}
           <span className="px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200/80 rounded-full text-xs font-bold flex items-center gap-1.5">
             <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
             {wordItem.lessonSubject || 'الدرس الحالي'}
@@ -995,7 +1013,16 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
               </span>
             ) : isRecording ? (
               <span className="text-rose-700 font-bold bg-rose-50 border border-rose-300 px-3.5 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse">
-                <span>🎙️ تحدّث الآن بوضوح... اضغط على الزر مرة أخرى للتقييم</span>
+                <span>
+                  🎙️ تحدّث الآن بوضوح (إيقاف تلقائي بعد{' '}
+                  {Math.max(
+                    0,
+                    (wordItem.repeatCount && wordItem.repeatCount > 1
+                      ? Math.min(10, Math.max(7, wordItem.repeatCount * 2 + 3))
+                      : 6) - recordDuration
+                  )}
+                  ث)
+                </span>
               </span>
             ) : (
               'اضغط على الميكروفون ثم استعد للنطق بوضوح'

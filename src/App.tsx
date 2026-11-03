@@ -21,6 +21,7 @@ import { StatsModal } from './components/StatsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { GuideModal } from './components/GuideModal';
 import { AdminPanel } from './components/AdminPanel';
+import { LessonsModal } from './components/LessonsModal';
 import {
   sendScoreToGoogleSheets,
   fetchCurriculumFromSheets,
@@ -33,6 +34,17 @@ import {
   ChevronLeft,
   Sliders,
   BookOpen,
+  Play,
+  ArrowRight,
+  ArrowLeft,
+  CheckCircle2,
+  ShieldCheck,
+  Headphones,
+  Zap,
+  RotateCcw,
+  Home,
+  Layers,
+  Award,
 } from 'lucide-react';
 
 const STORAGE_KEY_HISTORY = 'faseeh_pronunciation_history_v1';
@@ -69,6 +81,10 @@ export default function App() {
   const [studentSubject, setStudentSubject] = useState<string>(
     ALL_CURRICULUM[0]?.lessonSubject || INITIAL_LESSON_SUBJECTS[0]
   );
+
+  // Main UI Mode: 'landing' (الرئيسية التعريفية) or 'practice' (صفحة التدريب والتسجيل)
+  const [currentView, setCurrentView] = useState<'landing' | 'practice'>('landing');
+  const [isLessonsModalOpen, setIsLessonsModalOpen] = useState(false);
 
   // Modals
   const [isStatsOpen, setIsStatsOpen] = useState(false);
@@ -616,8 +632,13 @@ export default function App() {
 
   const handleSelectWord = (item: WordItem) => {
     setSelectedItem(item);
+    if (item.lessonSubject) {
+      setStudentSubject(item.lessonSubject);
+    }
     setEvaluation(null);
     setRecordedAudioUrl(null);
+    setCurrentView('practice');
+    setIsLessonsModalOpen(false);
   };
 
   const handleNextWord = () => {
@@ -728,113 +749,305 @@ export default function App() {
         onOpenCustom={handleOpenAdmin}
         onOpenAdmin={handleOpenAdmin}
         isSheetsActive={sheetsConfig.enabled && !!sheetsConfig.webhookUrl}
+        onOpenLessons={() => setIsLessonsModalOpen(true)}
+        onGoHome={() => setCurrentView('landing')}
+        currentView={currentView}
       />
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col">
-        {/* Banner */}
-        {showWelcomeBanner && (
-          <div className="mb-6 p-4 sm:p-5 bg-linear-to-r from-emerald-600 to-teal-700 text-white rounded-3xl shadow-lg shadow-emerald-700/10 flex flex-col sm:flex-row items-center justify-between gap-4 relative overflow-hidden">
-            <div className="flex items-center gap-3.5 z-10">
-              <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0">
-                <Sparkles className="w-6 h-6 text-emerald-200" />
-              </div>
-              <div>
-                <h2 className="text-base sm:text-lg font-bold">
-                  فَصِيح: نظام المناهج والدروس المرن + دعم الصور والأصوات
-                </h2>
-                <p className="text-xs sm:text-sm text-emerald-100 max-w-2xl leading-relaxed">
-                  يمكنك إدارة وتعديل وحذف الدروس والفئات من لوحة الإدارة (#admin)، وإرفاق صور وأصوات من Google Drive أو رفع مباشر، والاستماع للصوت بسلاسة.
+        {currentView === 'landing' ? (
+          /* ========================================================
+             1. INTRODUCTORY LANDING PAGE (الصفحة الرئيسية التعريفية)
+             ======================================================== */
+          <div className="flex flex-col gap-8 animate-in fade-in duration-300">
+            {/* Hero Banner */}
+            <div className="relative overflow-hidden rounded-3xl bg-linear-to-br from-slate-900 via-indigo-950 to-emerald-950 text-white p-7 sm:p-12 shadow-2xl border border-slate-800">
+              <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="relative z-10 max-w-3xl">
+                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold mb-4">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>الذكاء الاصطناعي الداخلي (Whisper WebAssembly بدون سيرفر) 🚀</span>
+                </div>
+
+                <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight font-amiri leading-tight sm:leading-snug mb-4">
+                  فَصِيح — منصة تدريب وتقييم النطق ومخارج الحروف العربية
+                </h1>
+
+                <p className="text-sm sm:text-base text-slate-300 leading-relaxed mb-8">
+                  برنامج تعليمي متكامل لضبط وتجويد نطق الحروف والكلمات العربية، يجمع بين دقة التفريغ الصوتي المحلي بالذكاء الاصطناعي، والمقارنة الطيفية الفيزيائية مع تسجيل صوت المعلم (الأسلوب الهجين 50% + 50%)، مع توثيق تلقائي في Google Sheets و Google Drive.
                 </p>
+
+                {/* Primary Action Buttons */}
+                <div className="flex flex-wrap items-center gap-3.5">
+                  <button
+                    onClick={() => setIsLessonsModalOpen(true)}
+                    className="flex items-center gap-2 px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-2xl text-sm sm:text-base transition-all shadow-lg shadow-emerald-500/25 cursor-pointer hover:scale-105 active:scale-95"
+                  >
+                    <BookOpen className="w-5 h-5" />
+                    <span>فتح الدروس والتمارين 📚</span>
+                  </button>
+
+                  <button
+                    onClick={() => setCurrentView('practice')}
+                    className="flex items-center gap-2 px-6 py-3.5 bg-white/10 hover:bg-white/20 text-white font-bold rounded-2xl text-sm sm:text-base border border-white/20 transition-all cursor-pointer hover:scale-105"
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    <span>بدء التدريب الفوري ({selectedItem.word})</span>
+                  </button>
+
+                  <button
+                    onClick={handleOpenAdmin}
+                    className="flex items-center gap-2 px-4 py-3.5 text-slate-300 hover:text-white rounded-2xl text-xs sm:text-sm font-semibold transition-all cursor-pointer"
+                  >
+                    <Sliders className="w-4 h-4 text-emerald-400" />
+                    <span>لوحة تحكم المعلم (#admin)</span>
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 z-10 shrink-0">
-              <button
-                onClick={handleOpenAdmin}
-                className="px-4 py-2 bg-white text-emerald-800 hover:bg-emerald-50 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
-              >
-                <Sliders className="w-3.5 h-3.5 text-emerald-700" />
-                <span>لوحة الإدارة</span>
-              </button>
-              <button
-                onClick={() => setShowWelcomeBanner(false)}
-                className="px-3 py-2 text-emerald-200 hover:text-white text-xs cursor-pointer"
-              >
-                إغلاق
-              </button>
+            {/* Core Features & Methodology Section */}
+            <div>
+              <div className="text-center sm:text-right mb-5">
+                <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
+                  كيف يعمل التقييم الذكي في منصة (فصيح)؟
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                  تقنيات هندسية متطورة تضمن أعلى دقة لنطق لغة الضاد بدون خوادم خارجية
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Feature 1 */}
+                <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs hover:shadow-md transition-all">
+                  <div className="w-11 h-11 rounded-2xl bg-cyan-100 text-cyan-800 flex items-center justify-center mb-3.5 shadow-xs">
+                    <Zap className="w-6 h-6 text-cyan-700" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900 mb-1.5">
+                    1. الذكاء الداخلي (Whisper)
+                  </h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    يعمل المحرك مباشرة داخل متصفح جهازك عبر WebAssembly بدون خوادم، مما يوفر سرعة فائقة وحماية مطلقة لخصوصية صوت الطالب على الهواتف والأجهزة اللوحية.
+                  </p>
+                </div>
+
+                {/* Feature 2 */}
+                <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs hover:shadow-md transition-all">
+                  <div className="w-11 h-11 rounded-2xl bg-indigo-100 text-indigo-800 flex items-center justify-center mb-3.5 shadow-xs">
+                    <Headphones className="w-6 h-6 text-indigo-700" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900 mb-1.5">
+                    2. التقييم الهجين (50% + 50%)
+                  </h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    يتم احتساب 50% لمطابقة النص ومخارج الحروف مع Whisper + 50% لمطابقة البصمة الصوتية الطيفية مع تسجيل المعلم النموذجي عبر خوارزميات (MFCC + DTW).
+                  </p>
+                </div>
+
+                {/* Feature 3 */}
+                <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs hover:shadow-md transition-all">
+                  <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center mb-3.5 shadow-xs">
+                    <Sliders className="w-6 h-6 text-emerald-700" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900 mb-1.5">
+                    3. مستويات التدقيق والتكرار
+                  </h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    ثلاثة مستويات تدقيق (سهل للمبتدئين، متوسط، متقدم للمتقنين)، مع إمكانية تحديد عدد مرات التكرار وفحص نبضات الصوت الفيزيائية (Energy Pulses).
+                  </p>
+                </div>
+
+                {/* Feature 4 */}
+                <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs hover:shadow-md transition-all">
+                  <div className="w-11 h-11 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center mb-3.5 shadow-xs">
+                    <ShieldCheck className="w-6 h-6 text-amber-700" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900 mb-1.5">
+                    4. الربط مع Google Drive & Sheets
+                  </h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    حفظ تلقائي لملفات أصوات المعلم المسجلة في مجلد Google Drive، مع رصد مباشر لدرجات واستجابات الطلاب في ورقة Google Sheets المعتمدة.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Lessons Overview Cards */}
+            <div className="bg-slate-100/70 rounded-3xl p-6 border border-slate-200/70">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    <BookOpen className="w-5 h-5 text-indigo-600" />
+                    <span>الدروس والمناهج المتاحة في البرنامج</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    اختر أي درس لفتح قائمة تمارينه وبدء التدريب مباشرة
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsLessonsModalOpen(true)}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 self-start sm:self-auto"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  <span>تصفح كل الدروس</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {allSubjects.map((subj) => {
+                  const subjectItems = curriculum.filter((c) => c.lessonSubject === subj);
+                  return (
+                    <div
+                      key={subj}
+                      className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col justify-between gap-3 hover:border-indigo-300 transition-all"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <h4 className="font-bold text-sm text-slate-900 truncate">{subj}</h4>
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                            {subjectItems.length} تمارين
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {subjectItems.slice(0, 4).map((item) => (
+                            <span
+                              key={item.id}
+                              className="font-amiri text-xs px-2 py-0.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+                            >
+                              {item.word}
+                            </span>
+                          ))}
+                          {subjectItems.length > 4 && (
+                            <span className="text-[10px] text-slate-400 self-center">
+                              +{subjectItems.length - 4} أخرى
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setStudentSubject(subj);
+                          const first = subjectItems[0] || curriculum[0];
+                          if (first) {
+                            setSelectedItem(first);
+                          }
+                          setIsLessonsModalOpen(true);
+                        }}
+                        className="w-full py-2 bg-slate-50 hover:bg-indigo-50 text-indigo-700 hover:text-indigo-900 border border-slate-200 hover:border-indigo-200 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <BookOpen className="w-3.5 h-3.5" />
+                        <span>فتح تمارين هذا الدرس</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* ========================================================
+             2. PRACTICE & RECORDING ARENA (صفحة الدرس والتسجيل)
+             ======================================================== */
+          <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+            {/* Top Navigation & Fast Actions Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentView('landing')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  title="العودة للصفحة الرئيسية التعريفية"
+                >
+                  <Home className="w-3.5 h-3.5 text-slate-600" />
+                  <span>الرئيسية 🏠</span>
+                </button>
+
+                <button
+                  onClick={() => setIsLessonsModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  title="فتح قائمة الدروس واختيار تمرين آخر"
+                >
+                  <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>فتح الدروس 📚 ({studentSubject})</span>
+                </button>
+              </div>
+
+              {/* Prev / Next Buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handlePrevWord}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                  <span>السابق</span>
+                </button>
+
+                <div className="text-xs font-bold text-slate-500 px-1">
+                  {currentIndex + 1} من {activeSubjectWords.length}
+                </div>
+
+                <button
+                  onClick={handleNextWord}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  <span>التالي</span>
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* 2-Column Responsive Layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Main Practice Arena (Left / 7 cols) */}
+              <div className="lg:col-span-7 flex flex-col gap-6 order-1 lg:order-1">
+                {/* Practice Card */}
+                <PracticeCard
+                  wordItem={selectedItem}
+                  settings={settings}
+                  onEvaluationComplete={handleEvaluationComplete}
+                  isEvaluating={isEvaluating}
+                  setIsEvaluating={setIsEvaluating}
+                  currentIndex={currentIndex}
+                  totalCount={activeSubjectWords.length}
+                  onUpdateSettings={handleUpdateSettings}
+                  onOpenLessons={() => setIsLessonsModalOpen(true)}
+                />
+
+                {/* Evaluation Results Card */}
+                {evaluation && (
+                  <EvaluationCard
+                    evaluation={evaluation}
+                    targetWordItem={selectedItem}
+                    recordedAudioUrl={recordedAudioUrl}
+                    onRetry={() => {
+                      setEvaluation(null);
+                      setRecordedAudioUrl(null);
+                    }}
+                    onNext={handleNextWord}
+                    onOpenLessons={() => setIsLessonsModalOpen(true)}
+                    audioEngine={settings.engine}
+                  />
+                )}
+              </div>
+
+              {/* Curriculum Sidebar (Right / 5 cols) */}
+              <div className="lg:col-span-5 order-2 lg:order-2 sticky top-20">
+                <CurriculumDrawer
+                  items={curriculum}
+                  selectedItem={selectedItem}
+                  onSelectItem={handleSelectWord}
+                  scoresMap={scoresMap}
+                  selectedSubject={studentSubject}
+                  onSelectSubject={setStudentSubject}
+                  subjectsList={allSubjects}
+                />
+              </div>
             </div>
           </div>
         )}
-
-        {/* 2-Column Responsive Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start flex-1">
-          {/* Main Practice Arena (Left / 7 cols) */}
-          <div className="lg:col-span-7 flex flex-col gap-6 order-1 lg:order-1">
-            {/* Navigation Bar between Words */}
-            <div className="flex items-center justify-between px-2">
-              <button
-                onClick={handlePrevWord}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold shadow-2xs transition-all cursor-pointer"
-              >
-                <ChevronRight className="w-4 h-4" />
-                <span>السابق</span>
-              </button>
-
-              <div className="text-xs font-bold text-slate-500">
-                {selectedItem.word} ({currentIndex + 1} من {activeSubjectWords.length})
-              </div>
-
-              <button
-                onClick={handleNextWord}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold shadow-2xs transition-all cursor-pointer"
-              >
-                <span>التالي</span>
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Practice Card */}
-            <PracticeCard
-              wordItem={selectedItem}
-              settings={settings}
-              onEvaluationComplete={handleEvaluationComplete}
-              isEvaluating={isEvaluating}
-              setIsEvaluating={setIsEvaluating}
-              currentIndex={currentIndex}
-              totalCount={activeSubjectWords.length}
-              onUpdateSettings={handleUpdateSettings}
-            />
-
-            {/* Evaluation Results Card */}
-            {evaluation && (
-              <EvaluationCard
-                evaluation={evaluation}
-                targetWordItem={selectedItem}
-                recordedAudioUrl={recordedAudioUrl}
-                onRetry={() => {
-                  setEvaluation(null);
-                  setRecordedAudioUrl(null);
-                }}
-                onNext={handleNextWord}
-                audioEngine={settings.engine}
-              />
-            )}
-          </div>
-
-          {/* Curriculum & Library Sidebar (Right / 5 cols) */}
-          <div className="lg:col-span-5 order-2 lg:order-2 sticky top-20">
-            <CurriculumDrawer
-              items={curriculum}
-              selectedItem={selectedItem}
-              onSelectItem={handleSelectWord}
-              scoresMap={scoresMap}
-              selectedSubject={studentSubject}
-              onSelectSubject={setStudentSubject}
-              subjectsList={allSubjects}
-            />
-          </div>
-        </div>
       </main>
 
       {/* Footer */}
@@ -876,6 +1089,19 @@ export default function App() {
       <GuideModal
         isOpen={isGuideOpen}
         onClose={() => setIsGuideOpen(false)}
+      />
+
+      {/* Lessons Selector Modal */}
+      <LessonsModal
+        isOpen={isLessonsModalOpen}
+        onClose={() => setIsLessonsModalOpen(false)}
+        curriculum={curriculum}
+        selectedItem={selectedItem}
+        onSelectItem={handleSelectWord}
+        subjectsList={allSubjects}
+        selectedSubject={studentSubject}
+        onSelectSubject={setStudentSubject}
+        scoresMap={scoresMap}
       />
     </div>
   );

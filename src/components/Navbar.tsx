@@ -19,6 +19,9 @@ interface NavbarProps {
   onOpenCustom: () => void;
   onOpenAdmin: () => void;
   isSheetsActive?: boolean;
+  onOpenLessons?: () => void;
+  onGoHome?: () => void;
+  currentView?: 'landing' | 'practice';
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -30,13 +33,20 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenCustom,
   onOpenAdmin,
   isSheetsActive,
+  onOpenLessons,
+  onGoHome,
+  currentView = 'landing',
 }) => {
   return (
     <header className="bg-white/85 backdrop-blur-md sticky top-0 z-40 border-b border-slate-100 shadow-2xs">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
         {/* Brand */}
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-linear-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center font-amiri text-2xl font-bold shadow-md shadow-emerald-500/20">
+        <div
+          onClick={onGoHome}
+          className="flex items-center gap-3 cursor-pointer group"
+          title="العودة للصفحة الرئيسية التعريفية"
+        >
+          <div className="w-10 h-10 rounded-2xl bg-linear-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center font-amiri text-2xl font-bold shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform">
             ف
           </div>
           <div>
@@ -56,6 +66,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Action icons */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Quick Open Lessons Button */}
+          {onOpenLessons && (
+            <button
+              onClick={onOpenLessons}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-600/20 cursor-pointer"
+              title="فتح قائمة الدروس واختيار تمرين"
+            >
+              <span>فتح الدروس 📚</span>
+            </button>
+          )}
+
           {/* Admin Panel Direct Link */}
           <button
             onClick={onOpenAdmin}
