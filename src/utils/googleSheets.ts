@@ -3,7 +3,7 @@ import { removeTashkeel } from './arabicMatcher';
 
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t';
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbyBkcgIbQS_PYBE6Cr6JJWoszJ7QP1smlUTDGYclxk5GZoz4iqfkOfYIZwPDpIM5GCUFg/exec';
+  'https://script.google.com/macros/s/AKfycbzkYgEr8AdltM70gTazUuE5Yl9WV8RXs5KWF551Xh-H3d3UPTqxBl1F6Z-t3M8to7CRQg/exec';
 
 /**
  * Fetch curriculum (lessons and exercises) directly from Google Sheet tab "الدروس"
@@ -184,12 +184,9 @@ export async function fetchCurriculumFromSheets(webhookUrl: string): Promise<{
       letterFocus: String(item.word || '').trim()[0],
       repeatCount: (() => {
         const raw = String(item.repeatCount || '1').trim();
-        if (raw.includes(',')) {
-          const p = parseInt(raw.split(',')[0]);
-          return !isNaN(p) && p > 0 ? p : 1;
-        }
-        const parsed = parseInt(raw);
-        return !isNaN(parsed) && parsed > 0 ? parsed : 1;
+        const parts = raw.split(/[,|]/).map((s) => s.trim());
+        const p = parseInt(parts[0]);
+        return !isNaN(p) && p > 0 ? p : 1;
       })(),
       difficultyLevel: (() => {
         if (item.difficultyLevel === 'easy' || item.difficultyLevel === 'hard' || item.difficultyLevel === 'medium') {
@@ -199,6 +196,18 @@ export async function fetchCurriculumFromSheets(webhookUrl: string): Promise<{
         if (raw.includes('سهل') || raw.includes('easy')) return 'easy';
         if (raw.includes('متقدم') || raw.includes('hard') || raw.includes('صارم')) return 'hard';
         return 'medium';
+      })(),
+      recordingDuration: (() => {
+        if (typeof item.recordingDuration === 'number' && item.recordingDuration >= 2) {
+          return item.recordingDuration;
+        }
+        const raw = String(item.repeatCount || '').trim();
+        const parts = raw.split(/[,|]/).map((s) => s.trim());
+        if (parts.length >= 3) {
+          const d = parseInt(parts[2].replace(/[^0-9]/g, ''));
+          if (!isNaN(d) && d >= 2) return d;
+        }
+        return 5;
       })(),
     }))
     .filter((w: WordItem) => Boolean(w.word));
@@ -245,6 +254,7 @@ export async function saveWordToGoogleSheets(
       makhrajTip: wordItem.makhrajTip || '',
       repeatCount: wordItem.repeatCount || 1,
       difficultyLevel: wordItem.difficultyLevel || 'medium',
+      recordingDuration: wordItem.recordingDuration || 5,
     },
     audioBase64: audioBase64 || undefined,
   };
@@ -575,24 +585,22 @@ function doGet(e) {
         var repeatRaw = String(row[col + 7] || "").trim();
         var repeatCount = 1;
         var difficultyLevel = "medium";
+        var recordingDuration = 5;
         if (repeatRaw) {
-          if (repeatRaw.indexOf(",") !== -1) {
-            var parts = repeatRaw.split(",");
-            var p1 = parseInt(parts[0].trim());
+          var parts = repeatRaw.split(/[,|]/).map(function(s) { return s.trim(); });
+          if (parts.length >= 1) {
+            var p1 = parseInt(parts[0]);
             if (!isNaN(p1) && p1 >= 1) repeatCount = p1;
-            var p2 = parts[1].trim().toLowerCase();
+          }
+          if (parts.length >= 2) {
+            var p2 = parts[1].toLowerCase();
             if (p2 === "سهل" || p2 === "easy" || p2 === "مبتدئ") difficultyLevel = "easy";
             else if (p2 === "متقدم" || p2 === "hard" || p2 === "صارم") difficultyLevel = "hard";
             else difficultyLevel = "medium";
-          } else {
-            var pInt = parseInt(repeatRaw);
-            if (!isNaN(pInt) && pInt >= 1) {
-              repeatCount = pInt;
-            } else if (repeatRaw === "سهل" || repeatRaw === "easy") {
-              difficultyLevel = "easy";
-            } else if (repeatRaw === "متقدم" || repeatRaw === "hard") {
-              difficultyLevel = "hard";
-            }
+          }
+          if (parts.length >= 3) {
+            var p3 = parseInt(parts[2].replace(/[^0-9]/g, ''));
+            if (!isNaN(p3) && p3 >= 2) recordingDuration = p3;
           }
         }
         
@@ -607,7 +615,8 @@ function doGet(e) {
           meaning: meaning || "تمرين قرائي",
           makhrajTip: makhrajTip || "انطق الكلمة بوضوح ومخارج سليمة.",
           repeatCount: repeatCount,
-          difficultyLevel: difficultyLevel
+          difficultyLevel: difficultyLevel,
+          recordingDuration: recordingDuration
         });
       }
     }
@@ -716,19 +725,15 @@ function doPost(e) {
               }
             }
             
-            // 2. إن لم تكن موجودة، ابحث عن أول حزمة 8 أعمدة فارغة في نفس صف الدرس
+            // 2. إذا لم تكن موجودة، يتم إلحاقها دائماً في نهاية الصف بعد آخر تمرين موجود
             if (wordColIndex === -1) {
+              var lastOccupiedCol = 1;
               for (var c = 1; c < allValues[r].length; c += 8) {
-                if (!String(allValues[r][c + 4] || "").trim()) {
-                  wordColIndex = c + 1;
-                  break;
+                if (String(allValues[r][c + 4] || "").trim()) {
+                  lastOccupiedCol = c + 8; // بعد نهاية هذا التمرين
                 }
               }
-            }
-            
-            // 3. إن كانت كل الحزم مليئة، افتح حزمة جديدة في نهاية الصف
-            if (wordColIndex === -1) {
-              wordColIndex = allValues[r].length + 1;
+              wordColIndex = lastOccupiedCol + 1;
             }
             break;
           }
@@ -747,7 +752,8 @@ function doPost(e) {
           var rep = parseInt(item.repeatCount) || 1;
           var diff = item.difficultyLevel || "medium";
           var diffArabic = diff === "easy" ? "سهل" : (diff === "hard" ? "متقدم" : "متوسط");
-          return rep + "," + diffArabic;
+          var dur = parseInt(item.recordingDuration) || 5;
+          return rep + "," + diffArabic + "," + dur;
         })()
       ]];
       

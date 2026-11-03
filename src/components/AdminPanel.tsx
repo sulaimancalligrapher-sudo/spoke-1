@@ -215,6 +215,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [makhrajTip, setMakhrajTip] = useState('');
   const [repeatCount, setRepeatCount] = useState<number>(1);
   const [difficultyLevel, setDifficultyLevel] = useState<DifficultyLevel>('medium');
+  const [recordingDuration, setRecordingDuration] = useState<number>(5);
 
   // Teacher Voice Recording State (Inline quick recording)
   const [isRecordingTeacher, setIsRecordingTeacher] = useState(false);
@@ -267,6 +268,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setMakhrajTip(item.makhrajTip || '');
     setRepeatCount(item.repeatCount || 1);
     setDifficultyLevel(item.difficultyLevel || 'medium');
+    setRecordingDuration(item.recordingDuration || 5);
     setLessonsSubTab('add');
 
     window.scrollTo({ top: 120, behavior: 'smooth' });
@@ -283,6 +285,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setAutoReadText('');
     setRepeatCount(1);
     setDifficultyLevel('medium');
+    setRecordingDuration(5);
     setLessonsSubTab('list');
   };
 
@@ -423,7 +426,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     const effectiveWebhook = (sheetsConfig.webhookUrl || DEFAULT_WEBHOOK_URL).trim();
     const rawFolder = (sheetsConfig.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID || '').trim();
-    const targetFolder = rawFolder === '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t' ? '' : rawFolder;
+    const targetFolder = rawFolder || DEFAULT_DRIVE_AUDIO_FOLDER_ID;
     setIsUploadingToDrive(true);
     setDriveUploadResult(null);
 
@@ -478,6 +481,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       letterFocus: wordText.trim()[0],
       repeatCount: repeatCount > 1 ? repeatCount : 1,
       difficultyLevel: difficultyLevel,
+      recordingDuration: recordingDuration >= 2 ? recordingDuration : 5,
     };
 
     if (editingId) {
@@ -1639,6 +1643,36 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                   </div>
                 </div>
 
+                {/* 11. مدة التسجيل المخصصة بالثواني */}
+                <div className="p-3 bg-purple-50/70 border border-purple-200/80 rounded-2xl">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-purple-600" />
+                      <span>11- مدة التسجيل التلقائي (بالثواني):</span>
+                    </label>
+                    <span className="text-[11px] text-purple-800 font-bold">
+                      {recordingDuration} ثوانٍ
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2.5">
+                    <input
+                      type="number"
+                      min={2}
+                      max={60}
+                      value={recordingDuration}
+                      onChange={(e) => setRecordingDuration(Math.max(2, parseInt(e.target.value) || 5))}
+                      placeholder="5"
+                      className="w-24 px-3 py-2 bg-white border border-purple-300 rounded-xl text-sm font-bold text-center text-purple-950 focus:outline-hidden focus:border-purple-500 shadow-2xs"
+                    />
+                    <span className="text-xs text-purple-900 font-medium">
+                      ثوانٍ (الافتراضي 5 ثوانٍ، وتُحفظ بالعامود الثامن H بالشيت)
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-purple-800/90 mt-1.5 block leading-relaxed">
+                    تُدمج هذه القيمة في العامود الثامن (H) بالشيت مع التكرار والمستوى (مثال: 3,متقدم,7)، وتحدد توقيت إيقاف التسجيل التلقائي للطالب.
+                  </span>
+                </div>
+
                 {/* Submit button */}
                 <div className="flex gap-2 pt-1">
                   {editingId && (
@@ -2009,30 +2043,26 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
 
               <div>
                 <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
-                  <span>2- مجلد Google Drive لحفظ أصوات الدروس (تلقائي واختياري):</span>
+                  <span>2- مجلد Google Drive لحفظ أصوات الدروس (معرف المجلد):</span>
                   <span className="text-[11px] text-emerald-700 font-normal">
-                    {sheetsConfig.driveFolderId && sheetsConfig.driveFolderId !== '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'
+                    {sheetsConfig.driveFolderId
                       ? `مجلد مخصص: ${sheetsConfig.driveFolderId}`
-                      : 'مجلد تلقائي: فصيح_أصوات_الدروس'}
+                      : `المجلد الافتراضي: ${DEFAULT_DRIVE_AUDIO_FOLDER_ID}`}
                   </span>
                 </label>
                 <input
                   type="text"
-                  value={
-                    sheetsConfig.driveFolderId === '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'
-                      ? ''
-                      : (sheetsConfig.driveFolderId || '')
-                  }
+                  value={sheetsConfig.driveFolderId ?? DEFAULT_DRIVE_AUDIO_FOLDER_ID}
                   onChange={(e) =>
                     onUpdateSheetsConfig({
                       driveFolderId: e.target.value.trim(),
                     })
                   }
-                  placeholder="اتركه فارغاً ليتم الحفظ تلقائياً في مجلد (فصيح_أصوات_الدروس) في حسابك"
+                  placeholder="مثال: 1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t"
                   className="w-full px-4 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-900 focus:outline-hidden focus:border-emerald-500 dir-ltr text-left"
                 />
                 <span className="text-[11px] text-slate-500 mt-1 block">
-                  💡 لا يلزم كتابة أي شيء هنا! يقوم السكربت تلقائياً بإنشاء مجلد باسم (فصيح_أصوات_الدروس) في Google Drive الخاص بك وحفظ تسجيلات المعلم فيه مباشرة وتوليد رابط تشغيل في العامود D.
+                  💡 معرف المجلد الخاص بك هو المعتمد (1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t) وسيتم حفظ جميع تسجيلات المعلم الصوتي فيه مباشرة وتوليد روابط Drive للتشغيل في الشيت.
                 </span>
               </div>
 

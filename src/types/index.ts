@@ -28,6 +28,7 @@ export interface WordItem {
   transliteration?: string;
   repeatCount?: number; // عدد مرات التكرار المطلوبة (افتراضي 1)
   difficultyLevel?: DifficultyLevel; // مستوى تدقيق النطق: 'easy' (سهل) | 'medium' (متوسط) | 'hard' (متقدم)
+  recordingDuration?: number; // مدة التسجيل المخصصة بالثواني (افتراضي 5 ثوانٍ)
 }
 
 export interface LetterPhoneme {

@@ -364,11 +364,13 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       }
     }
 
-    // 2. Start duration timer with auto-stop (6s for single word/letter, up to 9s for repetitions)
+    // 2. Start duration timer with auto-stop (uses exercise recordingDuration or calculated default)
     const maxRecordingSeconds =
-      wordItem.repeatCount && wordItem.repeatCount > 1
-        ? Math.min(10, Math.max(7, wordItem.repeatCount * 2 + 3))
-        : 6;
+      wordItem.recordingDuration && wordItem.recordingDuration >= 2
+        ? wordItem.recordingDuration
+        : (wordItem.repeatCount && wordItem.repeatCount > 1
+            ? Math.min(12, Math.max(7, wordItem.repeatCount * 2 + 3))
+            : 6);
 
     timerIntervalRef.current = setInterval(() => {
       setRecordDuration((prev) => {
@@ -420,7 +422,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
     if (speechRecognizerRef.current) {
       try {
-        speechRecognizerRef.current.stop();
+        speechRecognizerRef.current.abort();
       } catch (e) {}
       speechRecognizerRef.current = null;
     }
@@ -433,7 +435,9 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         setIsSafeStopping(false);
         const detectedMime =
           recorder.mimeType || getSupportedAudioMimeType() || 'audio/mp4';
-        const audioBlob = new Blob(audioChunksRef.current, {
+        const chunks = [...audioChunksRef.current];
+        audioChunksRef.current = []; // Completely sever and clear buffer for clean fresh start next time
+        const audioBlob = new Blob(chunks, {
           type: detectedMime,
         });
         const recordedAudioUrl = URL.createObjectURL(audioBlob);

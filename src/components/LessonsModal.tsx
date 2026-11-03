@@ -36,11 +36,6 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
   onSelectSubject,
   scoresMap,
 }) => {
-  const [activeCategory, setActiveCategory] = useState<string>('الكل');
-  const [searchQuery, setSearchQuery] = useState('');
-
-  if (!isOpen) return null;
-
   // Categories belonging to the currently selected subject
   const availableCategories = Array.from(
     new Set(
@@ -51,9 +46,19 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
     )
   );
 
+  const [activeCategory, setActiveCategory] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  if (!isOpen) return null;
+
+  const currentCategory =
+    activeCategory && availableCategories.includes(activeCategory)
+      ? activeCategory
+      : availableCategories[0] || '';
+
   const filteredItems = curriculum.filter((item) => {
     const matchesSubject = !selectedSubject || item.lessonSubject === selectedSubject;
-    const matchesCat = activeCategory === 'الكل' || item.category === activeCategory;
+    const matchesCat = !currentCategory || item.category === currentCategory;
     const matchesSearch =
       !searchQuery.trim() ||
       item.word.includes(searchQuery) ||
@@ -104,7 +109,7 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
               value={selectedSubject}
               onChange={(e) => {
                 onSelectSubject(e.target.value);
-                setActiveCategory('الكل');
+                setActiveCategory('');
               }}
               className="w-full px-4 py-2.5 bg-slate-50 border-2 border-slate-200 focus:border-indigo-500 rounded-2xl text-sm font-bold text-slate-800 focus:outline-hidden transition-all"
             >
@@ -118,26 +123,17 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
 
           {/* Category Tabs */}
           <div className="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar">
-            <button
-              onClick={() => setActiveCategory('الكل')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-                activeCategory === 'الكل'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              الكل ({curriculum.filter((c) => !selectedSubject || c.lessonSubject === selectedSubject).length})
-            </button>
             {availableCategories.map((cat) => {
               const count = curriculum.filter(
                 (c) => (!selectedSubject || c.lessonSubject === selectedSubject) && c.category === cat
               ).length;
+              const isSelected = currentCategory === cat;
               return (
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-                    activeCategory === cat
+                    isSelected
                       ? 'bg-indigo-600 text-white shadow-xs'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}

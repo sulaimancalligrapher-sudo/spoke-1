@@ -16,7 +16,6 @@ import {
 import { Navbar } from './components/Navbar';
 import { PracticeCard } from './components/PracticeCard';
 import { EvaluationCard } from './components/EvaluationCard';
-import { CurriculumDrawer } from './components/CurriculumDrawer';
 import { StatsModal } from './components/StatsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { GuideModal } from './components/GuideModal';
@@ -767,11 +766,6 @@ export default function App() {
               <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
 
               <div className="relative z-10 max-w-3xl">
-                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold mb-4">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>الذكاء الاصطناعي الداخلي (Whisper WebAssembly بدون سيرفر) 🚀</span>
-                </div>
-
                 <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight font-amiri leading-tight sm:leading-snug mb-4">
                   فَصِيح — منصة تدريب وتقييم النطق ومخارج الحروف العربية
                 </h1>
@@ -805,72 +799,6 @@ export default function App() {
                     <Sliders className="w-4 h-4 text-emerald-400" />
                     <span>لوحة تحكم المعلم (#admin)</span>
                   </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Core Features & Methodology Section */}
-            <div>
-              <div className="text-center sm:text-right mb-5">
-                <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
-                  كيف يعمل التقييم الذكي في منصة (فصيح)؟
-                </h2>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                  تقنيات هندسية متطورة تضمن أعلى دقة لنطق لغة الضاد بدون خوادم خارجية
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Feature 1 */}
-                <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs hover:shadow-md transition-all">
-                  <div className="w-11 h-11 rounded-2xl bg-cyan-100 text-cyan-800 flex items-center justify-center mb-3.5 shadow-xs">
-                    <Zap className="w-6 h-6 text-cyan-700" />
-                  </div>
-                  <h3 className="text-base font-bold text-slate-900 mb-1.5">
-                    1. الذكاء الداخلي (Whisper)
-                  </h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    يعمل المحرك مباشرة داخل متصفح جهازك عبر WebAssembly بدون خوادم، مما يوفر سرعة فائقة وحماية مطلقة لخصوصية صوت الطالب على الهواتف والأجهزة اللوحية.
-                  </p>
-                </div>
-
-                {/* Feature 2 */}
-                <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs hover:shadow-md transition-all">
-                  <div className="w-11 h-11 rounded-2xl bg-indigo-100 text-indigo-800 flex items-center justify-center mb-3.5 shadow-xs">
-                    <Headphones className="w-6 h-6 text-indigo-700" />
-                  </div>
-                  <h3 className="text-base font-bold text-slate-900 mb-1.5">
-                    2. التقييم الهجين (50% + 50%)
-                  </h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    يتم احتساب 50% لمطابقة النص ومخارج الحروف مع Whisper + 50% لمطابقة البصمة الصوتية الطيفية مع تسجيل المعلم النموذجي عبر خوارزميات (MFCC + DTW).
-                  </p>
-                </div>
-
-                {/* Feature 3 */}
-                <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs hover:shadow-md transition-all">
-                  <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center mb-3.5 shadow-xs">
-                    <Sliders className="w-6 h-6 text-emerald-700" />
-                  </div>
-                  <h3 className="text-base font-bold text-slate-900 mb-1.5">
-                    3. مستويات التدقيق والتكرار
-                  </h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    ثلاثة مستويات تدقيق (سهل للمبتدئين، متوسط، متقدم للمتقنين)، مع إمكانية تحديد عدد مرات التكرار وفحص نبضات الصوت الفيزيائية (Energy Pulses).
-                  </p>
-                </div>
-
-                {/* Feature 4 */}
-                <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs hover:shadow-md transition-all">
-                  <div className="w-11 h-11 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center mb-3.5 shadow-xs">
-                    <ShieldCheck className="w-6 h-6 text-amber-700" />
-                  </div>
-                  <h3 className="text-base font-bold text-slate-900 mb-1.5">
-                    4. الربط مع Google Drive & Sheets
-                  </h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    حفظ تلقائي لملفات أصوات المعلم المسجلة في مجلد Google Drive، مع رصد مباشر لدرجات واستجابات الطلاب في ورقة Google Sheets المعتمدة.
-                  </p>
                 </div>
               </div>
             </div>
@@ -999,52 +927,36 @@ export default function App() {
               </div>
             </div>
 
-            {/* 2-Column Responsive Layout */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              {/* Main Practice Arena (Left / 7 cols) */}
-              <div className="lg:col-span-7 flex flex-col gap-6 order-1 lg:order-1">
-                {/* Practice Card */}
-                <PracticeCard
-                  wordItem={selectedItem}
-                  settings={settings}
-                  onEvaluationComplete={handleEvaluationComplete}
-                  isEvaluating={isEvaluating}
-                  setIsEvaluating={setIsEvaluating}
-                  currentIndex={currentIndex}
-                  totalCount={activeSubjectWords.length}
-                  onUpdateSettings={handleUpdateSettings}
+            {/* Main Practice Arena - Centered Clean Layout */}
+            <div className="max-w-2xl mx-auto w-full flex flex-col gap-6">
+              {/* Practice Card */}
+              <PracticeCard
+                wordItem={selectedItem}
+                settings={settings}
+                onEvaluationComplete={handleEvaluationComplete}
+                isEvaluating={isEvaluating}
+                setIsEvaluating={setIsEvaluating}
+                currentIndex={currentIndex}
+                totalCount={activeSubjectWords.length}
+                onUpdateSettings={handleUpdateSettings}
+                onOpenLessons={() => setIsLessonsModalOpen(true)}
+              />
+
+              {/* Evaluation Results Card */}
+              {evaluation && (
+                <EvaluationCard
+                  evaluation={evaluation}
+                  targetWordItem={selectedItem}
+                  recordedAudioUrl={recordedAudioUrl}
+                  onRetry={() => {
+                    setEvaluation(null);
+                    setRecordedAudioUrl(null);
+                  }}
+                  onNext={handleNextWord}
                   onOpenLessons={() => setIsLessonsModalOpen(true)}
+                  audioEngine={settings.engine}
                 />
-
-                {/* Evaluation Results Card */}
-                {evaluation && (
-                  <EvaluationCard
-                    evaluation={evaluation}
-                    targetWordItem={selectedItem}
-                    recordedAudioUrl={recordedAudioUrl}
-                    onRetry={() => {
-                      setEvaluation(null);
-                      setRecordedAudioUrl(null);
-                    }}
-                    onNext={handleNextWord}
-                    onOpenLessons={() => setIsLessonsModalOpen(true)}
-                    audioEngine={settings.engine}
-                  />
-                )}
-              </div>
-
-              {/* Curriculum Sidebar (Right / 5 cols) */}
-              <div className="lg:col-span-5 order-2 lg:order-2 sticky top-20">
-                <CurriculumDrawer
-                  items={curriculum}
-                  selectedItem={selectedItem}
-                  onSelectItem={handleSelectWord}
-                  scoresMap={scoresMap}
-                  selectedSubject={studentSubject}
-                  onSelectSubject={setStudentSubject}
-                  subjectsList={allSubjects}
-                />
-              </div>
+              )}
             </div>
           </div>
         )}
