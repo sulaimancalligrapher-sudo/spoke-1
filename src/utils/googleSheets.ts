@@ -3,7 +3,7 @@ import { removeTashkeel } from './arabicMatcher';
 
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t';
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbx_e4LpYoM15NZ-kCMufq0BRIyqLhrPTLr6HdQ7YzZfqyRM0b870GOnDYqOc1Z2YE3OOg/exec';
+  'https://script.google.com/macros/s/AKfycbwzPmPoRBTv0DD8ksP8JgzZOHJmW-zo-xI9zwrI2qHgdivshKV-qkTKHYMSsxKRWopHEQ/exec';
 
 /**
  * Fetch curriculum (lessons and exercises) directly from Google Sheet tab "الدروس"
@@ -564,6 +564,82 @@ export function exportRecordsToCSV(records: StudentSubmissionRecord[], filename 
 }
 
 /**
+ * Convert a blob URL to a clean Base64 data URL
+ */
+export async function blobUrlToBase64(blobUrl: string): Promise<string> {
+  const response = await fetch(blobUrl);
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      resolve(reader.result as string);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+export interface StudentAnswerSubmissionPayload {
+  studentId: string;
+  studentName: string;
+  lessonSubject: string;
+  targetWord: string;
+  detectedWord: string;
+  score: number;
+  grade: string;
+  audioBlobUrl?: string | null;
+  audioBase64?: string | null;
+  driveFolderId?: string;
+  wordIndex: number;
+}
+
+/**
+ * Submit approved student answer to Google Sheets (Sheet: "answers 1") and upload audio to Google Drive
+ */
+export async function submitStudentAnswerToSheet(
+  webhookUrl: string,
+  payload: StudentAnswerSubmissionPayload
+): Promise<{ success: boolean; audioUrl?: string; message: string }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'رابط Google Sheets Webhook غير محدد أو غير صالح.' };
+  }
+
+  let finalBase64 = payload.audioBase64 || '';
+  if (!finalBase64 && payload.audioBlobUrl) {
+    try {
+      finalBase64 = await blobUrlToBase64(payload.audioBlobUrl);
+    } catch (e) {
+      console.warn('Could not convert audio blob to base64:', e);
+    }
+  }
+
+  const postPayload = {
+    action: 'submit_student_answer',
+    studentId: payload.studentId || '',
+    studentName: payload.studentName || 'طالب',
+    lessonSubject: payload.lessonSubject || 'الدرس الأول',
+    targetWord: payload.targetWord,
+    detectedWord: payload.detectedWord || '',
+    score: payload.score,
+    grade: payload.grade || '',
+    audioBase64: finalBase64,
+    driveFolderId: payload.driveFolderId || '',
+    wordIndex: payload.wordIndex >= 0 ? payload.wordIndex : 0,
+  };
+
+  const res = await callGoogleSheetsPost(webhookUrl, postPayload);
+  return {
+    success: res.success,
+    audioUrl: res.data?.audioUrl,
+    message:
+      res.data?.message ||
+      (res.success
+        ? 'تم إرسال إجابتك واعتمادها بنجاح في ورقة answers 1! ✅'
+        : res.error || 'تعذر الإرسال إلى Google Sheets'),
+  };
+}
+
+/**
  * Complete Google Apps Script Template Code
  * Supports:
  * - Sheet "الدروس" with horizontal lessons:
@@ -572,8 +648,17 @@ export function exportRecordsToCSV(records: StudentSubmissionRecord[], filename 
  *   - Col J:Q: النص الثاني (8 أعمدة)
  *   - Col R:Y: النص الثالث (8 أعمدة)
  *   - Col Z:AG: النص الرابع (8 أعمدة)... وهكذا بلا حدود!
- * - Automatic saving of recorded or uploaded audio into user's own Google Drive folder (فصيح_أصوات_الدروس)
- * - Sheet "سجل_النتائج" for student marks
+ * - Sheet "answers 1" with horizontal student responses:
+ *   - Col A: وقت الارسال
+ *   - Col B: ID المشترك
+ *   - Col C: اسم المشترك
+ *   - Col D: موضوع الدرس
+ *   - Col E: محجوز
+ *   - Col F:J: الإجابة الأولى (الكلمة المستهدفة | النص المنطوق | رابط ملف الصوت | الدرجة % | التقدير)
+ *   - Col K:O: الإجابة الثانية (5 أعمدة في نفس الصف)
+ *   - Col P:T: الإجابة الثالثة... وهكذا!
+ * - Sheet "ID registrants" for student IDs and names
+ * - Automatic saving of recorded audio directly into user's Google Drive folder
  */
 export const GOOGLE_APPS_SCRIPT_TEMPLATE = `/**
  * كود Google Apps Script المتكامل لمنصة (فصيح)
@@ -676,6 +761,35 @@ function getIDRegistrantsSheet(ss) {
     sheet.appendRow(["ID", "اسم المشترك"]);
     sheet.getRange(1, 1, 1, 2).setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
     sheet.appendRow(["1001", "أحمد علي"]);
+  }
+  return sheet;
+}
+
+// دالة مساعدة لإنشاء أو استرجاع ورقة إجابات الطلاب الأفقية "answers 1"
+function getAnswers1Sheet(ss) {
+  var sheet = ss.getSheetByName("answers 1");
+  if (!sheet) {
+    var all = ss.getSheets();
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].getName().trim().toLowerCase() === "answers 1") {
+        return all[i];
+      }
+    }
+    sheet = ss.insertSheet("answers 1");
+    var headerRow = [
+      "وقت الارسال",
+      "ID المشترك",
+      "اسم المشترك",
+      "موضوع الدرس",
+      "حالة الإنجاز",
+      "الكلمة المستهدفة 1", "النص المنطوق 1", "رابط ملف الصوت 1", "الدرجة 1 (%)", "التقدير 1",
+      "الكلمة المستهدفة 2", "النص المنطوق 2", "رابط ملف الصوت 2", "الدرجة 2 (%)", "التقدير 2",
+      "الكلمة المستهدفة 3", "النص المنطوق 3", "رابط ملف الصوت 3", "الدرجة 3 (%)", "التقدير 3",
+      "الكلمة المستهدفة 4", "النص المنطوق 4", "رابط ملف الصوت 4", "الدرجة 4 (%)", "التقدير 4"
+    ];
+    sheet.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
+    sheet.getRange(1, 1, 1, 5).setBackground("#047857").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.getRange(1, 6, 1, headerRow.length - 5).setBackground("#e6f4ea").setFontWeight("bold");
   }
   return sheet;
 }
@@ -852,6 +966,164 @@ function doPost(e) {
         fileId: fileId,
         audioUrl: directAudioUrl,
         message: "تم حفظ ورفع الصوت في Google Drive بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (أ-2) تسجيل إجابة الطالب الأفقية في ورقة "answers 1" ورفع ملف الصوت إلى Google Drive
+    if (data.action === "submit_student_answer") {
+      var ansSheet = getAnswers1Sheet(ss);
+      var studentId = String(data.studentId || "").trim();
+      var studentName = String(data.studentName || "طالب").trim();
+      var lessonSubject = String(data.lessonSubject || "الدرس الأول").trim();
+      var targetWord = String(data.targetWord || "").trim();
+      var detectedWord = String(data.detectedWord || "").trim();
+      var scoreVal = data.score !== undefined ? data.score : 0;
+      var grade = String(data.grade || "").trim();
+      
+      // 1. رفع صوت الطالب إلى Google Drive إذا توفر base64
+      var directAudioUrl = "";
+      if (data.audioBase64) {
+        try {
+          var folder = getOrCreateAudioFolder(data.driveFolderId);
+          var cleanBase64 = String(data.audioBase64);
+          if (cleanBase64.indexOf("base64,") !== -1) {
+            cleanBase64 = cleanBase64.split("base64,")[1];
+          }
+          var timeId = new Date().getTime();
+          var sSafe = studentId ? ("id_" + studentId) : "student";
+          var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), "audio/mp3", "ans_" + sSafe + "_" + timeId + ".mp3");
+          var driveFile;
+          try {
+            driveFile = folder.createFile(blob);
+          } catch (cfErr) {
+            driveFile = DriveApp.getRootFolder().createFile(blob);
+          }
+          try {
+            driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+          } catch (sErr) {}
+          directAudioUrl = "https://drive.google.com/uc?export=download&id=" + driveFile.getId();
+        } catch (uploadErr) {
+          Logger.log("Drive audio upload error: " + uploadErr);
+        }
+      }
+      
+      // 2. تنسيق الوقت والتاريخ الحالي
+      var timeFormatted = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT+3", "yyyy/MM/dd HH:mm:ss");
+      
+      // 3. البحث عن صف هذا المشترك لنفس موضوع الدرس
+      var lastRow = ansSheet.getLastRow();
+      var targetRow = -1;
+      var existingRowValues = [];
+      
+      if (lastRow > 1) {
+        var lastCol = Math.max(5, ansSheet.getLastColumn());
+        var allRows = ansSheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+        for (var r = 0; r < allRows.length; r++) {
+          var rId = String(allRows[r][1] || "").trim();
+          var rName = String(allRows[r][2] || "").trim();
+          var rSubject = String(allRows[r][3] || "").trim();
+          
+          var idMatches = studentId && rId === studentId;
+          var nameMatches = (!studentId || !rId) && (rName === studentName);
+          
+          if ((idMatches || nameMatches) && rSubject === lessonSubject) {
+            targetRow = r + 2;
+            existingRowValues = allRows[r];
+            break;
+          }
+        }
+      }
+      
+      // 4. تحديد الحزمة الأفقية المكونة من 5 أعمدة لهذا التمرين
+      // الأعمدة تبدأ من Col F (index 6 في الشيت، index 5 في مصفوفة الجافاسكربت)
+      // كل تمرين 5 أعمدة: الكلمة المستهدفة | النص المنطوق | رابط ملف الصوت | الدرجة % | التقدير
+      var targetBlockCol = -1;
+      
+      if (targetRow !== -1 && existingRowValues.length > 5) {
+        // أ) هل نفس الكلمة موجودة مسبقاً في أحد البلوكات؟ (لتحديثها بالدرجة والتسجيل الجديد)
+        for (var c = 5; c < existingRowValues.length; c += 5) {
+          var wordInCell = String(existingRowValues[c] || "").trim();
+          if (wordInCell && (wordInCell === targetWord || wordInCell.replace(/[\u064B-\u0652]/g, '') === targetWord.replace(/[\u064B-\u0652]/g, ''))) {
+            targetBlockCol = c + 1; // 1-based column
+            break;
+          }
+        }
+      }
+      
+      // ب) إذا لم نجد الكلمة مسبقاً، نستخدم wordIndex إذا توفر
+      if (targetBlockCol === -1) {
+        var wIdx = (data.wordIndex !== undefined && parseInt(data.wordIndex) >= 0) ? parseInt(data.wordIndex) : -1;
+        if (wIdx >= 0) {
+          targetBlockCol = 6 + (wIdx * 5); // 1-based (Col 6 is F, 11 is K, 16 is P...)
+        }
+      }
+      
+      // ج) كخيار احتياطي: أول حزمة فارغة
+      if (targetBlockCol === -1) {
+        if (targetRow !== -1 && existingRowValues.length > 5) {
+          for (var c = 5; c < existingRowValues.length; c += 5) {
+            if (!String(existingRowValues[c] || "").trim()) {
+              targetBlockCol = c + 1;
+              break;
+            }
+          }
+          if (targetBlockCol === -1) {
+            targetBlockCol = existingRowValues.length + 1;
+          }
+        } else {
+          targetBlockCol = 6; // أول تمرين F:J
+        }
+      }
+      
+      var blockData = [[
+        targetWord,
+        detectedWord,
+        directAudioUrl,
+        scoreVal + "%",
+        grade
+      ]];
+      
+      // التأكد من توفر أعمدة كافية في الورقة
+      var requiredColMax = targetBlockCol + 4;
+      if (ansSheet.getMaxColumns() < requiredColMax) {
+        ansSheet.insertColumnsAfter(ansSheet.getMaxColumns(), requiredColMax - ansSheet.getMaxColumns());
+      }
+      
+      if (targetRow !== -1) {
+        // تحديث الصف الحالي
+        ansSheet.getRange(targetRow, 1).setValue(timeFormatted);
+        if (studentId) ansSheet.getRange(targetRow, 2).setValue(studentId);
+        if (studentName) ansSheet.getRange(targetRow, 3).setValue(studentName);
+        ansSheet.getRange(targetRow, 4).setValue(lessonSubject);
+        ansSheet.getRange(targetRow, targetBlockCol, 1, 5).setValues(blockData);
+      } else {
+        // إنشاء صف جديد لهذا المشترك في هذا الدرس
+        var newRow = [
+          timeFormatted,
+          studentId,
+          studentName,
+          lessonSubject,
+          "" // العامود E المحجوز
+        ];
+        // ملء الخانات الفارغة إن وجدت قبل هذه الحزمة
+        var padCount = targetBlockCol - 6;
+        for (var p = 0; p < padCount; p++) {
+          newRow.push("");
+        }
+        newRow = newRow.concat(blockData[0]);
+        if (ansSheet.getMaxColumns() < newRow.length) {
+          ansSheet.insertColumnsAfter(ansSheet.getMaxColumns(), newRow.length - ansSheet.getMaxColumns());
+        }
+        ansSheet.appendRow(newRow);
+        targetRow = ansSheet.getLastRow();
+      }
+      
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        rowIndex: targetRow,
+        blockCol: targetBlockCol,
+        audioUrl: directAudioUrl,
+        message: "تم حفظ وتوثيق إجابتك في ورقة answers 1 بنجاح!"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 

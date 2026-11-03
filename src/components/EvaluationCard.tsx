@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { PronunciationEvaluation, WordItem } from '../types';
+import { PronunciationEvaluation, WordItem, StudentRegistrant } from '../types';
 import confetti from 'canvas-confetti';
 import {
   Award,
@@ -19,6 +19,10 @@ import {
   AlertCircle,
   Headphones,
   SlidersHorizontal,
+  Send,
+  Loader2,
+  User,
+  ExternalLink,
 } from 'lucide-react';
 import {
   speakArabicBrowser,
@@ -26,6 +30,7 @@ import {
   playUniversalArabicStream,
   playCustomAudio,
 } from '../utils/arabicAudio';
+import { submitStudentAnswerToSheet } from '../utils/googleSheets';
 import { FrequencySpectrumComparison } from './FrequencySpectrumComparison';
 
 interface EvaluationCardProps {
@@ -36,6 +41,12 @@ interface EvaluationCardProps {
   onNext: () => void;
   onOpenLessons?: () => void;
   audioEngine: 'browser' | 'gemini';
+  currentStudent?: StudentRegistrant | null;
+  webhookUrl?: string;
+  driveFolderId?: string;
+  lessonSubject?: string;
+  wordIndex?: number;
+  onRequestLogin?: () => void;
 }
 
 type TabType = 'acoustic' | 'letters' | 'visual';
@@ -53,12 +64,79 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
   onNext,
   onOpenLessons,
   audioEngine,
+  currentStudent,
+  webhookUrl,
+  driveFolderId,
+  lessonSubject,
+  wordIndex = 0,
+  onRequestLogin,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('acoustic');
   const [isPlayingTarget, setIsPlayingTarget] = useState(false);
   const [isPlayingRecorded, setIsPlayingRecorded] = useState(false);
   const [selfEvaluation, setSelfEvaluation] = useState<'match' | 'retry' | null>(null);
   const recordedAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Answer Submission State (answers 1 sheet + Google Drive audio)
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionSuccess, setSubmissionSuccess] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [submittedAudioDriveUrl, setSubmittedAudioDriveUrl] = useState<string | null>(null);
+
+  // Reset submission state on new evaluation / word
+  useEffect(() => {
+    setIsSubmitting(false);
+    setSubmissionSuccess(false);
+    setSubmissionError(null);
+    setSubmittedAudioDriveUrl(null);
+  }, [evaluation, targetWordItem.id]);
+
+  const handleSubmitAnswer = async () => {
+    if (!currentStudent) {
+      if (onRequestLogin) {
+        onRequestLogin();
+      } else {
+        setSubmissionError('يرجى تسجيل دخول المشترك أولاً برقم ID والاسم لتوثيق إجابتك.');
+      }
+      return;
+    }
+
+    if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+      setSubmissionError('رابط Google Sheets Webhook غير محدد في النظام.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSubmissionError(null);
+
+    try {
+      const res = await submitStudentAnswerToSheet(webhookUrl, {
+        studentId: currentStudent.id,
+        studentName: currentStudent.name,
+        lessonSubject: lessonSubject || targetWordItem.lessonSubject || 'الدرس الأول',
+        targetWord: targetWordItem.word,
+        detectedWord: evaluation.detectedWord || '',
+        score: evaluation.score,
+        grade: evaluation.grade,
+        audioBlobUrl: recordedAudioUrl,
+        driveFolderId: driveFolderId,
+        wordIndex: wordIndex >= 0 ? wordIndex : 0,
+      });
+
+      if (res.success) {
+        setSubmissionSuccess(true);
+        if (res.audioUrl) {
+          setSubmittedAudioDriveUrl(res.audioUrl);
+        }
+      } else {
+        setSubmissionError(res.message || 'تعذر إرسال الإجابة إلى ورقة answers 1.');
+      }
+    } catch (err: any) {
+      setSubmissionError('حدث خطأ أثناء الإرسال: ' + (err?.message || String(err)));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     if (evaluation.score >= 85) {
@@ -530,7 +608,104 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
         )}
       </div>
 
-      {/* 5. BOTTOM ACTIONS: Retry, Open Lessons, Next Exercise */}
+      {/* 5. STUDENT APPROVAL & SEND CARD (اعتماد وإرسال الإجابة في ورقة answers 1) */}
+      <div className="bg-linear-to-br from-slate-50 to-emerald-50/40 border border-emerald-100 rounded-2xl p-3.5 flex flex-col gap-2.5 shadow-2xs">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-extrabold text-slate-800">توثيق واعتماد الإجابة:</span>
+            {currentStudent ? (
+              <span className="text-[11px] font-bold text-emerald-900 bg-emerald-100 px-2.5 py-0.5 rounded-full flex items-center gap-1 border border-emerald-200">
+                <User className="w-3 h-3 text-emerald-700" />
+                <span>{currentStudent.name} (ID: {currentStudent.id})</span>
+              </span>
+            ) : (
+              <button
+                onClick={onRequestLogin}
+                className="text-[11px] font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2.5 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition-colors"
+                title="اضغط لتسجيل الدخول برقم ID"
+              >
+                <span>⚠️ يلزم تسجيل الدخول</span>
+              </button>
+            )}
+          </div>
+          <span className="text-[11px] text-slate-500 hidden sm:inline">
+            اضغط زر الإرسال فقط إذا كنت راضياً عن درجتك ونطقك
+          </span>
+        </div>
+
+        {/* Success Alert Banner */}
+        {submissionSuccess && (
+          <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-xs font-bold animate-in fade-in duration-300">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>تم إرسال إجابتك واعتمادها بنجاح! ✅ (سُجلت في ورقة answers 1 وحُفظ الصوت في Google Drive)</span>
+            </div>
+            {submittedAudioDriveUrl && (
+              <a
+                href={submittedAudioDriveUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] text-emerald-700 underline font-bold flex items-center gap-1 shrink-0"
+              >
+                <span>رابط الصوت بدرايف</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
+        )}
+
+        {/* Error Alert Banner */}
+        {submissionError && (
+          <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-2.5 flex items-center justify-between gap-2 text-xs font-semibold">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{submissionError}</span>
+            </div>
+            {onRequestLogin && !currentStudent && (
+              <button
+                onClick={onRequestLogin}
+                className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer"
+              >
+                دخول المشترك
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Send Button */}
+        <div>
+          <button
+            onClick={handleSubmitAnswer}
+            disabled={isSubmitting || submissionSuccess}
+            className={`w-full flex items-center justify-center gap-2 py-3 px-5 rounded-xl font-extrabold text-xs sm:text-sm transition-all shadow-sm ${
+              submissionSuccess
+                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-not-allowed opacity-90'
+                : isSubmitting
+                ? 'bg-amber-500 text-white cursor-wait animate-pulse'
+                : 'bg-linear-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-emerald-600/25 cursor-pointer active:scale-98'
+            }`}
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                <span>جارٍ رفع الصوت وتوثيق الدرجة... ⏳</span>
+              </>
+            ) : submissionSuccess ? (
+              <>
+                <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                <span>تم إرسال إجابتك واعتمادها بنجاح! ✅</span>
+              </>
+            ) : (
+              <>
+                <Send className="w-4 h-4" />
+                <span>إرسال واعتماد الإجابة 📤</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* 6. BOTTOM ACTIONS: Retry, Open Lessons, Next Exercise */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t border-slate-100">
         <button
           onClick={onRetry}

@@ -2162,6 +2162,54 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
               </span>
             </div>
 
+            {/* Structure of sheet "answers 1" Guide Card */}
+            <div className="p-4 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-3">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-4 h-4 text-teal-700" />
+                <h4 className="text-xs font-bold text-teal-950">
+                  هيكل ورقة (answers 1) المعتمد لإجابات ودرجات الطلاب (النظام الأفقي):
+                </h4>
+              </div>
+              <p className="text-xs text-teal-900 leading-relaxed">
+                في ورقة <strong>answers 1</strong>، يُسجل لكل مشترك صف مستقل لكل درس يضم بياناته الأساسية (الأعمدة A إلى E)، ثم تُسجل إجابات التمارين أفقياً في نفس الصف؛ كل تمرين يأخذ 5 أعمدة:
+              </p>
+              
+              <div className="space-y-2 text-xs">
+                {/* Basic Columns A:E */}
+                <div className="bg-white p-2.5 rounded-xl border border-teal-200">
+                  <span className="text-[11px] font-bold text-slate-800 block mb-1">
+                    🔹 الأعمدة الأساسية (A إلى E):
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-[10px] text-center font-semibold">
+                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>A</b>: وقت الارسال</span>
+                    <span className="bg-teal-50 p-1.5 rounded-lg border border-teal-300 text-teal-950"><b>B</b>: ID المشترك</span>
+                    <span className="bg-teal-50 p-1.5 rounded-lg border border-teal-300 text-teal-950"><b>C</b>: اسم المشترك</span>
+                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>D</b>: موضوع الدرس</span>
+                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200 text-slate-400"><b>E</b>: (محجوز)</span>
+                  </div>
+                </div>
+
+                {/* Exercise 1 Columns F:J */}
+                <div className="bg-white p-2.5 rounded-xl border border-teal-200">
+                  <span className="text-[11px] font-bold text-teal-800 block mb-1">
+                    🔹 الإجابة الأولى (الأعمدة F إلى J):
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-[10px] text-center font-semibold">
+                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>F</b>: الكلمة المستهدفة</span>
+                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>G</b>: النص المنطوق</span>
+                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>H</b>: رابط ملف الصوت</span>
+                    <span className="bg-emerald-50 p-1.5 rounded-lg border border-emerald-300 text-emerald-900"><b>I</b>: الدرجة (%)</span>
+                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>J</b>: التقدير</span>
+                  </div>
+                </div>
+
+                {/* Exercise 2 & Beyond */}
+                <div className="bg-white p-2.5 rounded-xl border border-teal-200 text-[11px] text-slate-700 font-semibold flex items-center justify-between">
+                  <span>🔹 الإجابة الثانية (الأعمدة <b>K:O</b>) | الإجابة الثالثة (<b>P:T</b>)... وهكذا لكل تمرين 5 أعمدة في نفس الصف!</span>
+                </div>
+              </div>
+            </div>
+
             {/* Setup Instructions */}
             <div className="border border-slate-200 rounded-2xl p-5 space-y-3">
               <div className="flex items-center justify-between">

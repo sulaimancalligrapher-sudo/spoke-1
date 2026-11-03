@@ -916,6 +916,12 @@ export default function App() {
                   onNext={handleNextWord}
                   onOpenLessons={() => setIsLessonsModalOpen(true)}
                   audioEngine={settings.engine}
+                  currentStudent={currentStudent}
+                  webhookUrl={sheetsConfig.webhookUrl}
+                  driveFolderId={sheetsConfig.driveFolderId}
+                  lessonSubject={selectedItem.lessonSubject || studentSubject}
+                  wordIndex={currentIndex}
+                  onRequestLogin={() => setIsLoginModalOpen(true)}
                 />
               )}
             </div>
