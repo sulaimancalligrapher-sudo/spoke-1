@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PronunciationEvaluation, WordItem } from '../types';
-import { Activity, Check, RefreshCw } from 'lucide-react';
+import { Activity, Check } from 'lucide-react';
 
 interface FrequencySpectrumComparisonProps {
   evaluation: PronunciationEvaluation;
@@ -26,7 +26,6 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
   targetWordItem,
   recordedAudioUrl,
 }) => {
-  const [isRealAudioAnalyzed, setIsRealAudioAnalyzed] = useState(false);
   const [realStudentF0, setRealStudentF0] = useState<number | null>(null);
   const [realStudentDb, setRealStudentDb] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -35,7 +34,6 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
   useEffect(() => {
     let isCancelled = false;
     if (!recordedAudioUrl) {
-      setIsRealAudioAnalyzed(false);
       setRealStudentF0(null);
       setRealStudentDb(null);
       return;
@@ -98,14 +96,11 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
         if (!isCancelled) {
           setRealStudentF0(detectedPitch);
           setRealStudentDb(calculatedDb);
-          setIsRealAudioAnalyzed(true);
         }
 
         audioCtx.close().catch(() => {});
       } catch {
-        if (!isCancelled) {
-          setIsRealAudioAnalyzed(false);
-        }
+        // smoothly keep defaults
       }
     };
 
@@ -234,13 +229,13 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
     return points;
   }, [metrics]);
 
-  // Chart dimensions and coordinate mapping
+  // Optimized chart dimensions (Mobile-friendly: narrower padding, wider usable curve)
   const width = 850;
   const height = 370;
-  const padLeft = 60;
-  const padRight = 35;
+  const padLeft = 48; // reduced from 60 to expand curve width on smaller screens
+  const padRight = 20; // reduced from 35
   const padTop = 50;
-  const padBottom = 40;
+  const padBottom = 35;
 
   const plotWidth = width - padLeft - padRight;
   const plotHeight = height - padTop - padBottom;
@@ -296,7 +291,7 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
     return `${studentLinePath} L ${endX.toFixed(1)} ${bottomY.toFixed(1)} L ${startX.toFixed(1)} ${bottomY.toFixed(1)} Z`;
   }, [studentLinePath, spectralPoints]);
 
-  // Find exact peak positions for badge pointers
+  // Peak points
   const teacherPeakPoint = useMemo(() => {
     let top = spectralPoints[0];
     spectralPoints.forEach((p) => {
@@ -313,11 +308,23 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
     return top;
   }, [spectralPoints]);
 
-  // Pointer move handler (Smooth & reliable crosshair tracking)
+  // Pointer / Mouse move handler
   const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
     const clientX = e.clientX - rect.left;
+    const scaleX = width / rect.width;
+    const svgX = clientX * scaleX;
+    const freq = xToFreq(svgX);
+    setInspectedFreq(freq);
+  };
+
+  // Dedicated Mobile Touch Move & Start Handler (Solves mobile drag/touch issue)
+  const handleTouch = (e: React.TouchEvent<SVGSVGElement>) => {
+    if (!svgRef.current || e.touches.length === 0) return;
+    const touch = e.touches[0];
+    const rect = svgRef.current.getBoundingClientRect();
+    const clientX = touch.clientX - rect.left;
     const scaleX = width / rect.width;
     const svgX = clientX * scaleX;
     const freq = xToFreq(svgX);
@@ -344,12 +351,12 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
 
   return (
     <div className="w-full bg-white rounded-3xl border border-slate-300 shadow-lg overflow-hidden font-cairo text-slate-800 transition-all">
-      {/* 1. TOP HEADER BANNER - Changed text to "مقارنة البصرية والسمعية" */}
-      <div className="bg-[#0c3868] text-white px-5 py-3.5 flex items-center justify-between relative shadow-md">
+      {/* 1. TOP HEADER BANNER - "مقارنة البصرية والسمعية" */}
+      <div className="bg-[#0c3868] text-white px-4 sm:px-5 py-3 sm:py-3.5 flex items-center justify-between relative shadow-md">
         {/* Left Pulse Wave Icon */}
         <div className="flex items-center">
           <svg
-            className="w-9 h-6 text-white stroke-current fill-none"
+            className="w-8 h-5 sm:w-9 sm:h-6 text-white stroke-current fill-none"
             viewBox="0 0 80 40"
             strokeWidth="3.5"
             strokeLinecap="round"
@@ -361,7 +368,7 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
 
         {/* Center Title */}
         <div className="text-center flex-1 pr-2">
-          <h3 className="text-base sm:text-xl font-bold tracking-tight text-white font-cairo">
+          <h3 className="text-base sm:text-lg font-bold tracking-tight text-white font-cairo">
             مقارنة البصرية والسمعية
           </h3>
         </div>
@@ -374,46 +381,75 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
       </div>
 
       {/* 2. MAIN FREQUENCY SPECTRUM CHART & INSPECTION */}
-      <div className="p-3 sm:p-4 bg-white relative">
-        {/* Inspection Bar (Always stable, no flickering, no pin button) */}
-        <div className="mb-2 p-2 px-3 bg-slate-900 text-white rounded-xl text-xs flex flex-wrap items-center justify-between gap-2.5 shadow-xs border border-slate-700">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
-            <span className="font-bold text-slate-200">مؤشر الفحص:</span>
-            <span className="font-mono text-amber-300 font-extrabold text-sm" dir="ltr">
-              {activePoint.freq} Hz
+      <div className="p-2 sm:p-4 bg-white relative">
+        {/* Inspection Bar: TWO ROWS (الصف الأول: مؤشر الفحص | الصف الثاني: الصوت الأصلي وصوت المستخدم والفرق) */}
+        <div className="mb-2.5 p-2 sm:p-2.5 px-3 bg-slate-900 text-white rounded-xl shadow-xs border border-slate-700 space-y-1.5">
+          {/* Row 1: مؤشر الفحص */}
+          <div className="flex items-center justify-between pb-1.5 border-b border-slate-700/80">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+              <span className="font-bold text-slate-200 text-xs sm:text-sm">مؤشر الفحص:</span>
+              <span className="font-mono text-amber-300 font-extrabold text-sm sm:text-base" dir="ltr">
+                {activePoint.freq} Hz
+              </span>
+            </div>
+            <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
+              نطاق التردد (0 – 3,000 Hz)
             </span>
           </div>
 
-          <div className="flex items-center gap-4 text-xs">
-            <span className="text-blue-300 flex items-center gap-1">
-              <span>الصوت الأصلي:</span>
-              <strong className="font-mono text-white text-sm" dir="ltr">
+          {/* Row 2: الصوت الأصلي وصوت المستخدم والفرق */}
+          <div className="flex items-center justify-between pt-0.5 text-xs">
+            <div className="flex items-center gap-1.5 text-blue-300">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#0066ff] shrink-0"></span>
+              <span className="font-bold text-[11px] sm:text-xs text-blue-200">الصوت الأصلي:</span>
+              <strong className="font-mono text-white text-xs sm:text-sm font-bold" dir="ltr">
                 {activePoint.teacherDb} dB
               </strong>
-            </span>
-            <span className="text-emerald-300 flex items-center gap-1">
-              <span>صوت المستخدم:</span>
-              <strong className="font-mono text-white text-sm" dir="ltr">
+            </div>
+
+            <div className="flex items-center gap-1.5 text-emerald-300">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#00bb2d] shrink-0"></span>
+              <span className="font-bold text-[11px] sm:text-xs text-emerald-200">صوت المستخدم:</span>
+              <strong className="font-mono text-white text-xs sm:text-sm font-bold" dir="ltr">
                 {activePoint.studentDb} dB
               </strong>
-            </span>
-            <span className="text-slate-300 hidden sm:inline-flex items-center gap-1">
-              <span>الفرق:</span>
-              <strong className="font-mono text-amber-200" dir="ltr">
+            </div>
+
+            <div className="flex items-center gap-1 text-slate-300">
+              <span className="text-[10px] sm:text-[11px] text-slate-400">الفرق:</span>
+              <strong className="font-mono text-amber-300 text-xs sm:text-sm font-bold" dir="ltr">
                 {(activePoint.studentDb - activePoint.teacherDb).toFixed(1)} dB
               </strong>
-            </span>
+            </div>
           </div>
         </div>
 
-        {/* SVG Chart Area */}
-        <div className="relative w-full overflow-hidden bg-white select-none">
+        {/* SVG Chart Area with Responsive Legend Overlay & Mobile Touch Support */}
+        <div className="relative w-full overflow-hidden bg-white select-none rounded-xl border border-slate-100">
+          {/* Top Corner Legend Box - Placed as HTML overlay: 100% stable, no text overflow, fully responsive */}
+          <div className="absolute top-2 left-2 sm:top-3 sm:left-3 z-10 bg-white/95 backdrop-blur-xs border border-blue-200/90 rounded-xl p-1.5 sm:p-2 px-2.5 sm:px-3 shadow-xs flex flex-col gap-1 select-none pointer-events-none">
+            <div className="flex items-center gap-2">
+              <span className="w-4 sm:w-5 h-1 sm:h-1.5 rounded-full bg-[#0066ff] shrink-0"></span>
+              <span className="text-[11px] sm:text-xs font-black text-[#0055d4] font-cairo">
+                الصوت الأصلي (المعلم)
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-4 sm:w-5 h-1 sm:h-1.5 rounded-full bg-[#00bb2d] shrink-0"></span>
+              <span className="text-[11px] sm:text-xs font-black text-[#008a20] font-cairo">
+                صوت المستخدم (المسجل)
+              </span>
+            </div>
+          </div>
+
           <svg
             ref={svgRef}
             viewBox={`0 0 ${width} ${height}`}
-            className="w-full h-auto cursor-crosshair drop-shadow-2xs"
+            className="w-full h-auto cursor-crosshair drop-shadow-2xs touch-none select-none"
             onPointerMove={handlePointerMove}
+            onTouchStart={handleTouch}
+            onTouchMove={handleTouch}
           >
             <defs>
               {/* Teacher Gradient (Blue) */}
@@ -450,10 +486,10 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
                   />
                   {/* Y-Axis dB Label */}
                   <text
-                    x={padLeft - 8}
+                    x={padLeft - 6}
                     y={y + 4}
                     textAnchor="end"
-                    className="text-[12px] font-sans font-bold fill-slate-700 select-none"
+                    className="text-[11px] font-sans font-bold fill-slate-700 select-none"
                   >
                     {db}
                   </text>
@@ -477,9 +513,9 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
                   {/* X-Axis Tick Value */}
                   <text
                     x={x}
-                    y={height - padBottom + 18}
+                    y={height - padBottom + 16}
                     textAnchor="middle"
-                    className="text-[12px] font-sans font-bold fill-slate-700 select-none"
+                    className="text-[11px] font-sans font-bold fill-slate-700 select-none"
                   >
                     {freq.toLocaleString('en-US')}
                   </text>
@@ -511,19 +547,19 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
 
             {/* Y-Axis Label: "الشدة (dB)" */}
             <text
-              x={padLeft - 10}
-              y={padTop + 18}
+              x={padLeft - 6}
+              y={padTop + 14}
               textAnchor="end"
-              className="text-[12px] font-bold fill-slate-900 font-cairo select-none"
+              className="text-[11px] font-bold fill-slate-900 font-cairo select-none"
               pointerEvents="none"
             >
               الشدة
             </text>
             <text
-              x={padLeft - 10}
-              y={padTop + 34}
+              x={padLeft - 6}
+              y={padTop + 28}
               textAnchor="end"
-              className="text-[11px] font-bold fill-slate-900 font-sans select-none"
+              className="text-[10px] font-bold fill-slate-900 font-sans select-none"
               pointerEvents="none"
             >
               (dB)
@@ -557,14 +593,14 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
             {(() => {
               const px = freqToX(teacherPeakPoint.freq);
               const py = dbToY(teacherPeakPoint.teacherDb);
-              const badgeY = Math.max(12, py - 38);
+              const badgeY = Math.max(10, py - 36);
               return (
                 <g className="transition-all duration-300" pointerEvents="none">
                   <rect
-                    x={px - 44}
+                    x={px - 40}
                     y={badgeY}
-                    width="88"
-                    height="28"
+                    width="80"
+                    height="26"
                     rx="8"
                     fill="#e0edff"
                     stroke="#0066ff"
@@ -573,15 +609,15 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
                   />
                   <text
                     x={px}
-                    y={badgeY + 18}
+                    y={badgeY + 17}
                     textAnchor="middle"
-                    className="text-[13px] font-bold font-sans fill-[#0055d4] select-none"
+                    className="text-[12px] font-bold font-sans fill-[#0055d4] select-none"
                   >
                     {metrics.teacher.topPeakFreq} Hz
                   </text>
                   <line
                     x1={px}
-                    y1={badgeY + 28}
+                    y1={badgeY + 26}
                     x2={px}
                     y2={py - 3}
                     stroke="#0066ff"
@@ -600,14 +636,14 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
             {(() => {
               const px = freqToX(studentPeakPoint.freq);
               const py = dbToY(studentPeakPoint.studentDb);
-              const badgeY = Math.max(12, py - 38);
+              const badgeY = Math.max(10, py - 36);
               return (
                 <g className="transition-all duration-300" pointerEvents="none">
                   <rect
-                    x={px - 44}
+                    x={px - 40}
                     y={badgeY}
-                    width="88"
-                    height="28"
+                    width="80"
+                    height="26"
                     rx="8"
                     fill="#ddfae3"
                     stroke="#00aa28"
@@ -616,15 +652,15 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
                   />
                   <text
                     x={px}
-                    y={badgeY + 18}
+                    y={badgeY + 17}
                     textAnchor="middle"
-                    className="text-[13px] font-bold font-sans fill-[#008820] select-none"
+                    className="text-[12px] font-bold font-sans fill-[#008820] select-none"
                   >
                     {metrics.student.topPeakFreq} Hz
                   </text>
                   <line
                     x1={px}
-                    y1={badgeY + 28}
+                    y1={badgeY + 26}
                     x2={px}
                     y2={py - 3}
                     stroke="#00aa28"
@@ -639,7 +675,7 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
               );
             })()}
 
-            {/* INTERACTIVE MEASUREMENT CROSSHAIR LINE */}
+            {/* INTERACTIVE MEASUREMENT CROSSHAIR LINE (Tracks smoothly on desktop & touch) */}
             <g pointerEvents="none">
               <line
                 x1={freqToX(inspectedFreq)}
@@ -667,52 +703,20 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
                 strokeWidth="2"
               />
             </g>
-
-            {/* TOP-RIGHT LEGEND BOX - Enlarged, bold, clearer text */}
-            <g transform={`translate(${width - padRight - 225}, ${padTop - 45})`} pointerEvents="none">
-              <rect
-                x="0"
-                y="0"
-                width="225"
-                height="68"
-                rx="14"
-                fill="#ffffff"
-                stroke="#3b82f6"
-                strokeWidth="2"
-                filter="url(#badgeShadow)"
-              />
-              {/* Teacher legend line & text */}
-              <line x1="14" y1="22" x2="50" y2="22" stroke="#0066ff" strokeWidth="4.5" strokeLinecap="round" />
-              <text x="58" y="22" className="text-[13px] sm:text-[14px] font-black fill-[#0055d4] font-cairo">
-                الصوت الأصلي (المعلم)
-              </text>
-              <text x="58" y="33" className="text-[9px] font-bold fill-slate-500 font-sans">
-                Reference Audio
-              </text>
-
-              {/* Student legend line & text */}
-              <line x1="14" y1="52" x2="50" y2="52" stroke="#00bb2d" strokeWidth="4.5" strokeLinecap="round" />
-              <text x="58" y="52" className="text-[13px] sm:text-[14px] font-black fill-[#008a20] font-cairo">
-                صوت المستخدم (المسجل)
-              </text>
-              <text x="58" y="63" className="text-[9px] font-bold fill-slate-500 font-sans">
-                Your Voice
-              </text>
-            </g>
           </svg>
         </div>
 
-        {/* 3. COMPACT RESULT BAR - Low margins, green icon right beside text */}
+        {/* 3. COMPACT RESULT BAR - Low margins, green checkmark right beside texts */}
         <div className="mt-2.5 pt-2 border-t border-slate-200">
-          <div className="rounded-2xl border-2 border-amber-300 bg-linear-to-r from-amber-50/80 via-white to-emerald-50/50 p-2.5 sm:p-3 shadow-xs flex flex-row items-center justify-between gap-3">
+          <div className="rounded-2xl border-2 border-amber-300 bg-linear-to-r from-amber-50/80 via-white to-emerald-50/50 p-2 sm:p-2.5 px-3 shadow-xs flex flex-row items-center justify-between gap-3">
             {/* Right side: Icon + Title + Tone match */}
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#16a34a] flex items-center justify-center text-white shadow-xs shrink-0">
-                <Check className="w-6 h-6 stroke-[3.5]" />
+            <div className="flex items-center gap-2.5 sm:gap-3">
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#16a34a] flex items-center justify-center text-white shadow-xs shrink-0">
+                <Check className="w-5 h-5 sm:w-5.5 sm:h-5.5 stroke-[3.5]" />
               </div>
               <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-bold text-amber-900 bg-amber-100/90 px-2 py-0.5 rounded-md">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <span className="text-[11px] sm:text-xs font-bold text-amber-900 bg-amber-100/90 px-2 py-0.5 rounded-md">
                     نتيجة المقارنة
                   </span>
                   <span className="text-xs sm:text-sm font-bold text-slate-800">
@@ -723,28 +727,15 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
             </div>
 
             {/* Left side: Similarity Score */}
-            <div className="flex items-center gap-2 border-r border-amber-200 pr-3 sm:pr-4">
+            <div className="flex items-center gap-1.5 sm:gap-2 border-r border-amber-200 pr-2.5 sm:pr-4">
               <span className="text-xs sm:text-sm font-bold text-slate-700 hidden sm:inline">
                 نسبة التطابق:
               </span>
-              <span className="text-2xl sm:text-3xl font-black font-sans text-[#15803d]">
+              <span className="text-xl sm:text-2xl font-black font-sans text-[#15803d]">
                 {metrics.similarityPercent}%
               </span>
             </div>
           </div>
-        </div>
-
-        {/* Real-time sync hint */}
-        <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
-          <div className="flex items-center gap-1.5">
-            <RefreshCw className="w-3.5 h-3.5 text-blue-600 animate-spin" style={{ animationDuration: '6s' }} />
-            <span>
-              {isRealAudioAnalyzed
-                ? 'تم استخلاص الترددات الفعلية مباشرة من تسجيل الميكروفون عبر Web Audio API'
-                : 'يتم احتساب الطيف الترددي تلقائياً فور تسجيل نطق جديد ومقارنته بالنموذج المرجعي'}
-            </span>
-          </div>
-          <span className="font-mono text-[10px] text-slate-400">0 – 3,000 Hz</span>
         </div>
       </div>
     </div>

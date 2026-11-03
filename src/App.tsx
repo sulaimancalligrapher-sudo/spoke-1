@@ -7,6 +7,7 @@ import {
   GoogleSheetsConfig,
   StudentSubmissionRecord,
   EvaluationMode,
+  StudentRegistrant,
 } from './types';
 import {
   ALL_CURRICULUM,
@@ -21,6 +22,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { GuideModal } from './components/GuideModal';
 import { AdminPanel } from './components/AdminPanel';
 import { LessonsModal } from './components/LessonsModal';
+import { StudentLoginModal } from './components/StudentLoginModal';
 import {
   sendScoreToGoogleSheets,
   fetchCurriculumFromSheets,
@@ -54,6 +56,7 @@ const STORAGE_KEY_SHEETS = 'faseeh_sheets_config_v1';
 const STORAGE_KEY_SUBMISSIONS = 'faseeh_submissions_v1';
 const STORAGE_KEY_CATEGORIES = 'faseeh_categories_v2';
 const STORAGE_KEY_SUBJECTS = 'faseeh_subjects_v2';
+const STORAGE_KEY_STUDENT = 'faseeh_active_student_v1';
 
 const isMobileDevicePlatform = () => {
   if (typeof navigator === 'undefined') return false;
@@ -85,10 +88,12 @@ export default function App() {
   const [currentView, setCurrentView] = useState<'landing' | 'practice'>('landing');
   const [isLessonsModalOpen, setIsLessonsModalOpen] = useState(false);
 
-  // Modals
+  // Modals & Registration
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [currentStudent, setCurrentStudent] = useState<StudentRegistrant | null>(null);
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(true);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
@@ -330,6 +335,17 @@ export default function App() {
 
       const savedSubmissions = localStorage.getItem(STORAGE_KEY_SUBMISSIONS);
       if (savedSubmissions) setSubmissions(JSON.parse(savedSubmissions));
+
+      const savedStudent = localStorage.getItem(STORAGE_KEY_STUDENT);
+      if (savedStudent) {
+        try {
+          const parsed = JSON.parse(savedStudent);
+          setCurrentStudent(parsed);
+          if (parsed?.name) {
+            setSettings((prev) => ({ ...prev, studentName: parsed.name }));
+          }
+        } catch (e) {}
+      }
     } catch (e) {
       console.warn('LocalStorage load error:', e);
     }
@@ -362,6 +378,21 @@ export default function App() {
       } catch (e) {}
       return next;
     });
+  };
+
+  const handleLoginSuccess = (student: StudentRegistrant) => {
+    setCurrentStudent(student);
+    try {
+      localStorage.setItem(STORAGE_KEY_STUDENT, JSON.stringify(student));
+    } catch (e) {}
+    setSettings((prev) => ({ ...prev, studentName: student.name }));
+  };
+
+  const handleLogout = () => {
+    setCurrentStudent(null);
+    try {
+      localStorage.removeItem(STORAGE_KEY_STUDENT);
+    } catch (e) {}
   };
 
   const handleUpdateSheetsConfig = (newConfig: Partial<GoogleSheetsConfig>) => {
@@ -562,7 +593,7 @@ export default function App() {
       setStreak(0);
     }
 
-    const currentStudentName = studentName || settings.studentName || 'طالب';
+    const currentStudentName = currentStudent?.name || studentName || settings.studentName || 'طالب';
 
     // Save to history
     saveHistoryItem({
@@ -751,6 +782,9 @@ export default function App() {
         onOpenLessons={() => setIsLessonsModalOpen(true)}
         onGoHome={() => setCurrentView('landing')}
         currentView={currentView}
+        currentStudent={currentStudent}
+        onOpenLogin={() => setIsLoginModalOpen(true)}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Area */}
@@ -941,6 +975,14 @@ export default function App() {
         selectedSubject={studentSubject}
         onSelectSubject={setStudentSubject}
         scoresMap={scoresMap}
+      />
+
+      {/* Student Login & Registration Verification Modal */}
+      <StudentLoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        onLoginSuccess={handleLoginSuccess}
+        webhookUrl={sheetsConfig.webhookUrl}
       />
     </div>
   );

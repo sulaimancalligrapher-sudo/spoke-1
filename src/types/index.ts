@@ -110,3 +110,9 @@ export interface StudentSubmissionRecord {
   timestamp: number;
   syncedToSheets: boolean;
 }
+
+export interface StudentRegistrant {
+  id: string; // رقم المشترك ID
+  name: string; // اسم المشترك
+  registeredAt?: number;
+}

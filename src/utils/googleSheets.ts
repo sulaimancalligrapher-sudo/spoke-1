@@ -1,9 +1,9 @@
-import { WordItem, StudentSubmissionRecord } from '../types';
+import { WordItem, StudentSubmissionRecord, StudentRegistrant } from '../types';
 import { removeTashkeel } from './arabicMatcher';
 
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t';
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbzkYgEr8AdltM70gTazUuE5Yl9WV8RXs5KWF551Xh-H3d3UPTqxBl1F6Z-t3M8to7CRQg/exec';
+  'https://script.google.com/macros/s/AKfycbx_e4LpYoM15NZ-kCMufq0BRIyqLhrPTLr6HdQ7YzZfqyRM0b870GOnDYqOc1Z2YE3OOg/exec';
 
 /**
  * Fetch curriculum (lessons and exercises) directly from Google Sheet tab "الدروس"
@@ -409,6 +409,128 @@ export async function sendScoreToGoogleSheets(
 }
 
 /**
+ * Initialize or ensure sheet "ID registrants" exists with Col A: ID and Col B: اسم المشترك
+ */
+export async function ensureIDRegistrantsSheet(webhookUrl: string): Promise<{ success: boolean; message: string }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'رابط Google Sheets Webhook غير صالح' };
+  }
+
+  const res = await callGoogleSheetsPost(webhookUrl, {
+    action: 'init_registrants_sheet',
+  });
+
+  return {
+    success: res.success,
+    message: res.message || (res.success ? 'تم تجهيز ورقة ID registrants بنجاح' : 'خطأ في الاتصال'),
+  };
+}
+
+/**
+ * Fetch all registrants from sheet "ID registrants"
+ */
+export async function fetchIDRegistrants(webhookUrl: string): Promise<StudentRegistrant[]> {
+  if (webhookUrl && webhookUrl.trim().startsWith('http')) {
+    try {
+      const res = await callGoogleSheetsPost(webhookUrl, { action: 'get_registrants' });
+      if (res.success && res.data && Array.isArray(res.data.registrants)) {
+        const list: StudentRegistrant[] = res.data.registrants
+          .map((r: any) => ({
+            id: String(r.id || '').trim(),
+            name: String(r.name || '').trim(),
+          }))
+          .filter((r: StudentRegistrant) => r.id && r.name && r.id !== 'ID' && r.name !== 'اسم المشترك');
+
+        try {
+          localStorage.setItem('faseeh_cached_registrants', JSON.stringify(list));
+        } catch {}
+
+        if (list.length > 0) return list;
+      }
+    } catch (e) {
+      console.warn('Error fetching ID registrants from Google Sheets:', e);
+    }
+  }
+
+  // Fallback to local cached registrants
+  try {
+    const cached = localStorage.getItem('faseeh_cached_registrants');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+
+  // Default demo registrants for offline/initial state
+  return [
+    { id: '1001', name: 'أحمد علي' },
+    { id: '1002', name: 'فاطمة محمد' },
+    { id: '1003', name: 'عمر خالد' },
+  ];
+}
+
+/**
+ * Verify student credentials against sheet "ID registrants"
+ */
+export async function verifyStudentLogin(
+  webhookUrl: string,
+  enteredName: string,
+  enteredId: string
+): Promise<{ success: boolean; student?: StudentRegistrant; error?: string }> {
+  const cleanName = enteredName.trim();
+  const cleanId = enteredId.trim();
+
+  if (!cleanName || !cleanId) {
+    return { success: false, error: 'يرجى إدخال اسم المشترك ورقم ID معاً.' };
+  }
+
+  const registrants = await fetchIDRegistrants(webhookUrl);
+
+  const normalizeArabic = (s: string) =>
+    removeTashkeel(s)
+      .toLowerCase()
+      .replace(/[إأآا]/g, 'ا')
+      .replace(/[ىي]/g, 'ي')
+      .replace(/ة/g, 'ه')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const normEntered = normalizeArabic(cleanName);
+
+  // 1. Exact match on both ID and Name
+  const matched = registrants.find((r) => {
+    return String(r.id).trim() === cleanId && normalizeArabic(r.name) === normEntered;
+  });
+
+  if (matched) {
+    return { success: true, student: matched };
+  }
+
+  // 2. If ID matches but name is different, give helpful guidance
+  const idMatch = registrants.find((r) => String(r.id).trim() === cleanId);
+  if (idMatch) {
+    return {
+      success: false,
+      error: `رقم ID موجود ولكن الاسم غير مطابق للاسم المسجل في ورقة ID registrants (${idMatch.name}).`,
+    };
+  }
+
+  // 3. If Name matches but ID is different
+  const nameMatch = registrants.find((r) => normalizeArabic(r.name) === normEntered);
+  if (nameMatch) {
+    return {
+      success: false,
+      error: `الاسم مسجل ولكن رقم ID غير مطابق للرقم المسجل له في ورقة (ID registrants).`,
+    };
+  }
+
+  return {
+    success: false,
+    error: 'عفواً، لم يتم العثور على هذا الاسم والرقم في ورقة (ID registrants). تأكد من صحة البيانات.',
+  };
+}
+
+/**
  * Export student records to CSV file for Excel / Google Sheets import
  */
 export function exportRecordsToCSV(records: StudentSubmissionRecord[], filename = 'درجات_الطلاب_فصيح.csv') {
@@ -546,10 +668,42 @@ function getLessonsSheet(ss) {
   }
 }
 
-// 1. GET: جلب جميع الدروس والتمارين الأفقية فورياً
+// دالة مساعدة لإنشاء أو استرجاع ورقة المشتركين "ID registrants"
+function getIDRegistrantsSheet(ss) {
+  var sheet = ss.getSheetByName("ID registrants");
+  if (!sheet) {
+    sheet = ss.insertSheet("ID registrants");
+    sheet.appendRow(["ID", "اسم المشترك"]);
+    sheet.getRange(1, 1, 1, 2).setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.appendRow(["1001", "أحمد علي"]);
+  }
+  return sheet;
+}
+
+// 1. GET: جلب جميع الدروس أو المشتركين فورياً
 function doGet(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    
+    // إذا كان الطلب جلب قائمة المشتركين من ورقة "ID registrants"
+    if (e && e.parameter && e.parameter.action === "get_registrants") {
+      var regSheet = getIDRegistrantsSheet(ss);
+      var lastR = regSheet.getLastRow();
+      var registrants = [];
+      if (lastR > 1) {
+        var vals = regSheet.getRange(2, 1, lastR - 1, 2).getValues();
+        for (var i = 0; i < vals.length; i++) {
+          var rId = String(vals[i][0] || "").trim();
+          var rName = String(vals[i][1] || "").trim();
+          if (rId && rName && rId !== "ID") {
+            registrants.push({ id: rId, name: rName });
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, registrants: registrants }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     var sheet = getLessonsSheet(ss);
     
     var lastRow = sheet.getLastRow();
@@ -643,6 +797,35 @@ function doPost(e) {
     var data = JSON.parse(raw);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     
+    // (0) جلب أو التحقق من ورقة "ID registrants" للمشتركين
+    if (data.action === "get_registrants" || data.action === "verify_student") {
+      var regSheet = getIDRegistrantsSheet(ss);
+      var lastR = regSheet.getLastRow();
+      var registrants = [];
+      if (lastR > 1) {
+        var vals = regSheet.getRange(2, 1, lastR - 1, 2).getValues();
+        for (var i = 0; i < vals.length; i++) {
+          var rId = String(vals[i][0] || "").trim();
+          var rName = String(vals[i][1] || "").trim();
+          if (rId && rName && rId !== "ID") {
+            registrants.push({ id: rId, name: rName });
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, registrants: registrants }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-ب) إنشاء وتجهيز ورقة "ID registrants" أو إضافة مشترك
+    if (data.action === "init_registrants_sheet" || data.action === "add_registrant") {
+      var regSheet = getIDRegistrantsSheet(ss);
+      if (data.id && data.name) {
+        regSheet.appendRow([String(data.id).trim(), String(data.name).trim()]);
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, message: "تم إعداد ورقة ID registrants بنجاح" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // (أ) حفظ صوت المعلم مباشرة في Google Drive واسترجاع الرابط المباشر
     if (data.action === "upload_audio" && data.audioBase64) {
       var folder = getOrCreateAudioFolder(data.driveFolderId);

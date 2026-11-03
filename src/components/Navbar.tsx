@@ -1,4 +1,3 @@
-import React from 'react';
 import {
   Mic,
   Flame,
@@ -8,7 +7,10 @@ import {
   PlusCircle,
   Sliders,
   FileSpreadsheet,
+  User,
+  LogOut,
 } from 'lucide-react';
+import { StudentRegistrant } from '../types';
 
 interface NavbarProps {
   streak: number;
@@ -22,6 +24,9 @@ interface NavbarProps {
   onOpenLessons?: () => void;
   onGoHome?: () => void;
   currentView?: 'landing' | 'practice';
+  currentStudent?: StudentRegistrant | null;
+  onOpenLogin?: () => void;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -36,11 +41,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenLessons,
   onGoHome,
   currentView = 'landing',
+  currentStudent,
+  onOpenLogin,
+  onLogout,
 }) => {
   return (
     <header className="bg-white/90 backdrop-blur-md sticky top-0 z-40 border-b border-slate-100 shadow-2xs">
       <div className="max-w-6xl mx-auto px-3.5 sm:px-6 py-2 sm:py-0 sm:h-16 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
-        {/* ROW 1 ON MOBILE (الشعار والعنوان): Full width row on mobile, left side on desktop */}
+        {/* ROW 1 ON MOBILE (الشعار والعنوان + اسم الطالب وزر الخروج): Full width row on mobile, left side on desktop */}
         <div className="flex items-center justify-between w-full sm:w-auto">
           <div
             onClick={onGoHome}
@@ -65,16 +73,31 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* Mobile-only Streak Badge (if active) */}
-          {streak > 0 && (
-            <div
-              className="sm:hidden flex items-center gap-1 px-2.5 py-0.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-full text-xs font-bold shadow-2xs"
-              title={`سلسلة إنجاز متواصلة: ${streak} كلمات`}
-            >
-              <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-              <span>{streak}</span>
-            </div>
-          )}
+          {/* Student Status on Mobile (اسم الطالب وزر خروج أيقونة فقط) */}
+          <div className="sm:hidden flex items-center gap-1.5">
+            {currentStudent ? (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-950 rounded-xl text-xs font-bold shadow-2xs">
+                <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span className="truncate max-w-[85px]">{currentStudent.name}</span>
+                <button
+                  onClick={onLogout}
+                  className="p-0.5 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                  title="تسجيل الخروج"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={onOpenLogin}
+                className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-2xs transition-all cursor-pointer"
+                title="تسجيل دخول الطالب"
+              >
+                <User className="w-3.5 h-3.5" />
+                <span>دخول الطالب</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* ROW 2 ON MOBILE (باقي الأزرار): Dedicated row on mobile, right side on desktop */}
@@ -89,6 +112,33 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>فتح الدروس 📚</span>
             </button>
           )}
+
+          {/* Student Status on Desktop (اسم المشترك وزر خروج أيقونة فقط) */}
+          <div className="hidden sm:flex items-center gap-1.5">
+            {currentStudent ? (
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-950 rounded-xl text-xs font-bold shadow-2xs">
+                <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span className="font-extrabold">{currentStudent.name}</span>
+                <span className="text-[10px] text-emerald-700 font-mono bg-emerald-100/80 px-1.5 py-0.5 rounded-md">ID: {currentStudent.id}</span>
+                <button
+                  onClick={onLogout}
+                  className="p-1 hover:bg-emerald-200/80 text-slate-400 hover:text-rose-600 rounded-md transition-colors cursor-pointer"
+                  title="تسجيل الخروج"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={onOpenLogin}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+                title="تسجيل دخول الطالب"
+              >
+                <User className="w-3.5 h-3.5" />
+                <span>دخول المشترك</span>
+              </button>
+            )}
+          </div>
 
           {/* Admin Panel Direct Link */}
           <button
