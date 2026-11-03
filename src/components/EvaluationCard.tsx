@@ -518,81 +518,14 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
           </div>
         )}
 
-        {/* Tab Content 3: Frequency Spectrum (مقارنة الطيف الترددي للصوتين) */}
+        {/* Tab Content 3: Frequency Spectrum (مقارنة البصرية والسمعية) */}
         {activeTab === 'visual' && (
-          <div className="mt-3.5 space-y-4 animate-in fade-in duration-200">
-            {/* The single unified Frequency Spectrum Chart matching user design */}
+          <div className="mt-3.5 space-y-3 animate-in fade-in duration-200">
             <FrequencySpectrumComparison
               evaluation={evaluation}
               targetWordItem={targetWordItem}
               recordedAudioUrl={recordedAudioUrl}
             />
-
-            {/* Playback Controls Row */}
-            <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-slate-50 rounded-2xl border border-slate-200">
-              <button
-                onClick={handlePlayTarget}
-                disabled={isPlayingTarget}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 bg-[#0d62cc] hover:bg-blue-700 text-white font-bold rounded-xl text-xs sm:text-sm transition-all cursor-pointer shadow-xs disabled:opacity-70"
-              >
-                <Volume2 className="w-4 h-4" />
-                <span>{isPlayingTarget ? 'جاري التشغيل...' : 'استمع للصوت الأصلي (المعلم)'}</span>
-              </button>
-
-              <button
-                onClick={handlePlayRecorded}
-                disabled={!recordedAudioUrl}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer shadow-xs ${
-                  !recordedAudioUrl
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                    : isPlayingRecorded
-                    ? 'bg-[#009b29] text-white ring-2 ring-emerald-300'
-                    : 'bg-[#009b29] hover:bg-emerald-700 text-white'
-                }`}
-              >
-                <Play className="w-4 h-4" />
-                <span>{isPlayingRecorded ? 'إيقاف التشغيل...' : 'استمع لصوت المستخدم (تسجيلك)'}</span>
-              </button>
-            </div>
-
-            {/* Self Evaluation */}
-            <div className="p-3.5 bg-linear-to-r from-amber-50/70 to-emerald-50/70 rounded-2xl border border-amber-200/80">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <span className="text-xs font-bold text-slate-900">⭐ التقييم الذاتي:</span>
-                <span className="text-[11px] text-slate-600">هل طابقت قمم طيفك قمم نطق المعلم؟</span>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <button
-                  onClick={() => {
-                    setSelfEvaluation('match');
-                    try {
-                      confetti({
-                        particleCount: 50,
-                        spread: 60,
-                        origin: { y: 0.7 },
-                      });
-                    } catch (e) {}
-                  }}
-                  className={`flex-1 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all ${
-                    selfEvaluation === 'match'
-                      ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400'
-                      : 'bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300'
-                  }`}
-                >
-                  🌟 متطابق ومتقن
-                </button>
-                <button
-                  onClick={() => setSelfEvaluation('retry')}
-                  className={`flex-1 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all ${
-                    selfEvaluation === 'retry'
-                      ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-400'
-                      : 'bg-white hover:bg-amber-50 text-amber-800 border border-amber-300'
-                  }`}
-                >
-                  🔄 أحتاج تدريباً إضافياً
-                </button>
-              </div>
-            </div>
           </div>
         )}
       </div>
