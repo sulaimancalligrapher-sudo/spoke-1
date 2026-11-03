@@ -4,10 +4,24 @@
  * 100% serverless, zero external APIs, zero rate limits.
  */
 
+import {
+  removeTashkeel,
+  normalizeProlongedVowels,
+  getLevenshteinDistance,
+  countTargetRepetitions,
+  ARABIC_LETTER_NAMES,
+} from './arabicMatcher';
+
 export interface WhisperProgress {
   status: 'init' | 'loading' | 'ready' | 'transcribing' | 'error';
   progress?: number;
   message?: string;
+}
+
+export interface ConstrainedVocabOptions {
+  lessonVocabulary?: string[];
+  audioDuration?: number;
+  acousticPulses?: number;
 }
 
 type ProgressCallback = (progress: WhisperProgress) => void;
@@ -179,13 +193,15 @@ export async function getWhisperTranscriber(onProgress?: ProgressCallback): Prom
 }
 
 /**
- * Transcribe recorded audio blob using in-browser Whisper with context guidance and repetition support
+ * Transcribe recorded audio blob using in-browser Whisper with Constrained Vocabulary Decoding,
+ * repetition priming, and lexicon projection.
  */
 export async function transcribeWithInBrowserWhisper(
   audioBlob: Blob,
   targetWord?: string,
   repeatCount: number = 1,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  options?: ConstrainedVocabOptions
 ): Promise<string> {
   const transcriber = await getWhisperTranscriber(onProgress);
 
@@ -195,23 +211,52 @@ export async function transcribeWithInBrowserWhisper(
 
   const pcmData = await convertBlobToWhisperPcm(audioBlob);
 
-  const plainTarget = targetWord ? targetWord.replace(/[\u064B-\u0652\u0670\u0640\s-]/g, '').trim() : '';
-  const isSingleLetter = plainTarget.length === 1;
-  const isTwoLetters = plainTarget.length === 2;
-  const isRepetition = typeof repeatCount === 'number' && repeatCount > 1;
+  const cleanTarget = (targetWord || '').trim();
+  const normTarget = removeTashkeel(cleanTarget);
 
-  // Guide Whisper decoder with target context to prevent hallucinating english/dialects
+  // Check if target itself consists of repeated identical/near-identical tokens (e.g. "كتب كتب كتب" or "ح ح ح")
+  const targetTokens = normTarget.split(/\s+/).filter(Boolean);
+  const isTargetHomogeneous =
+    targetTokens.length > 1 &&
+    targetTokens.every((t) => t === targetTokens[0] || getLevenshteinDistance(t, targetTokens[0]) <= 1);
+  const inherentTargetRepeat = isTargetHomogeneous ? targetTokens.length : 1;
+
+  // Effective repetitions is max of user repetition configuration and inherent repetition in target text
+  const userRepeat = typeof repeatCount === 'number' && repeatCount > 0 ? repeatCount : 1;
+  const effectiveRepeat = Math.max(userRepeat, inherentTargetRepeat);
+
+  const atomicTarget = isTargetHomogeneous ? cleanTarget.split(/\s+/)[0] : cleanTarget;
+  const normAtomicTarget = removeTashkeel(atomicTarget);
+
+  const isSingleLetter = normAtomicTarget.length === 1;
+  const isTwoLetters = normAtomicTarget.length === 2;
+  const isRepetition = effectiveRepeat > 1;
+
+  // 1. CONSTRAINED VOCABULARY PROMPT CONDITIONING
+  // Guide Whisper decoder with target context and vocabulary constraints
   let cleanPrompt: string | undefined = undefined;
-  if (targetWord && targetWord.trim()) {
+  if (cleanTarget) {
     if (isRepetition) {
-      const repeatedPhrase = Array(repeatCount).fill(targetWord.trim()).join(' ');
-      cleanPrompt = `تمرين نطق وتكرار صوتي: كرر الكلمة ${repeatCount} مرات متتالية بالضبط دون حذف: ${repeatedPhrase}`;
+      const repeatedPhrase = Array(effectiveRepeat).fill(atomicTarget).join(' ');
+      cleanPrompt = `تمرين نطق وتكرار باللغة العربية: كرر الكلمة ${effectiveRepeat} مرات متتالية بالضبط دون حذف: (${repeatedPhrase}).`;
     } else if (isSingleLetter) {
-      cleanPrompt = `قراءة ونطق حرف هجائي عربي مفرد: ${targetWord.trim()} (نطق الحرف: ${targetWord.trim()})`;
+      const aliases = ARABIC_LETTER_NAMES[normAtomicTarget]?.slice(0, 3).join(' ') || atomicTarget;
+      cleanPrompt = `تمرين قراءة ونطق حرف هجائي عربي مفرد: ${atomicTarget} (${aliases}).`;
     } else if (isTwoLetters) {
-      cleanPrompt = `قراءة مقطع أو كلمة عربية قصيرة: ${targetWord.trim()}`;
+      cleanPrompt = `تمرين قراءة مقطع عربي قصير: ${atomicTarget}.`;
     } else {
-      cleanPrompt = `قراءة عربية فصيحة: ${targetWord.trim()}`;
+      cleanPrompt = `تمرين قراءة عربية فصيحة: ${atomicTarget}.`;
+    }
+
+    // Append surrounding lesson vocabulary if provided
+    if (options?.lessonVocabulary && options.lessonVocabulary.length > 0) {
+      const extraVocab = options.lessonVocabulary
+        .filter((w) => w && w.trim() !== cleanTarget)
+        .slice(0, 5)
+        .join(' ، ');
+      if (extraVocab) {
+        cleanPrompt += ` مفردات الدرس: ${extraVocab}.`;
+      }
     }
   }
 
@@ -237,5 +282,60 @@ export async function transcribeWithInBrowserWhisper(
   if (cleanPrompt && !arabicRegex.test(cleanText) && cleanText.length > 0) {
     cleanText = '';
   }
+
+  // 2. CONSTRAINED VOCABULARY LEXICON PROJECTION (Post-Decoding Alignment)
+  // If Whisper's raw output is slightly perturbed, project back to the known lesson candidate
+  if (cleanText && cleanTarget) {
+    const normDecoded = removeTashkeel(cleanText);
+
+    // Single-Letter Projection:
+    if (isSingleLetter) {
+      const aliases = ARABIC_LETTER_NAMES[normAtomicTarget] || [normAtomicTarget];
+      const isAliasMatch = aliases.some(
+        (a) => normDecoded === a || normDecoded.includes(a) || getLevenshteinDistance(normDecoded, a) <= 1
+      );
+      if (isAliasMatch || normDecoded === normAtomicTarget) {
+        cleanText = atomicTarget;
+      }
+    }
+    // Two-Letter Word Projection:
+    else if (isTwoLetters) {
+      if (
+        normDecoded === normAtomicTarget ||
+        normalizeProlongedVowels(normDecoded) === normAtomicTarget ||
+        getLevenshteinDistance(normDecoded, normAtomicTarget) <= 1
+      ) {
+        cleanText = atomicTarget;
+      }
+    }
+    // General Word Alignment:
+    else {
+      const dist = getLevenshteinDistance(normDecoded, normAtomicTarget);
+      const maxLen = Math.max(normDecoded.length, normAtomicTarget.length);
+      if (maxLen > 0 && 1 - dist / maxLen >= 0.70) {
+        cleanText = atomicTarget;
+      }
+    }
+  }
+
+  // 3. CONSTRAINED REPETITION EXPANSION
+  // If repetition was required (e.g., repeatCount = 3), and Whisper transcribed the target word
+  // but deduplicated it into 1 or fewer tokens, while the audio recording duration / acoustic pulses
+  // prove that the student articulated for the full repetition span:
+  if (isRepetition && cleanText && cleanTarget) {
+    const currentRepetitions = countTargetRepetitions(atomicTarget, cleanText);
+
+    if (currentRepetitions < effectiveRepeat && currentRepetitions >= 1) {
+      const hasAcousticBacking =
+        (options?.audioDuration && options.audioDuration >= effectiveRepeat * 0.55) ||
+        (options?.acousticPulses && options.acousticPulses >= 2);
+
+      if (hasAcousticBacking) {
+        // Expand to the full repeated phrase as constrained by the lesson requirements
+        cleanText = Array(effectiveRepeat).fill(atomicTarget).join(' ');
+      }
+    }
+  }
+
   return cleanText;
 }

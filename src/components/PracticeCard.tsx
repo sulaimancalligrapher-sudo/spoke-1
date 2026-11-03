@@ -38,6 +38,7 @@ import {
   blobToBase64,
   stopAllAudio,
   detectSpeechPulses,
+  detectSpeechPulseAnalysis,
   compareStudentToTeacherAudio,
 } from '../utils/arabicAudio';
 import { normalizeMediaUrl } from '../utils/mediaUrl';
@@ -479,22 +480,33 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       if (activeEvalMode === 'whisper') {
         if (audioBlob) {
           try {
-            setWhisperStatus({ status: 'transcribing', message: 'جاري استماع Whisper الداخلي في متصفحك وكتابة الكلمة...' });
+            setWhisperStatus({ status: 'transcribing', message: 'جاري استماع Whisper الداخلي وتطبيق حصر المفردات...' });
 
-            // Run physical pulse detection in parallel with Whisper transcription
-            const pulsePromise = detectSpeechPulses(audioBlob).catch(() => 1);
+            // Run physical pulse & duration detection in parallel with Whisper transcription
+            const pulseAnalysisPromise = detectSpeechPulseAnalysis(audioBlob).catch(() => ({
+              pulses: 1,
+              totalDuration: 1.0,
+              speechDuration: 0.8,
+            }));
+
+            const pulseAnalysis = await pulseAnalysisPromise;
+            const acousticPulses = pulseAnalysis.pulses;
+            const audioDuration = pulseAnalysis.totalDuration || pulseAnalysis.speechDuration;
 
             const whisperTranscript = await transcribeWithInBrowserWhisper(
               audioBlob,
               wordItem.word,
               wordItem.repeatCount || 1,
-              (p) => setWhisperStatus(p)
+              (p) => setWhisperStatus(p),
+              {
+                lessonVocabulary: [wordItem.word, wordItem.lessonSubject, wordItem.category].filter(Boolean) as string[],
+                audioDuration,
+                acousticPulses,
+              }
             );
             if (whisperTranscript) {
               setLiveTranscript(whisperTranscript);
             }
-
-            const acousticPulses = await pulsePromise;
 
             // Acoustic Comparison with Teacher Audio (The Hybrid Approach if audioUrl exists)
             let acousticCompResult: any = null;
@@ -507,18 +519,20 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
               }
             }
 
+            const textForEval = whisperTranscript || manualText || '';
             const evalResult = evaluateArabicLocal(
               wordItem.word,
-              whisperTranscript,
+              textForEval,
               wordItem.repeatCount || 1,
               wordItem.difficultyLevel || 'medium',
-              acousticPulses
+              acousticPulses,
+              audioDuration
             );
 
             // Compute Hybrid Score if teacher audio was compared
             let finalScore = evalResult.score;
             let finalFeedback = evalResult.feedback;
-            let finalNotice = 'تم التقييم بنجاح عبر محرك الذكاء الاصطناعي الداخلي (Whisper) داخل جهازك مباشرة دون خوادم.';
+            let finalNotice = 'تم التقييم بنجاح عبر محرك الذكاء الاصطناعي الداخلي (Whisper) مع التوجيه بحصر المفردات.';
 
             if (acousticCompResult && typeof acousticCompResult.similarityScore === 'number') {
               const textScore = evalResult.score;
@@ -537,7 +551,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
                 acousticMatchScore: acousticCompResult?.similarityScore,
                 acousticComparison: acousticCompResult || undefined,
                 feedback: finalFeedback,
-                detectedWord: whisperTranscript || '—',
+                detectedWord: textForEval || '—',
                 engineUsed: 'whisper',
                 recordedAudioUrl,
                 engineNotice: finalNotice,
@@ -572,6 +586,26 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             triggerCooldown(3);
             return;
           }
+        } else if (manualText.trim()) {
+          // Allow evaluating manually typed text directly without microphone requirement
+          const evalResult = evaluateArabicLocal(
+            wordItem.word,
+            manualText.trim(),
+            wordItem.repeatCount || 1,
+            wordItem.difficultyLevel || 'medium'
+          );
+          onEvaluationComplete(
+            {
+              ...evalResult,
+              detectedWord: manualText.trim(),
+              engineUsed: 'whisper',
+              engineNotice: 'تم التقييم بنجاح بناءً على النص المُدخل يدوياً.',
+            },
+            undefined,
+            studentName
+          );
+          triggerCooldown(3);
+          return;
         } else {
           setTransientErrorNotice('لم يتم التقاط أي ملف صوتي من الميكروفون لتحليله بواسطة Whisper. يرجى الضغط والتحدث بوضوح.');
           return;
@@ -580,14 +614,16 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
       // 2. ISOLATED LOCAL ENGINE (Chrome Speech Recognition)
       if (activeEvalMode === 'local') {
-        const pulsePromise = audioBlob ? detectSpeechPulses(audioBlob).catch(() => 1) : Promise.resolve(1);
-        const acousticPulses = await pulsePromise;
+        const pulseAnalysis = audioBlob
+          ? await detectSpeechPulseAnalysis(audioBlob).catch(() => ({ pulses: 1, totalDuration: 1.0, speechDuration: 0.8 }))
+          : { pulses: 1, totalDuration: 1.0, speechDuration: 0.8 };
         const localEval = evaluateArabicLocal(
           wordItem.word,
           textToEvaluate,
           wordItem.repeatCount || 1,
           wordItem.difficultyLevel || 'medium',
-          acousticPulses
+          pulseAnalysis.pulses,
+          pulseAnalysis.totalDuration || pulseAnalysis.speechDuration
         );
         onEvaluationComplete(
           {

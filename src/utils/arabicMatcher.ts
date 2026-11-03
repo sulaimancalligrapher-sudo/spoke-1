@@ -113,6 +113,13 @@ export function getLevenshteinDistance(a: string, b: string): number {
 /**
  * Count how many times the target word or phrase was repeated in the spoken text
  */
+/**
+ * Count how many times the target word or phrase was repeated in the spoken text.
+ * Intelligently handles:
+ * 1. Targets that already contain repeated words (e.g. "كتب كتب كتب" -> base target "كتب", inherent count = 3).
+ * 2. Single-letter targets and their phonetic aliases (e.g. "ح" matching "ح" or "حاء").
+ * 3. Two-letter words and prolonged vowel variations.
+ */
 export function countTargetRepetitions(target: string, spoken: string): number {
   const normTarget = removeTashkeel(target).trim();
   const normSpoken = removeTashkeel(spoken).trim();
@@ -122,21 +129,35 @@ export function countTargetRepetitions(target: string, spoken: string): number {
   const spokenTokens = normSpoken.split(/\s+/).filter(Boolean);
   if (targetTokens.length === 0 || spokenTokens.length === 0) return 0;
 
-  if (targetTokens.length === 1) {
-    const singleTarget = targetTokens[0];
+  // Check if target itself consists of repeated identical/near-identical tokens (e.g. "كتب كتب كتب" or "ح ح ح")
+  const isTargetHomogeneous =
+    targetTokens.length > 1 &&
+    targetTokens.every((t) => {
+      return t === targetTokens[0] || getLevenshteinDistance(t, targetTokens[0]) <= 1;
+    });
+
+  // If target is repeated tokens, the atomic base target is the first token!
+  const atomicTarget = isTargetHomogeneous ? targetTokens[0] : targetTokens.length === 1 ? targetTokens[0] : null;
+
+  if (atomicTarget) {
     let count = 0;
+    const isSingleLetter = atomicTarget.length === 1;
+    const letterAliases = isSingleLetter ? ARABIC_LETTER_NAMES[atomicTarget] || [atomicTarget] : [];
+
     for (const token of spokenTokens) {
-      if (token === singleTarget) {
+      if (token === atomicTarget) {
+        count++;
+      } else if (isSingleLetter && letterAliases.some((alias) => token === alias || token.includes(alias))) {
         count++;
       } else {
-        const dist = getLevenshteinDistance(token, singleTarget);
-        const maxLen = Math.max(token.length, singleTarget.length);
+        const dist = getLevenshteinDistance(token, atomicTarget);
+        const maxLen = Math.max(token.length, atomicTarget.length);
         if (maxLen > 0 && 1 - dist / maxLen >= 0.65) {
           count++;
         } else {
           // Check prolonged vowels
           const shortToken = normalizeProlongedVowels(token);
-          const shortTarget = normalizeProlongedVowels(singleTarget);
+          const shortTarget = normalizeProlongedVowels(atomicTarget);
           if (shortToken === shortTarget) {
             count++;
           }
@@ -146,7 +167,7 @@ export function countTargetRepetitions(target: string, spoken: string): number {
     return count;
   }
 
-  // Multi-word phrase matching
+  // Multi-word phrase matching (non-homogeneous phrase, e.g. "باب المسجد")
   const phraseLen = targetTokens.length;
   let count = 0;
   for (let i = 0; i <= spokenTokens.length - phraseLen; i++) {
@@ -162,9 +183,6 @@ export function countTargetRepetitions(target: string, spoken: string): number {
 }
 
 /**
- * Client-side phonetic evaluation with Tashkeel and repetition counting support
- */
-/**
  * Client-side phonetic evaluation with Tashkeel, difficulty levels, and single/two letter recognition
  */
 export function evaluateArabicLocal(
@@ -172,11 +190,25 @@ export function evaluateArabicLocal(
   spoken: string,
   repeatCount: number = 1,
   difficultyLevel: DifficultyLevel = 'medium',
-  acousticPulses?: number
+  acousticPulses?: number,
+  audioDuration?: number
 ): PronunciationEvaluation {
-  const requiredRepetitions = typeof repeatCount === 'number' && repeatCount > 0 ? repeatCount : 1;
   const normTarget = removeTashkeel(target).trim();
   const normSpoken = removeTashkeel(spoken).trim();
+
+  // If target already contains repeated identical words (e.g. "كتب كتب كتب"),
+  // determine inherent repetition count in the target text:
+  const targetTokens = normTarget.split(/\s+/).filter(Boolean);
+  const isTargetHomogeneous =
+    targetTokens.length > 1 &&
+    targetTokens.every((t) => t === targetTokens[0] || getLevenshteinDistance(t, targetTokens[0]) <= 1);
+  const inherentTargetRepeat = isTargetHomogeneous ? targetTokens.length : 1;
+
+  // The required repetitions is the max of explicitly configured repeatCount and inherent repetitions in target text
+  const userRepeat = typeof repeatCount === 'number' && repeatCount > 0 ? repeatCount : 1;
+  const requiredRepetitions = Math.max(userRepeat, inherentTargetRepeat);
+
+  const atomicTarget = isTargetHomogeneous ? targetTokens[0] : targetTokens.length === 1 ? targetTokens[0] : normTarget;
 
   if (!normSpoken) {
     return {
@@ -200,20 +232,25 @@ export function evaluateArabicLocal(
   let verifiedByEnergy = false;
   let detectedCount = rawTextualCount;
 
-  // Physical Energy Clump Fusion:
+  // Physical Energy Clump & Audio Duration Fusion:
   // If Whisper transcribed fewer words (due to language model compression/deduplication)
-  // but the target word was recognized in text, and physical audio pulses indicate repetitions!
-  if (requiredRepetitions > 1 && detectedCount < requiredRepetitions && acousticPulses && acousticPulses >= 1) {
+  // but the target word was recognized in text, and physical audio pulses OR audio duration indicate repetitions!
+  if (requiredRepetitions > 1 && detectedCount < requiredRepetitions) {
     const hasWordMatch =
       rawTextualCount >= 1 ||
       normSpoken.includes(normTarget) ||
+      (atomicTarget && normSpoken.includes(atomicTarget)) ||
       getLevenshteinDistance(normTarget, normSpoken) <= Math.max(1, Math.floor(normTarget.length * 0.35));
 
     if (hasWordMatch) {
-      if (acousticPulses >= requiredRepetitions) {
+      if (acousticPulses && acousticPulses >= requiredRepetitions) {
         detectedCount = requiredRepetitions;
         verifiedByEnergy = true;
-      } else if (acousticPulses > detectedCount) {
+      } else if (audioDuration && audioDuration >= requiredRepetitions * 0.55) {
+        // If recording duration is long enough for N repetitions (e.g. >= 1.65s for 3 repeats)
+        detectedCount = requiredRepetitions;
+        verifiedByEnergy = true;
+      } else if (acousticPulses && acousticPulses > detectedCount) {
         detectedCount = acousticPulses;
         verifiedByEnergy = true;
       }
@@ -221,75 +258,87 @@ export function evaluateArabicLocal(
   }
 
   // 1. SPECIALIZED SINGLE-LETTER RECOGNITION (e.g. "حَ" or "ح")
-  if (normTarget.length === 1) {
-    const letterAliases = ARABIC_LETTER_NAMES[normTarget] || [normTarget];
+  if (atomicTarget.length === 1) {
+    const letterAliases = ARABIC_LETTER_NAMES[atomicTarget] || [atomicTarget];
     const spokenTokens = normSpoken.split(/\s+/).filter(Boolean);
     const isSingleMatch =
-      normTarget === normSpoken ||
-      spokenTokens.includes(normTarget) ||
+      atomicTarget === normSpoken ||
+      spokenTokens.includes(atomicTarget) ||
       letterAliases.some((alias) => normSpoken === alias || spokenTokens.includes(alias) || normSpoken.includes(alias));
 
     if (isSingleMatch) {
-      const letters: LetterPhoneme[] = [
-        {
-          letter: normTarget,
-          status: 'صحيح',
-          comment: 'نطق سليم ومتقن لصوت أو اسم الحرف',
-        },
-      ];
+      // If repetition is required, ensure student completed the repetitions
+      if (requiredRepetitions <= 1 || detectedCount >= requiredRepetitions) {
+        const letters: LetterPhoneme[] = [
+          {
+            letter: atomicTarget,
+            status: 'صحيح',
+            comment: 'نطق سليم ومتقن لصوت أو اسم الحرف',
+          },
+        ];
 
-      return {
-        score: 96,
-        grade: 'ممتاز ومتقن',
-        isMatch: true,
-        feedback: `نطق رائع ومتقن لمخرج وصوت حرف (${target})!`,
-        makhrajAdvice: 'أحسنت! مخارج الحروف نقية وصحيحة.',
-        vowelAccuracy: 'متطابقة مع التشكيل',
-        detectedWord: spoken,
-        letterBreakdown: letters,
-        timestamp: Date.now(),
-        engineUsed: 'local',
-        requiredRepetitions,
-        repetitionsDetected: Math.max(1, detectedCount),
-        difficultyLevel,
-      };
+        return {
+          score: 96,
+          grade: 'ممتاز ومتقن',
+          isMatch: true,
+          feedback:
+            requiredRepetitions > 1
+              ? `أحسنت صنعاً! تم نطق وتكرار حرف (${target}) بنجاح (${detectedCount} مرات) بمخارج سليمة.`
+              : `نطق رائع ومتقن لمخرج وصوت حرف (${target})!`,
+          makhrajAdvice: 'أحسنت! مخارج الحروف نقية وصحيحة.',
+          vowelAccuracy: 'متطابقة مع التشكيل',
+          detectedWord: spoken,
+          letterBreakdown: letters,
+          timestamp: Date.now(),
+          engineUsed: 'local',
+          requiredRepetitions,
+          repetitionsDetected: Math.max(1, detectedCount),
+          difficultyLevel,
+        };
+      }
     }
   }
 
   // 2. SPECIALIZED TWO-LETTER WORD RECOGNITION (e.g. "قُمْ")
-  if (normTarget.length === 2) {
+  if (atomicTarget.length === 2) {
     const spokenTokens = normSpoken.split(/\s+/).filter(Boolean);
     const isTwoMatch =
-      normTarget === normSpoken ||
-      spokenTokens.includes(normTarget) ||
-      normSpoken.includes(normTarget) ||
-      normalizeProlongedVowels(normSpoken) === normTarget ||
-      getLevenshteinDistance(normTarget, normSpoken) <= 1;
+      atomicTarget === normSpoken ||
+      spokenTokens.includes(atomicTarget) ||
+      normSpoken.includes(atomicTarget) ||
+      normalizeProlongedVowels(normSpoken) === atomicTarget ||
+      getLevenshteinDistance(atomicTarget, normSpoken) <= 1;
 
     if (isTwoMatch) {
-      const letters: LetterPhoneme[] = normTarget.split('').map((l) => ({
-        letter: l,
-        status: 'صحيح',
-        comment: 'تم نطقه بدقة ووضوح',
-      }));
+      if (requiredRepetitions <= 1 || detectedCount >= requiredRepetitions) {
+        const letters: LetterPhoneme[] = atomicTarget.split('').map((l) => ({
+          letter: l,
+          status: 'صحيح',
+          comment: 'تم نطقه بدقة ووضوح',
+        }));
 
-      return {
-        score: 95,
-        grade: 'ممتاز ومتقن',
-        isMatch: true,
-        feedback: `أحسنت صنعاً! نطق صحيح ومتقن للمقطع (${target}).`,
-        makhrajAdvice: 'أداء صوتي فصيح وسليم.',
-        vowelAccuracy: 'متطابقة مع التشكيل',
-        detectedWord: spoken,
-        letterBreakdown: letters,
-        timestamp: Date.now(),
-        engineUsed: 'local',
-        requiredRepetitions,
-        repetitionsDetected: Math.max(1, detectedCount),
-        difficultyLevel,
-      };
+        return {
+          score: 95,
+          grade: 'ممتاز ومتقن',
+          isMatch: true,
+          feedback:
+            requiredRepetitions > 1
+              ? `أحسنت صنعاً! تم نطق وتكرار المقطع (${target}) بنجاح (${detectedCount} مرات).`
+              : `أحسنت صنعاً! نطق صحيح ومتقن للمقطع (${target}).`,
+          makhrajAdvice: 'أداء صوتي فصيح وسليم.',
+          vowelAccuracy: 'متطابقة مع التشكيل',
+          detectedWord: spoken,
+          letterBreakdown: letters,
+          timestamp: Date.now(),
+          engineUsed: 'local',
+          requiredRepetitions,
+          repetitionsDetected: Math.max(1, detectedCount),
+          difficultyLevel,
+        };
+      }
     }
   }
+
 
   // Check if student elongated vowels (e.g. كَتَبَ pronounced or transcribed as كاتا)
   const isProlongedMatch = normalizeProlongedVowels(normTarget) === normalizeProlongedVowels(normSpoken);

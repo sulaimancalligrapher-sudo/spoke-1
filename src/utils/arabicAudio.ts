@@ -519,16 +519,26 @@ export function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+export interface SpeechPulseAnalysis {
+  pulses: number;
+  totalDuration: number;
+  speechDuration: number;
+}
+
 /**
  * Physical Speech Pulse / Energy Clump Detector
  * Analyzes audio waveform energy to detect distinct vocal bursts separated by silence.
  * Confirms word repetitions even if Whisper deduplicated identical words.
  */
-export async function detectSpeechPulses(audioBlob: Blob): Promise<number> {
-  if (!audioBlob || audioBlob.size === 0) return 0;
+export async function detectSpeechPulseAnalysis(audioBlob: Blob): Promise<SpeechPulseAnalysis> {
+  if (!audioBlob || audioBlob.size === 0) {
+    return { pulses: 0, totalDuration: 0, speechDuration: 0 };
+  }
 
   const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-  if (!AudioContextClass) return 1;
+  if (!AudioContextClass) {
+    return { pulses: 1, totalDuration: 1.0, speechDuration: 0.8 };
+  }
 
   const audioCtx = new AudioContextClass();
   try {
@@ -536,13 +546,16 @@ export async function detectSpeechPulses(audioBlob: Blob): Promise<number> {
     const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
     const pcm = audioBuffer.getChannelData(0);
     const sampleRate = audioBuffer.sampleRate;
+    const totalDuration = audioBuffer.duration;
 
     // Window configuration (30ms frames, 15ms hop)
     const frameSize = Math.floor(sampleRate * 0.03);
     const hopSize = Math.floor(sampleRate * 0.015);
     const numFrames = Math.floor((pcm.length - frameSize) / hopSize);
 
-    if (numFrames <= 0) return 0;
+    if (numFrames <= 0) {
+      return { pulses: 0, totalDuration, speechDuration: 0 };
+    }
 
     const frameEnergies: number[] = new Array(numFrames);
     let maxEnergy = 0;
@@ -562,14 +575,16 @@ export async function detectSpeechPulses(audioBlob: Blob): Promise<number> {
     }
     avgEnergy /= numFrames;
 
-    if (maxEnergy < 0.015) return 0; // Pure background silence or very quiet
+    if (maxEnergy < 0.012) {
+      return { pulses: 0, totalDuration, speechDuration: 0 };
+    }
 
-    // Adaptive speech threshold
-    const speechThreshold = Math.max(0.018, avgEnergy * 0.7, maxEnergy * 0.16);
+    // Adaptive speech threshold with lower floor so softer repetitions are not discarded
+    const speechThreshold = Math.max(0.012, avgEnergy * 0.55, maxEnergy * 0.12);
 
-    // Group active frames into speech bursts
-    const minBurstDurationFrames = Math.floor(0.12 / 0.015); // >= 120ms to count as speech burst
-    const maxSilenceBridgeFrames = Math.floor(0.14 / 0.015); // <= 140ms silence is bridged (stops / plosives)
+    // Group active frames into speech bursts (>= 90ms to count as speech, bridge <= 100ms)
+    const minBurstDurationFrames = Math.floor(0.09 / 0.015);
+    const maxSilenceBridgeFrames = Math.floor(0.10 / 0.015);
 
     interface SpeechSegment {
       start: number;
@@ -594,9 +609,11 @@ export async function detectSpeechPulses(audioBlob: Blob): Promise<number> {
       rawSegments.push({ start: burstStart, end: numFrames });
     }
 
-    if (rawSegments.length === 0) return 0;
+    if (rawSegments.length === 0) {
+      return { pulses: 0, totalDuration, speechDuration: 0 };
+    }
 
-    // Merge bursts that are separated by short pauses (< 140ms)
+    // Merge bursts that are separated only by micro-stops (< 100ms)
     const merged: SpeechSegment[] = [rawSegments[0]];
     for (let i = 1; i < rawSegments.length; i++) {
       const prev = merged[merged.length - 1];
@@ -604,24 +621,37 @@ export async function detectSpeechPulses(audioBlob: Blob): Promise<number> {
       const gap = curr.start - prev.end;
 
       if (gap <= maxSilenceBridgeFrames) {
-        prev.end = curr.end; // bridge across unvoiced consonant gap
+        prev.end = curr.end;
       } else {
         merged.push(curr);
       }
     }
 
-    // Filter out very brief acoustic clicks (< 120ms)
+    // Filter out transient clicks (< 90ms)
     const validBursts = merged.filter((seg) => seg.end - seg.start >= minBurstDurationFrames);
+    const speechDuration = validBursts.reduce((acc, b) => acc + (b.end - b.start) * 0.015, 0);
 
-    return validBursts.length;
+    return {
+      pulses: validBursts.length,
+      totalDuration,
+      speechDuration,
+    };
   } catch (err) {
     console.warn('Acoustic pulse detection fallback:', err);
-    return 1;
+    return { pulses: 1, totalDuration: 1.0, speechDuration: 0.8 };
   } finally {
     if (audioCtx.state !== 'closed') {
       audioCtx.close().catch(() => {});
     }
   }
+}
+
+/**
+ * Backward compatible wrapper for pulse count
+ */
+export async function detectSpeechPulses(audioBlob: Blob): Promise<number> {
+  const res = await detectSpeechPulseAnalysis(audioBlob);
+  return res.pulses;
 }
 
 export interface AcousticComparisonResult {
