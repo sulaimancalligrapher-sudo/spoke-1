@@ -137,6 +137,9 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
           const subData = {
             score: evaluation.score,
             grade: evaluation.grade,
+            detectedWord: evaluation.detectedWord || '',
+            targetWord: targetWordItem.word,
+            audioUrl: res.audioUrl || recordedAudioUrl || '',
             date: new Date().toLocaleDateString('ar-SA'),
             time: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }),
             timestamp: Date.now(),

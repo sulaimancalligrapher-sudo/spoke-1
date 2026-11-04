@@ -8,6 +8,7 @@ import {
   StudentSubmissionRecord,
   EvaluationMode,
   StudentRegistrant,
+  HomeBrandConfig,
 } from './types';
 import {
   ALL_CURRICULUM,
@@ -23,9 +24,12 @@ import { GuideModal } from './components/GuideModal';
 import { AdminPanel } from './components/AdminPanel';
 import { LessonsModal } from './components/LessonsModal';
 import { StudentLoginModal } from './components/StudentLoginModal';
+import { SocialIcon, getSocialBrandClasses } from './components/SocialIcon';
 import {
   sendScoreToGoogleSheets,
   fetchCurriculumFromSheets,
+  fetchHomeConfigFromSheets,
+  fetchStudentSubmissionsFromSheet,
   DEFAULT_WEBHOOK_URL,
   DEFAULT_DRIVE_AUDIO_FOLDER_ID,
 } from './utils/googleSheets';
@@ -96,6 +100,19 @@ export default function App() {
   const [currentStudent, setCurrentStudent] = useState<StudentRegistrant | null>(null);
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(true);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+
+  // Home Page Branding & Dynamic Social Media Links (Sheet: "الرئيسية")
+  const [homeConfig, setHomeConfig] = useState<HomeBrandConfig | null>(() => {
+    try {
+      const cached = localStorage.getItem('faseeh_cached_home_config');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Dedicated Student Evaluation History (from sheet "answers 1")
+  const [studentHistory, setStudentHistory] = useState<PracticeHistoryItem[]>([]);
 
   // Scores map: wordId -> score
   const [scoresMap, setScoresMap] = useState<Record<string, number>>({});
@@ -324,8 +341,13 @@ export default function App() {
                 });
               }
 
-              setSyncNotice(`🎉 تمت مزامنة الدروس الحية من Google Sheets (${res.curriculum.length} كلمة)`);
-              setTimeout(() => setSyncNotice(null), 4000);
+              // Silent sync: removed top toast as requested by the user
+              // Fetch Home tab configuration (branding & dynamic social media channels)
+              fetchHomeConfigFromSheets(activeConfig.webhookUrl)
+                .then((cfg) => {
+                  if (cfg) setHomeConfig(cfg);
+                })
+                .catch(() => {});
             }
           })
           .catch((err) => {
@@ -343,6 +365,13 @@ export default function App() {
           setCurrentStudent(parsed);
           if (parsed?.name) {
             setSettings((prev) => ({ ...prev, studentName: parsed.name }));
+          }
+          if (parsed?.id && parsed?.name && activeConfig.webhookUrl) {
+            fetchStudentSubmissionsFromSheet(activeConfig.webhookUrl, parsed.id, parsed.name)
+              .then((sh) => {
+                if (sh && sh.length > 0) setStudentHistory(sh);
+              })
+              .catch(() => {});
           }
         } catch (e) {}
       }
@@ -772,8 +801,17 @@ export default function App() {
       {/* Navbar */}
       <Navbar
         streak={streak}
-        totalPracticed={history.length}
-        onOpenStats={() => setIsStatsOpen(true)}
+        totalPracticed={currentStudent ? (studentHistory.length || history.length) : history.length}
+        onOpenStats={() => {
+          if (currentStudent && sheetsConfig.webhookUrl) {
+            fetchStudentSubmissionsFromSheet(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+              .then((sh) => {
+                if (sh && sh.length > 0) setStudentHistory(sh);
+              })
+              .catch(() => {});
+          }
+          setIsStatsOpen(true);
+        }}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenGuide={() => setIsGuideOpen(true)}
         onOpenCustom={handleOpenAdmin}
@@ -785,6 +823,8 @@ export default function App() {
         currentStudent={currentStudent}
         onOpenLogin={() => setIsLoginModalOpen(true)}
         onLogout={handleLogout}
+        customLogoUrl={homeConfig?.logoUrl}
+        customTitle={homeConfig?.title}
       />
 
       {/* Main Content Area */}
@@ -800,12 +840,27 @@ export default function App() {
               <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
 
               <div className="relative z-10 max-w-3xl">
+                {/* Custom Logo from sheet "الرئيسية" */}
+                {homeConfig?.logoUrl && (
+                  <div className="mb-5 inline-block">
+                    <img
+                      src={homeConfig.logoUrl}
+                      alt="شعار المنصة"
+                      className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover border-2 border-white/20 shadow-2xl shadow-emerald-500/20"
+                      onError={(e) => {
+                        (e.target as any).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+
                 <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight font-amiri leading-tight sm:leading-snug mb-4">
-                  فَصِيح — منصة تدريب وتقييم النطق ومخارج الحروف العربية
+                  {homeConfig?.title || 'فَصِيح — منصة تدريب وتقييم النطق ومخارج الحروف العربية'}
                 </h1>
 
                 <p className="text-sm sm:text-base text-slate-300 leading-relaxed mb-8">
-                  برنامج تعليمي متكامل لضبط وتجويد نطق الحروف والكلمات العربية، يجمع بين دقة التفريغ الصوتي المحلي بالذكاء الاصطناعي، والمقارنة الطيفية الفيزيائية مع تسجيل صوت المعلم (الأسلوب الهجين 50% + 50%)، مع توثيق تلقائي في Google Sheets و Google Drive.
+                  {homeConfig?.subtitle ||
+                    'برنامج تعليمي متكامل لضبط وتجويد نطق الحروف والكلمات العربية، يجمع بين دقة التفريغ الصوتي المحلي بالذكاء الاصطناعي، والمقارنة الطيفية الفيزيائية مع تسجيل صوت المعلم (الأسلوب الهجين 50% + 50%)، مع توثيق تلقائي في Google Sheets و Google Drive.'}
                 </p>
 
                 {/* Primary Action Buttons */}
@@ -923,24 +978,49 @@ export default function App() {
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-200/80 bg-white py-6 mt-12 text-center text-xs text-slate-400">
-        <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-600">فَصِيح</span>
-            <span>—</span>
-            <span>نظام إدارة الدروس والكلمات وتقييم النطق العربي</span>
-          </div>
-          <div className="flex items-center gap-3 text-[11px] text-slate-500">
-            <button
-              onClick={handleOpenAdmin}
-              className="text-emerald-700 font-bold hover:underline cursor-pointer"
-            >
-              رابط لوحة الإدارة (#admin)
-            </button>
-            <span>•</span>
-            <span>يدعم Google Drive و Dropbox و GitHub و Vercel</span>
-          </div>
+      {/* Footer: Dynamic Social Media Channels from sheet "الرئيسية" with NO text */}
+      <footer className="border-t border-slate-200/80 bg-white py-6 mt-12">
+        <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center justify-center gap-3">
+          {homeConfig?.socialLinks && homeConfig.socialLinks.length > 0 ? (
+            homeConfig.socialLinks
+              .filter((link) => link.url && link.iconKey)
+              .map((link, idx) => {
+                const brand = getSocialBrandClasses(link.iconKey);
+                return (
+                  <a
+                    key={idx}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`w-11 h-11 rounded-2xl flex items-center justify-center border transition-all duration-200 shadow-2xs hover:scale-110 active:scale-95 cursor-pointer ${brand.bg} ${brand.text} ${brand.border} ${brand.hover}`}
+                    title={link.iconKey}
+                  >
+                    <SocialIcon iconKey={link.iconKey} className="w-5 h-5" />
+                  </a>
+                );
+              })
+          ) : (
+            /* Sample Social Icons ready for user links (Line, Facebook, Instagram, YouTube) */
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              {[
+                { key: 'line', label: 'Line' },
+                { key: 'facebook', label: 'Facebook' },
+                { key: 'instagram', label: 'Instagram' },
+                { key: 'youtube', label: 'YouTube' },
+              ].map((item) => {
+                const brand = getSocialBrandClasses(item.key);
+                return (
+                  <div
+                    key={item.key}
+                    className={`w-11 h-11 rounded-2xl flex items-center justify-center border opacity-60 ${brand.bg} ${brand.text} ${brand.border}`}
+                    title={`${item.label} (في انتظار إدخال الرابط في ورقة الرئيسية)`}
+                  >
+                    <SocialIcon iconKey={item.key} className="w-5 h-5" />
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </footer>
 
@@ -948,8 +1028,9 @@ export default function App() {
       <StatsModal
         isOpen={isStatsOpen}
         onClose={() => setIsStatsOpen(false)}
-        history={history}
+        history={currentStudent && studentHistory.length > 0 ? studentHistory : history}
         onClearHistory={handleClearHistory}
+        currentStudent={currentStudent}
       />
 
       <SettingsModal

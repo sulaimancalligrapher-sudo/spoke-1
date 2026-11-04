@@ -1,9 +1,41 @@
-import { WordItem, StudentSubmissionRecord, StudentRegistrant } from '../types';
+import {
+  WordItem,
+  StudentSubmissionRecord,
+  StudentRegistrant,
+  HomeBrandConfig,
+  SocialLinkItem,
+  PracticeHistoryItem,
+} from '../types';
 import { removeTashkeel } from './arabicMatcher';
 
-export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t';
+export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
+export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwXzm8v1X_sAFDeEYjIlkc7HkEuKcVZKQcz6ZchuuNhKRWzCuxcbcTJgDIWjtvpHARuyA/exec';
+  'https://script.google.com/macros/s/AKfycbxadIRZ4DstEi9hrH9IvkuX33V2EQRkIOYIigi0tguH4WCkkMGTg5zpLxv6TGWDehrvsA/exec';
+
+/**
+ * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
+ */
+export function normalizeDriveImageUrl(url?: string): string {
+  if (!url) return '';
+  const clean = url.trim();
+  if (clean.includes('drive.google.com')) {
+    let fileId = '';
+    const matchD = clean.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (matchD && matchD[1]) {
+      fileId = matchD[1];
+    } else {
+      const matchId = clean.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+      if (matchId && matchId[1]) {
+        fileId = matchId[1];
+      }
+    }
+    if (fileId) {
+      return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1200`;
+    }
+  }
+  return clean;
+}
 
 /**
  * Fetch curriculum (lessons and exercises) directly from Google Sheet tab "الدروس"
@@ -623,7 +655,7 @@ export async function submitStudentAnswerToSheet(
     score: payload.score,
     grade: payload.grade || '',
     audioBase64: finalBase64,
-    driveFolderId: payload.driveFolderId || '',
+    driveFolderId: payload.driveFolderId || STUDENT_AUDIO_DRIVE_FOLDER_ID,
     wordIndex: payload.wordIndex >= 0 ? payload.wordIndex : 0,
   };
 
@@ -637,6 +669,173 @@ export async function submitStudentAnswerToSheet(
         ? 'تم إرسال إجابتك واعتمادها بنجاح في ورقة answers 1! ✅'
         : res.error || 'تعذر الإرسال إلى Google Sheets'),
   };
+}
+
+/**
+ * Fetch branding and social media configuration from sheet "الرئيسية"
+ * - B2: Logo Image / Drive URL
+ * - B3: Main Title
+ * - B4: Subtitle / Description
+ * - B8:B17 (URLs) & C8:C17 (Icons)
+ */
+export async function fetchHomeConfigFromSheets(webhookUrl: string): Promise<HomeBrandConfig | null> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    // Return cached if available
+    try {
+      const cached = localStorage.getItem('faseeh_cached_home_config');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return null;
+  }
+
+  const cleanUrl = webhookUrl.trim();
+  const targetUrl = cleanUrl.includes('?')
+    ? `${cleanUrl}&action=get_home_config&_t=${Date.now()}`
+    : `${cleanUrl}?action=get_home_config&_t=${Date.now()}`;
+
+  let data: any = null;
+
+  try {
+    const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+    if (proxyRes.ok) {
+      data = await proxyRes.json().catch(() => null);
+    }
+  } catch (proxyErr) {
+    console.warn('Proxy fetch of homeConfig failed, trying direct:', proxyErr);
+  }
+
+  if (!data || !data.homeConfig) {
+    try {
+      const directRes = await fetch(targetUrl, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      if (directRes.ok) {
+        data = await directRes.json().catch(() => null);
+      }
+    } catch (e) {
+      console.warn('Direct fetch of homeConfig failed:', e);
+    }
+  }
+
+  if (data && data.homeConfig) {
+    const cfg: HomeBrandConfig = {
+      logoUrl: data.homeConfig.logoUrl ? normalizeDriveImageUrl(data.homeConfig.logoUrl) : '',
+      title: data.homeConfig.title || '',
+      subtitle: data.homeConfig.subtitle || '',
+      socialLinks: Array.isArray(data.homeConfig.socialLinks)
+        ? data.homeConfig.socialLinks.filter((s: any) => s.url && s.iconKey)
+        : [],
+    };
+
+    try {
+      localStorage.setItem('faseeh_cached_home_config', JSON.stringify(cfg));
+    } catch {}
+
+    return cfg;
+  }
+
+  // Fallback to local cached
+  try {
+    const cached = localStorage.getItem('faseeh_cached_home_config');
+    if (cached) return JSON.parse(cached);
+  } catch {}
+
+  return null;
+}
+
+/**
+ * Fetch evaluation and submission history specifically for the logged in student
+ * from sheet "answers 1" and local storage
+ */
+export async function fetchStudentSubmissionsFromSheet(
+  webhookUrl: string,
+  studentId: string,
+  studentName: string
+): Promise<PracticeHistoryItem[]> {
+  const resultList: PracticeHistoryItem[] = [];
+  const cleanId = (studentId || '').trim();
+  const cleanName = (studentName || '').trim();
+
+  // 1. Fetch from Google Sheets "answers 1"
+  if (webhookUrl && webhookUrl.trim().startsWith('http') && (cleanId || cleanName)) {
+    try {
+      const targetUrl = `${webhookUrl}?action=get_student_history&studentId=${encodeURIComponent(
+        cleanId
+      )}&studentName=${encodeURIComponent(cleanName)}&_t=${Date.now()}`;
+
+      let data: any = null;
+      try {
+        const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+        if (proxyRes.ok) data = await proxyRes.json().catch(() => null);
+      } catch {}
+
+      if (!data || !Array.isArray(data.history)) {
+        try {
+          const directRes = await fetch(targetUrl, {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+          });
+          if (directRes.ok) data = await directRes.json().catch(() => null);
+        } catch {}
+      }
+
+      if (data && Array.isArray(data.history)) {
+        for (const item of data.history) {
+          resultList.push({
+            id: item.id || `sheet-${item.word}-${item.timestamp}`,
+            wordId: item.wordId || `w-${item.word}`,
+            word: item.word,
+            score: typeof item.score === 'number' ? item.score : parseInt(item.score) || 0,
+            grade: item.grade || 'معتمد',
+            timestamp: typeof item.timestamp === 'number' ? item.timestamp : Date.now(),
+            spokenText: item.spokenText || '',
+            recordedAudioUrl: item.recordedAudioUrl || undefined,
+            studentName: item.studentName || cleanName,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Error fetching student history from Google Sheets:', e);
+    }
+  }
+
+  // 2. Merge with locally cached approved student submissions for this student
+  try {
+    const keys = Object.keys(localStorage);
+    for (const k of keys) {
+      if (k.startsWith('faseeh_sub_')) {
+        // Matches faseeh_sub_{studentId}_... or matches when studentId matches
+        if (cleanId && k.startsWith(`faseeh_sub_${cleanId}_`)) {
+          const raw = localStorage.getItem(k);
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw);
+              const exists = resultList.some(
+                (r) => r.word === parsed.targetWord && Math.abs(r.score - parsed.score) < 2
+              );
+              if (!exists) {
+                resultList.push({
+                  id: `local-${k}-${parsed.timestamp || Date.now()}`,
+                  wordId: `w-${parsed.targetWord}`,
+                  word: parsed.targetWord,
+                  score: parsed.score || 0,
+                  grade: parsed.grade || 'معتمد',
+                  timestamp: parsed.timestamp || Date.now(),
+                  spokenText: parsed.detectedWord || '',
+                  recordedAudioUrl: parsed.audioUrl || undefined,
+                  studentName: parsed.studentName || cleanName,
+                });
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // Sort by latest timestamp first
+  return resultList.sort((a, b) => b.timestamp - a.timestamp);
 }
 
 /**
@@ -730,6 +929,86 @@ function getOrCreateAudioFolder(folderId) {
   }
 }
 
+// دالة مساعدة لإنشاء أو استرجاع ورقة "الرئيسية" للتحكم بالشعار والعنوان والوصف وروابط التواصل
+function getHomeSheet(ss) {
+  var sheet = ss.getSheetByName("الرئيسية");
+  if (!sheet) {
+    var all = ss.getSheets();
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].getName().trim() === "الرئيسية") {
+        return all[i];
+      }
+    }
+    sheet = ss.insertSheet("الرئيسية");
+    sheet.getRange(1, 1, 1, 3).setValues([["عنصر الواجهة", "القيمة / الرابط (B)", "اسم الأيقونة (C)"]])
+      .setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.getRange(2, 1, 1, 3).setValues([["شعار المنصة (رابط صورة أو Drive)", "", ""]]);
+    sheet.getRange(3, 1, 1, 3).setValues([["عنوان المنصة الرئيسي", "فَصِيح — منصة تدريب وتقييم النطق ومخارج الحروف العربية", ""]]);
+    sheet.getRange(4, 1, 1, 3).setValues([["الوصف التعريفي", "برنامج تعليمي متكامل لضبط وتجويد نطق الحروف والكلمات العربية، يجمع بين دقة التفريغ الصوتي والمقارنة الفيزيائية مع صوت المعلم.", ""]]);
+    
+    sheet.getRange(6, 1, 1, 3).setValues([["حسابات ومواقع التواصل (10 خانات)", "رابط المنصة / الصفحة (B)", "اسم الأيقونة (C: مطلوب للظهور)"]])
+      .setBackground("#047857").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.getRange(7, 1, 1, 3).setValues([["الرقم (#)", "رابط المنصة (URL)", "اسم الأيقونة (line / facebook / instagram / youtube)"]])
+      .setBackground("#e6f4ea").setFontWeight("bold");
+      
+    var defaultSocials = [
+      ["1", "", "line"],
+      ["2", "", "facebook"],
+      ["3", "", "instagram"],
+      ["4", "", "youtube"],
+      ["5", "", ""],
+      ["6", "", ""],
+      ["7", "", ""],
+      ["8", "", ""],
+      ["9", "", ""],
+      ["10", "", ""]
+    ];
+    sheet.getRange(8, 1, 10, 3).setValues(defaultSocials);
+    try {
+      sheet.setColumnWidth(1, 230);
+      sheet.setColumnWidth(2, 380);
+      sheet.setColumnWidth(3, 220);
+    } catch(wErr) {}
+  }
+  return sheet;
+}
+
+// دالة قراءة بيانات ورقة "الرئيسية"
+function readHomeConfig(ss) {
+  try {
+    var hSheet = ss.getSheetByName("الرئيسية");
+    if (!hSheet) return null;
+    var logoUrl = String(hSheet.getRange(2, 2).getValue() || "").trim();
+    var title = String(hSheet.getRange(3, 2).getValue() || "").trim();
+    var subtitle = String(hSheet.getRange(4, 2).getValue() || "").trim();
+    
+    var socialLinks = [];
+    var maxSocialRow = Math.min(hSheet.getLastRow(), 25);
+    if (maxSocialRow >= 8) {
+      var rows = hSheet.getRange(8, 2, maxSocialRow - 7, 2).getValues();
+      for (var s = 0; s < rows.length; s++) {
+        var url = String(rows[s][0] || "").trim();
+        var iconKey = String(rows[s][1] || "").trim().toLowerCase();
+        // شرط المستخدم: إذا كان يوجد رابط ولم يتم وضع أيقونة لا تظهر! تظهر فقط إذا وُجد الرابط واسم الأيقونة
+        if (url && iconKey) {
+          socialLinks.push({
+            url: url,
+            iconKey: iconKey
+          });
+        }
+      }
+    }
+    return {
+      logoUrl: logoUrl,
+      title: title,
+      subtitle: subtitle,
+      socialLinks: socialLinks
+    };
+  } catch(e) {
+    return null;
+  }
+}
+
 // دالة مساعدة ذكية للعثور على ورقة الدروس وتجنب أي خطأ في التسمية
 function getLessonsSheet(ss) {
   var sheet = ss.getSheetByName("الدروس");
@@ -794,12 +1073,74 @@ function getAnswers1Sheet(ss) {
   return sheet;
 }
 
-// 1. GET: جلب جميع الدروس أو المشتركين فورياً
+// 1. GET: جلب الدروس، أو بيانات ورقة الرئيسية، أو المشتركين، أو سجل إجابات الطالب من answers 1
 function doGet(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     
-    // إذا كان الطلب جلب قائمة المشتركين من ورقة "ID registrants"
+    // (أ) إذا كان الطلب جلب بيانات ورقة "الرئيسية" (الشعار والعنوان والوصف وحسابات التواصل)
+    if (e && e.parameter && e.parameter.action === "get_home_config") {
+      var hConfig = readHomeConfig(ss);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        homeConfig: hConfig
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (ب) إذا كان الطلب جلب سجل تقييمات وإجابات طالب معين من ورقة "answers 1"
+    if (e && e.parameter && e.parameter.action === "get_student_history") {
+      var ansSheet = getAnswers1Sheet(ss);
+      var qId = String(e.parameter.studentId || "").trim();
+      var qName = String(e.parameter.studentName || "").trim();
+      var lastR = ansSheet.getLastRow();
+      var lastC = Math.max(5, ansSheet.getLastColumn());
+      var historyList = [];
+      
+      if (lastR > 1) {
+        var dataRows = ansSheet.getRange(2, 1, lastR - 1, lastC).getValues();
+        for (var r = 0; r < dataRows.length; r++) {
+          var row = dataRows[r];
+          var rowId = String(row[1] || "").trim();
+          var rowName = String(row[2] || "").trim();
+          var rowSubj = String(row[3] || "").trim();
+          var rowTime = String(row[0] || "").trim();
+          
+          var match = (qId && rowId === qId) || (qName && rowName === qName);
+          if (match) {
+            // استخراج حزم التمارين الأفقية المكونة من 5 أعمدة
+            for (var c = 5; c < row.length; c += 5) {
+              var word = String(row[c] || "").trim();
+              if (word) {
+                var spoken = String(row[c + 1] || "").trim();
+                var audio = String(row[c + 2] || "").trim();
+                var scoreRaw = String(row[c + 3] || "").replace(/[^0-9]/g, '');
+                var grade = String(row[c + 4] || "").trim();
+                historyList.push({
+                  id: "ans-r" + (r + 2) + "-c" + c,
+                  wordId: "w-" + word,
+                  word: word,
+                  spokenText: spoken,
+                  recordedAudioUrl: audio || undefined,
+                  score: scoreRaw ? parseInt(scoreRaw) : 0,
+                  grade: grade || "معتمد",
+                  timestamp: rowTime ? (new Date(rowTime).getTime() || Date.now()) : Date.now(),
+                  studentName: rowName || qName,
+                  lessonSubject: rowSubj
+                });
+              }
+            }
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        studentId: qId,
+        studentName: qName,
+        history: historyList
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // (ج) إذا كان الطلب جلب قائمة المشتركين من ورقة "ID registrants"
     if (e && e.parameter && e.parameter.action === "get_registrants") {
       var regSheet = getIDRegistrantsSheet(ss);
       var lastR = regSheet.getLastRow();
@@ -895,7 +1236,8 @@ function doGet(e) {
       sheetName: sheet.getName(),
       spreadsheetName: ss.getName(),
       spreadsheetUrl: ss.getUrl(),
-      curriculum: curriculum
+      curriculum: curriculum,
+      homeConfig: readHomeConfig(ss)
     })).setMimeType(ContentService.MimeType.JSON);
     
   } catch (err) {
@@ -911,6 +1253,13 @@ function doPost(e) {
     var data = JSON.parse(raw);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     
+    // (-1) تهيئة ورقة "الرئيسية"
+    if (data.action === "init_home_sheet") {
+      getHomeSheet(ss);
+      return ContentService.createTextOutput(JSON.stringify({ success: true, message: "تم تهيئة ورقة الرئيسية بنجاح" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // (0) جلب أو التحقق من ورقة "ID registrants" للمشتركين
     if (data.action === "get_registrants" || data.action === "verify_student") {
       var regSheet = getIDRegistrantsSheet(ss);
@@ -940,9 +1289,9 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (أ) حفظ صوت المعلم مباشرة في Google Drive واسترجاع الرابط المباشر
+    // (أ) حفظ صوت المعلم في مجلد الإدارة والشرح (1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t)
     if (data.action === "upload_audio" && data.audioBase64) {
-      var folder = getOrCreateAudioFolder(data.driveFolderId);
+      var teacherFolder = getOrCreateAudioFolder(data.driveFolderId || "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t");
       var cleanBase64 = String(data.audioBase64);
       if (cleanBase64.indexOf("base64,") !== -1) {
         cleanBase64 = cleanBase64.split("base64,")[1];
@@ -951,7 +1300,7 @@ function doPost(e) {
       var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), "audio/mp3", "audio_" + timeId + ".mp3");
       var driveFile;
       try {
-        driveFile = folder.createFile(blob);
+        driveFile = teacherFolder.createFile(blob);
       } catch (cfErr) {
         driveFile = DriveApp.getRootFolder().createFile(blob);
       }
@@ -965,11 +1314,11 @@ function doPost(e) {
         success: true,
         fileId: fileId,
         audioUrl: directAudioUrl,
-        message: "تم حفظ ورفع الصوت في Google Drive بنجاح!"
+        message: "تم حفظ ورفع صوت المعلم في Google Drive بنجاح!"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (أ-2) تسجيل إجابة الطالب الأفقية في ورقة "answers 1" ورفع ملف الصوت إلى Google Drive
+    // (أ-2) تسجيل إجابة الطالب الأفقية في ورقة "answers 1" ورفع ملف صوت الطالب إلى مجلد الطلاب (1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA)
     if (data.action === "submit_student_answer") {
       var ansSheet = getAnswers1Sheet(ss);
       var studentId = String(data.studentId || "").trim();
@@ -980,11 +1329,11 @@ function doPost(e) {
       var scoreVal = data.score !== undefined ? data.score : 0;
       var grade = String(data.grade || "").trim();
       
-      // 1. رفع صوت الطالب إلى Google Drive مع تسمية الملف باسمه ورقمه وتاريخه والنص
+      // 1. رفع صوت الطالب إلى مجلد صوتيات الطلاب المخصص في Google Drive
       var directAudioUrl = "";
       if (data.audioBase64) {
         try {
-          var folder = getOrCreateAudioFolder(data.driveFolderId);
+          var studentFolder = getOrCreateAudioFolder(data.driveFolderId || "1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA");
           var cleanBase64 = String(data.audioBase64);
           if (cleanBase64.indexOf("base64,") !== -1) {
             cleanBase64 = cleanBase64.split("base64,")[1];
@@ -998,7 +1347,7 @@ function doPost(e) {
           var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), "audio/mp3", fullFileName);
           var driveFile;
           try {
-            driveFile = folder.createFile(blob);
+            driveFile = studentFolder.createFile(blob);
           } catch (cfErr) {
             driveFile = DriveApp.getRootFolder().createFile(blob);
           }
@@ -1007,7 +1356,7 @@ function doPost(e) {
           } catch (sErr) {}
           directAudioUrl = "https://drive.google.com/uc?export=download&id=" + driveFile.getId();
         } catch (uploadErr) {
-          Logger.log("Drive audio upload error: " + uploadErr);
+          Logger.log("Drive student audio upload error: " + uploadErr);
         }
       }
       

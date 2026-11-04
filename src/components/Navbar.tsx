@@ -27,6 +27,8 @@ interface NavbarProps {
   currentStudent?: StudentRegistrant | null;
   onOpenLogin?: () => void;
   onLogout?: () => void;
+  customLogoUrl?: string;
+  customTitle?: string;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -44,6 +46,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentStudent,
   onOpenLogin,
   onLogout,
+  customLogoUrl,
+  customTitle,
 }) => {
   return (
     <header className="bg-white/90 backdrop-blur-md sticky top-0 z-40 border-b border-slate-100 shadow-2xs">
@@ -55,13 +59,29 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group"
             title="العودة للصفحة الرئيسية التعريفية"
           >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-linear-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center font-amiri text-xl sm:text-2xl font-bold shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform">
+            {customLogoUrl ? (
+              <img
+                src={customLogoUrl}
+                alt="شعار المنصة"
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl object-cover shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform border border-slate-200"
+                onError={(e) => {
+                  (e.target as any).style.display = 'none';
+                  const fb = (e.target as any).nextElementSibling;
+                  if (fb) fb.style.display = 'flex';
+                }}
+              />
+            ) : null}
+            <div
+              className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-linear-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center font-amiri text-xl sm:text-2xl font-bold shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform ${
+                customLogoUrl ? 'hidden' : 'flex'
+              }`}
+            >
               ف
             </div>
             <div>
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <h1 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight font-cairo">
-                  فَصِيح
+                  {customTitle || 'فَصِيح'}
                 </h1>
                 <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-[10px] font-bold">
                   تقييم النطق الذكي
@@ -174,19 +194,22 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="text-[11px] sm:text-xs">الدليل</span>
           </button>
 
-          {/* Stats Button */}
-          <button
-            onClick={onOpenStats}
-            className="p-1.5 sm:p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-transparent hover:border-slate-200 transition-all cursor-pointer relative"
-            title="سجل التقييمات والإنجاز"
-          >
-            <Award className="w-4 h-4 sm:w-5 sm:h-5" />
-            {totalPracticed > 0 && (
-              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 sm:w-4 sm:h-4 bg-emerald-600 text-white text-[8px] sm:text-[9px] font-bold rounded-full flex items-center justify-center">
-                {totalPracticed > 9 ? '+9' : totalPracticed}
-              </span>
-            )}
-          </button>
+          {/* Stats Button: ONLY DISPLAYED IF STUDENT IS LOGGED IN */}
+          {currentStudent && (
+            <button
+              onClick={onOpenStats}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold transition-all cursor-pointer relative shadow-2xs group"
+              title="سجل التقييمات والإنجاز للطالب"
+            >
+              <Award className="w-4 h-4 text-amber-600 shrink-0" />
+              <span className="hidden sm:inline">سجل التقييمات والإنجاز</span>
+              {totalPracticed > 0 && (
+                <span className="px-1.5 py-0.2 bg-amber-600 text-white text-[10px] font-bold rounded-full">
+                  {totalPracticed}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Settings Button */}
           <button

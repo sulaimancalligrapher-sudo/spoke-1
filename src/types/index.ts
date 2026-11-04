@@ -116,3 +116,16 @@ export interface StudentRegistrant {
   name: string; // اسم المشترك
   registeredAt?: number;
 }
+
+export interface SocialLinkItem {
+  url: string;
+  iconKey: string; // 'line' | 'facebook' | 'instagram' | 'youtube' | 'x' | 'whatsapp' | 'telegram' | 'tiktok' | 'web'
+  label?: string;
+}
+
+export interface HomeBrandConfig {
+  logoUrl?: string;
+  title?: string;
+  subtitle?: string;
+  socialLinks: SocialLinkItem[];
+}

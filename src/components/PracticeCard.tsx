@@ -19,6 +19,7 @@ import {
   CheckCircle,
   CheckCircle2,
   Play,
+  Pause,
   RotateCcw,
   Smartphone,
   Clock,
@@ -95,9 +96,42 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   const [previousSubmission, setPreviousSubmission] = useState<{
     score: number;
     grade: string;
+    detectedWord?: string;
+    targetWord?: string;
+    audioUrl?: string;
     date?: string;
     time?: string;
   } | null>(null);
+
+  // Re-recording toggle: when user clicks "إعادة التسجيل 🔄" on a previously submitted exercise
+  const [isReRecording, setIsReRecording] = useState(false);
+  const [isPlayingSubmittedAudio, setIsPlayingSubmittedAudio] = useState(false);
+  const submittedAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    setIsReRecording(false);
+    setIsPlayingSubmittedAudio(false);
+    if (submittedAudioRef.current) {
+      submittedAudioRef.current.pause();
+    }
+  }, [wordItem?.id, currentStudent?.id]);
+
+  const handlePlaySubmittedVoice = (url: string) => {
+    if (isPlayingSubmittedAudio && submittedAudioRef.current) {
+      submittedAudioRef.current.pause();
+      setIsPlayingSubmittedAudio(false);
+      return;
+    }
+    if (submittedAudioRef.current) {
+      submittedAudioRef.current.pause();
+    }
+    const audio = new Audio(url);
+    submittedAudioRef.current = audio;
+    setIsPlayingSubmittedAudio(true);
+    audio.onended = () => setIsPlayingSubmittedAudio(false);
+    audio.onerror = () => setIsPlayingSubmittedAudio(false);
+    audio.play();
+  };
 
   useEffect(() => {
     if (!wordItem) {
@@ -797,41 +831,138 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     }
   };
 
+  // IF PREVIOUSLY SUBMITTED & APPROVED: Render full dedicated review card as requested by the user
+  if (previousSubmission && !isReRecording) {
+    return (
+      <div className="bg-white rounded-3xl p-6 sm:p-10 shadow-xl shadow-slate-100 border border-slate-100 relative overflow-hidden animate-in fade-in duration-300">
+        {/* Soft background accents */}
+        <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-50/70 rounded-full blur-3xl -z-10 pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-80 h-80 bg-teal-50/70 rounded-full blur-3xl -z-10 pointer-events-none" />
+
+        {/* Top Header Banner: سبق إرسال واعتماد هذا التمرين */}
+        <div className="mb-6 p-4 bg-linear-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-md shadow-emerald-600/15">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-6 h-6 text-white stroke-[2.5]" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-base sm:text-lg">
+                سبق إرسال واعتماد هذا التمرين
+              </h3>
+              <p className="text-xs text-emerald-100 mt-0.5">
+                تم توثيق إجابتك واعتماد درجاتك في ورقة answers 1 بنجاح
+              </p>
+            </div>
+          </div>
+          {previousSubmission.date && (
+            <div className="text-xs bg-white/15 px-3 py-1 rounded-xl text-white font-mono">
+              {previousSubmission.date}
+            </div>
+          )}
+        </div>
+
+        {/* Exercise Word Details */}
+        <div className="text-center py-4 border-b border-slate-100">
+          {/* Optional Image */}
+          {wordItem.imageUrl && (
+            <div className="mb-4 flex justify-center">
+              <div className="relative group overflow-hidden rounded-2xl border-2 border-slate-100 shadow-md">
+                <img
+                  src={normalizeMediaUrl(wordItem.imageUrl)}
+                  alt={wordItem.word}
+                  className="w-32 h-32 sm:w-40 sm:h-40 object-cover"
+                  onError={(e) => {
+                    (e.target as any).style.display = 'none';
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="text-4xl sm:text-6xl font-bold font-amiri text-slate-900 tracking-wide mb-2 select-all">
+            {wordItem.word}
+          </div>
+          <div className="text-xs sm:text-sm text-slate-500 font-medium">
+            {wordItem.meaning || 'تمرين معتمد ومسجل'}
+          </div>
+        </div>
+
+        {/* Student Submission Record: Spoken Text + Audio + Score + Grade */}
+        <div className="my-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Box 1: Spoken text & Recorded Voice */}
+          <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl flex flex-col justify-between">
+            <div>
+              <span className="text-[11px] text-slate-500 font-bold block mb-1">
+                النص المنطوق المسجل:
+              </span>
+              <div className="text-lg font-bold font-amiri text-slate-800 bg-white p-2.5 rounded-xl border border-slate-100">
+                "{previousSubmission.detectedWord || wordItem.word}"
+              </div>
+            </div>
+
+            {/* Audio player if student's audio is available */}
+            {previousSubmission.audioUrl && (
+              <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between gap-3">
+                <span className="text-xs text-slate-600 font-bold">تسجيلك الصوتي:</span>
+                <button
+                  type="button"
+                  onClick={() => handlePlaySubmittedVoice(previousSubmission.audioUrl!)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                >
+                  {isPlayingSubmittedAudio ? (
+                    <>
+                      <Pause className="w-3.5 h-3.5" />
+                      <span>إيقاف الصوت</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5" />
+                      <span>استمع لصوتك 🔊</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Box 2: Score & Grade */}
+          <div className="p-4 bg-emerald-50/70 border border-emerald-200/80 rounded-2xl flex flex-col items-center justify-center text-center">
+            <span className="text-[11px] text-emerald-800 font-bold mb-1">
+              درجة التقييم المعتمدة
+            </span>
+            <div className="text-4xl font-black font-cairo text-emerald-700 mb-1">
+              {previousSubmission.score}%
+            </div>
+            <span className="inline-block px-3 py-1 bg-emerald-200/80 text-emerald-950 rounded-full text-xs font-black shadow-2xs">
+              {previousSubmission.grade || 'متقن'}
+            </span>
+          </div>
+        </div>
+
+        {/* Bottom Action: زر إعادة التسجيل 🔄 */}
+        <div className="mt-8 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="text-xs text-slate-500 text-center sm:text-right">
+            هل ترغب في إعادة المحاولة وتوثيق تسجيل ودرجة جديدة؟
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsReRecording(true)}
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-2xl text-sm transition-all shadow-md shadow-indigo-600/20 cursor-pointer hover:scale-102 active:scale-98"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>إعادة التسجيل 🔄</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white rounded-3xl p-6 sm:p-10 shadow-xl shadow-slate-100 border border-slate-100 relative overflow-hidden">
       {/* Background soft glow */}
       <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-50/60 rounded-full blur-3xl -z-10 pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-80 h-80 bg-sky-50/60 rounded-full blur-3xl -z-10 pointer-events-none" />
-
-      {/* Previous Submission Alert Banner if this exercise was already submitted by the student */}
-      {previousSubmission && (
-        <div className="mb-6 p-3.5 sm:p-4 bg-linear-to-r from-emerald-50 via-teal-50/40 to-white border border-emerald-300 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs animate-in fade-in duration-300">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-              <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
-            </div>
-            <div>
-              <div className="font-extrabold text-emerald-950 flex flex-wrap items-center gap-1.5 sm:gap-2">
-                <span>سبق إرسال واعتماد هذا التمرين:</span>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-900 text-xs font-black">
-                  {previousSubmission.score}%
-                </span>
-                <span className="px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 text-xs font-bold">
-                  {previousSubmission.grade}
-                </span>
-                {previousSubmission.date && (
-                  <span className="text-[11px] text-slate-500 font-normal">
-                    ({previousSubmission.date})
-                  </span>
-                )}
-              </div>
-              <div className="text-[11px] text-slate-600 mt-0.5 font-medium">
-                درجتك موثقة بنجاح في النظام. يمكنك إعادة التسجيل الآن متى أردت لتحسين النطق والدرجة 🔄
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Main Arabic Display Stage with Optional Image */}
       <div className="text-center py-4 sm:py-6 border-b border-slate-100">

@@ -1,12 +1,13 @@
 import React, { useRef, useState } from 'react';
-import { PracticeHistoryItem } from '../types';
-import { X, Award, Play, Pause, Trash2, Calendar, Target, CheckCircle2 } from 'lucide-react';
+import { PracticeHistoryItem, StudentRegistrant } from '../types';
+import { X, Award, Play, Pause, Trash2, Calendar, Target, CheckCircle2, User } from 'lucide-react';
 
 interface StatsModalProps {
   isOpen: boolean;
   onClose: () => void;
   history: PracticeHistoryItem[];
   onClearHistory: () => void;
+  currentStudent?: StudentRegistrant | null;
 }
 
 export const StatsModal: React.FC<StatsModalProps> = ({
@@ -14,6 +15,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
   onClose,
   history,
   onClearHistory,
+  currentStudent,
 }) => {
   const [activeAudioUrl, setActiveAudioUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -54,19 +56,34 @@ export const StatsModal: React.FC<StatsModalProps> = ({
       <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 relative max-h-[90vh] flex flex-col">
         <button
           onClick={onClose}
-          className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors"
+          className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Title */}
-        <div className="flex items-center gap-2 mb-5">
-          <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 shadow-xs">
             <Award className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-slate-900">سجل الإنجاز والتقدم الصوتي</h3>
-            <p className="text-xs text-slate-500">متابعة إتقان مخارج الحروف والكلمات</p>
+            <h3 className="text-base font-bold text-slate-900">سجل التقييمات والإنجاز</h3>
+            {currentStudent ? (
+              <div className="flex items-center gap-2 text-xs text-slate-600 font-bold mt-0.5">
+                <span className="text-emerald-700 font-extrabold flex items-center gap-1">
+                  <User className="w-3.5 h-3.5" />
+                  <span>{currentStudent.name}</span>
+                </span>
+                <span className="text-[10px] bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md text-slate-700 font-mono">
+                  ID: {currentStudent.id}
+                </span>
+                <span className="text-[10px] text-emerald-600 font-normal">
+                  (موثق في ورقة answers 1)
+                </span>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500">متابعة إتقان مخارج الحروف والكلمات</p>
+            )}
           </div>
         </div>
 
