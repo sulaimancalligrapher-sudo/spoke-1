@@ -80,6 +80,7 @@ import {
   uploadAudioToDrive,
   DEFAULT_WEBHOOK_URL,
   DEFAULT_DRIVE_AUDIO_FOLDER_ID,
+  STUDENT_AUDIO_DRIVE_FOLDER_ID,
 } from '../utils/googleSheets';
 import { speakArabicBrowser, playUniversalArabicStream, playCustomAudio, stopAllAudio, blobToBase64 } from '../utils/arabicAudio';
 import { normalizeMediaUrl, getDirectImageUrl, getDirectAudioUrl } from '../utils/mediaUrl';
@@ -2041,29 +2042,65 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                 </span>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1.5 flex items-center justify-between">
-                  <span>2- مجلد Google Drive لحفظ أصوات الدروس (معرف المجلد):</span>
-                  <span className="text-[11px] text-emerald-700 font-normal">
-                    {sheetsConfig.driveFolderId
-                      ? `مجلد مخصص: ${sheetsConfig.driveFolderId}`
-                      : `المجلد الافتراضي: ${DEFAULT_DRIVE_AUDIO_FOLDER_ID}`}
+              <div className="space-y-4 pt-1">
+                {/* 1. مجلد صوتيات وشرح المعلم */}
+                <div className="p-3.5 bg-slate-50 border border-slate-200/90 rounded-2xl">
+                  <label className="block text-xs font-bold text-slate-800 mb-1.5 flex flex-wrap items-center justify-between gap-1">
+                    <span className="flex items-center gap-1.5 text-emerald-900 font-extrabold">
+                      <Volume2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>2- مجلد Google Drive لأصوات وشرح المعلم (معرف المجلد):</span>
+                    </span>
+                    <span className="text-[11px] text-emerald-700 font-bold bg-emerald-100/70 px-2 py-0.5 rounded-md">
+                      {sheetsConfig.teacherDriveFolderId || sheetsConfig.driveFolderId
+                        ? `مجلد مخصص`
+                        : `الافتراضي: 1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t`}
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={sheetsConfig.teacherDriveFolderId ?? sheetsConfig.driveFolderId ?? DEFAULT_DRIVE_AUDIO_FOLDER_ID}
+                    onChange={(e) =>
+                      onUpdateSheetsConfig({
+                        teacherDriveFolderId: e.target.value.trim(),
+                        driveFolderId: e.target.value.trim(),
+                      })
+                    }
+                    placeholder="1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t"
+                    className="w-full px-4 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-900 focus:outline-hidden focus:border-emerald-500 dir-ltr text-left"
+                  />
+                  <span className="text-[11px] text-slate-500 mt-1.5 block">
+                    🎙️ مخصص لتسجيلات صوت المعلم النموذجية وشروحات الدروس التي تُضاف للمنهج عبر لوحة الإدارة.
                   </span>
-                </label>
-                <input
-                  type="text"
-                  value={sheetsConfig.driveFolderId ?? DEFAULT_DRIVE_AUDIO_FOLDER_ID}
-                  onChange={(e) =>
-                    onUpdateSheetsConfig({
-                      driveFolderId: e.target.value.trim(),
-                    })
-                  }
-                  placeholder="مثال: 1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t"
-                  className="w-full px-4 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-900 focus:outline-hidden focus:border-emerald-500 dir-ltr text-left"
-                />
-                <span className="text-[11px] text-slate-500 mt-1 block">
-                  💡 معرف المجلد الخاص بك هو المعتمد (1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t) وسيتم حفظ جميع تسجيلات المعلم الصوتي فيه مباشرة وتوليد روابط Drive للتشغيل في الشيت.
-                </span>
+                </div>
+
+                {/* 2. مجلد تسجيلات أصوات الطلاب */}
+                <div className="p-3.5 bg-indigo-50/60 border border-indigo-200/90 rounded-2xl">
+                  <label className="block text-xs font-bold text-slate-800 mb-1.5 flex flex-wrap items-center justify-between gap-1">
+                    <span className="flex items-center gap-1.5 text-indigo-950 font-extrabold">
+                      <Mic className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <span>3- مجلد Google Drive لتسجيلات أصوات الطلاب (معرف المجلد):</span>
+                    </span>
+                    <span className="text-[11px] text-indigo-700 font-bold bg-indigo-100/70 px-2 py-0.5 rounded-md">
+                      {sheetsConfig.studentDriveFolderId
+                        ? `مجلد مخصص`
+                        : `الافتراضي: 1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA`}
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={sheetsConfig.studentDriveFolderId ?? STUDENT_AUDIO_DRIVE_FOLDER_ID}
+                    onChange={(e) =>
+                      onUpdateSheetsConfig({
+                        studentDriveFolderId: e.target.value.trim(),
+                      })
+                    }
+                    placeholder="1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA"
+                    className="w-full px-4 py-2 bg-white border border-indigo-300 rounded-xl text-xs font-mono text-slate-900 focus:outline-hidden focus:border-indigo-500 dir-ltr text-left"
+                  />
+                  <span className="text-[11px] text-indigo-900/80 mt-1.5 block">
+                    🎧 مخصص لحفظ تسجيلات نطق الطلاب عند إرسال الإجابة، حيث تُرفع الملفات الصوتية فيه وتُسجل الروابط تلقائياً في ورقة (answers 1).
+                  </span>
+                </div>
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-200/80">

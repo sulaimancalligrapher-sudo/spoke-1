@@ -11,7 +11,7 @@ import { removeTashkeel } from './arabicMatcher';
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbxadIRZ4DstEi9hrH9IvkuX33V2EQRkIOYIigi0tguH4WCkkMGTg5zpLxv6TGWDehrvsA/exec';
+  'https://script.google.com/macros/s/AKfycbx71s_mOJ-IMThnn0QSMcPBGafvA_zj-xNr-PgBpQgZImbSoq92ab48TTmnXGEuu5F4aA/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -622,6 +622,7 @@ export interface StudentAnswerSubmissionPayload {
   audioBlobUrl?: string | null;
   audioBase64?: string | null;
   driveFolderId?: string;
+  studentDriveFolderId?: string;
   wordIndex: number;
 }
 
@@ -645,6 +646,13 @@ export async function submitStudentAnswerToSheet(
     }
   }
 
+  // Ensure student audio always routes to student folder (1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA)
+  const resolvedStudentFolderId =
+    payload.studentDriveFolderId ||
+    (payload.driveFolderId && payload.driveFolderId !== DEFAULT_DRIVE_AUDIO_FOLDER_ID
+      ? payload.driveFolderId
+      : STUDENT_AUDIO_DRIVE_FOLDER_ID);
+
   const postPayload = {
     action: 'submit_student_answer',
     studentId: payload.studentId || '',
@@ -655,7 +663,8 @@ export async function submitStudentAnswerToSheet(
     score: payload.score,
     grade: payload.grade || '',
     audioBase64: finalBase64,
-    driveFolderId: payload.driveFolderId || STUDENT_AUDIO_DRIVE_FOLDER_ID,
+    studentDriveFolderId: resolvedStudentFolderId,
+    driveFolderId: resolvedStudentFolderId,
     wordIndex: payload.wordIndex >= 0 ? payload.wordIndex : 0,
   };
 
@@ -719,6 +728,17 @@ export async function fetchHomeConfigFromSheets(webhookUrl: string): Promise<Hom
   }
 
   if (data && data.homeConfig) {
+    const rawCard = data.homeConfig.card || {};
+    const cardConfig = {
+      cardLogoUrl: rawCard.cardLogoUrl ? normalizeDriveImageUrl(rawCard.cardLogoUrl) : '',
+      cardBgUrl: rawCard.cardBgUrl ? normalizeDriveImageUrl(rawCard.cardBgUrl) : '',
+      cardTitle: rawCard.cardTitle || '',
+      cardSubtitle: rawCard.cardSubtitle || '',
+      extraText1: rawCard.extraText1 || '',
+      extraText2: rawCard.extraText2 || '',
+      extraText3: rawCard.extraText3 || '',
+    };
+
     const cfg: HomeBrandConfig = {
       logoUrl: data.homeConfig.logoUrl ? normalizeDriveImageUrl(data.homeConfig.logoUrl) : '',
       title: data.homeConfig.title || '',
@@ -726,6 +746,7 @@ export async function fetchHomeConfigFromSheets(webhookUrl: string): Promise<Hom
       socialLinks: Array.isArray(data.homeConfig.socialLinks)
         ? data.homeConfig.socialLinks.filter((s: any) => s.url && s.iconKey)
         : [],
+      card: cardConfig,
     };
 
     try {
@@ -964,6 +985,20 @@ function getHomeSheet(ss) {
       ["10", "", ""]
     ];
     sheet.getRange(8, 1, 10, 3).setValues(defaultSocials);
+
+    // بطاقة الصفحة الرئيسية (B21:B27)
+    sheet.getRange(19, 1, 1, 3).setValues([["بطاقة الصفحة الرئيسية (B21:B27)", "القيمة / الرابط (B)", "ملاحظات"]])
+      .setBackground("#4338ca").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.getRange(20, 1, 1, 3).setValues([["البيان", "القيمة / الرابط", "التفاصيل"]])
+      .setBackground("#e0e7ff").setFontWeight("bold");
+    sheet.getRange(21, 1, 1, 3).setValues([["رابط صورة شعار البطاقة", "", "رابط صورة أو Drive"]]);
+    sheet.getRange(22, 1, 1, 3).setValues([["رابط صورة خلفية البطاقة", "", "رابط صورة أو GIF متحرك أو Drive"]]);
+    sheet.getRange(23, 1, 1, 3).setValues([["عنوان البطاقة الرئيسي", "فَصِيح — منصة تدريب وتقييم النطق ومخارج الحروف العربية", "نص العنوان الرئيسي للبطاقة"]]);
+    sheet.getRange(24, 1, 1, 3).setValues([["النص الوصفي للبطاقة", "برنامج تعليمي متكامل لضبط وتجويد نطق الحروف والكلمات العربية، يجمع بين دقة التفريغ الصوتي والمقارنة الفيزيائية مع صوت المعلم.", "الوصف التعريفي للبطاقة"]]);
+    sheet.getRange(25, 1, 1, 3).setValues([["نص إضافي 1", "", "اختياري"]]);
+    sheet.getRange(26, 1, 1, 3).setValues([["نص إضافي 2", "", "اختياري"]]);
+    sheet.getRange(27, 1, 1, 3).setValues([["نص إضافي 3", "", "اختياري"]]);
+
     try {
       sheet.setColumnWidth(1, 230);
       sheet.setColumnWidth(2, 380);
@@ -983,7 +1018,7 @@ function readHomeConfig(ss) {
     var subtitle = String(hSheet.getRange(4, 2).getValue() || "").trim();
     
     var socialLinks = [];
-    var maxSocialRow = Math.min(hSheet.getLastRow(), 25);
+    var maxSocialRow = Math.min(hSheet.getLastRow(), 18);
     if (maxSocialRow >= 8) {
       var rows = hSheet.getRange(8, 2, maxSocialRow - 7, 2).getValues();
       for (var s = 0; s < rows.length; s++) {
@@ -998,11 +1033,32 @@ function readHomeConfig(ss) {
         }
       }
     }
+
+    // بطاقة الصفحة الرئيسية B21:B27
+    var cardLogoUrl = String(hSheet.getRange(21, 2).getValue() || "").trim();
+    var cardBgUrl = String(hSheet.getRange(22, 2).getValue() || "").trim();
+    var cardTitle = String(hSheet.getRange(23, 2).getValue() || "").trim();
+    var cardSubtitle = String(hSheet.getRange(24, 2).getValue() || "").trim();
+    var extraText1 = String(hSheet.getRange(25, 2).getValue() || "").trim();
+    var extraText2 = String(hSheet.getRange(26, 2).getValue() || "").trim();
+    var extraText3 = String(hSheet.getRange(27, 2).getValue() || "").trim();
+
+    var cardConfig = {
+      cardLogoUrl: cardLogoUrl,
+      cardBgUrl: cardBgUrl,
+      cardTitle: cardTitle,
+      cardSubtitle: cardSubtitle,
+      extraText1: extraText1,
+      extraText2: extraText2,
+      extraText3: extraText3
+    };
+
     return {
       logoUrl: logoUrl,
       title: title,
       subtitle: subtitle,
-      socialLinks: socialLinks
+      socialLinks: socialLinks,
+      card: cardConfig
     };
   } catch(e) {
     return null;
@@ -1333,7 +1389,11 @@ function doPost(e) {
       var directAudioUrl = "";
       if (data.audioBase64) {
         try {
-          var studentFolder = getOrCreateAudioFolder(data.driveFolderId || "1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA");
+          var targetFolderId = String(data.studentDriveFolderId || data.driveFolderId || "").trim();
+          if (!targetFolderId || targetFolderId === "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t") {
+            targetFolderId = "1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA";
+          }
+          var studentFolder = getOrCreateAudioFolder(targetFolderId);
           var cleanBase64 = String(data.audioBase64);
           if (cleanBase64.indexOf("base64,") !== -1) {
             cleanBase64 = cleanBase64.split("base64,")[1];

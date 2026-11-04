@@ -32,6 +32,7 @@ import {
   fetchStudentSubmissionsFromSheet,
   DEFAULT_WEBHOOK_URL,
   DEFAULT_DRIVE_AUDIO_FOLDER_ID,
+  STUDENT_AUDIO_DRIVE_FOLDER_ID,
 } from './utils/googleSheets';
 import {
   Sparkles,
@@ -119,12 +120,17 @@ export default function App() {
   // Practice History
   const [history, setHistory] = useState<PracticeHistoryItem[]>([]);
 
+  // Submission status for current exercise
+  const [isCurrentAnswerSubmitted, setIsCurrentAnswerSubmitted] = useState(false);
+
   // Google Sheets Config (Defaulted to verified Webhook URL for seamless cross-device sync)
   const [sheetsConfig, setSheetsConfig] = useState<GoogleSheetsConfig>({
     enabled: true,
     webhookUrl: DEFAULT_WEBHOOK_URL,
     autoSync: true,
     syncCurriculumFromSheets: true,
+    teacherDriveFolderId: DEFAULT_DRIVE_AUDIO_FOLDER_ID,
+    studentDriveFolderId: STUDENT_AUDIO_DRIVE_FOLDER_ID,
     driveFolderId: DEFAULT_DRIVE_AUDIO_FOLDER_ID,
   });
 
@@ -286,16 +292,17 @@ export default function App() {
         webhookUrl: DEFAULT_WEBHOOK_URL,
         autoSync: true,
         syncCurriculumFromSheets: true,
+        teacherDriveFolderId: DEFAULT_DRIVE_AUDIO_FOLDER_ID,
+        studentDriveFolderId: STUDENT_AUDIO_DRIVE_FOLDER_ID,
         driveFolderId: DEFAULT_DRIVE_AUDIO_FOLDER_ID,
       };
 
       if (savedSheets) {
         try {
           const parsedSheets: GoogleSheetsConfig = JSON.parse(savedSheets);
-          const sanitizedFolderId =
-            parsedSheets.driveFolderId === '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'
-              ? ''
-              : (parsedSheets.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID);
+          const teacherId =
+            parsedSheets.teacherDriveFolderId || parsedSheets.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID;
+          const studentId = parsedSheets.studentDriveFolderId || STUDENT_AUDIO_DRIVE_FOLDER_ID;
           const sanitizedWebhook =
             !parsedSheets.webhookUrl || parsedSheets.webhookUrl.includes('AKfycbyqkLw2qbPSAEzXgaq')
               ? DEFAULT_WEBHOOK_URL
@@ -305,7 +312,9 @@ export default function App() {
             ...activeConfig,
             ...parsedSheets,
             webhookUrl: sanitizedWebhook,
-            driveFolderId: sanitizedFolderId,
+            teacherDriveFolderId: teacherId,
+            studentDriveFolderId: studentId,
+            driveFolderId: teacherId,
           };
         } catch (e) {
           console.warn('Error reading saved sheets config:', e);
@@ -696,6 +705,7 @@ export default function App() {
     }
     setEvaluation(null);
     setRecordedAudioUrl(null);
+    setIsCurrentAnswerSubmitted(false);
     setCurrentView('practice');
     setIsLessonsModalOpen(false);
   };
@@ -705,6 +715,7 @@ export default function App() {
     setSelectedItem(activeSubjectWords[nextIdx]);
     setEvaluation(null);
     setRecordedAudioUrl(null);
+    setIsCurrentAnswerSubmitted(false);
   };
 
   const handlePrevWord = () => {
@@ -712,6 +723,7 @@ export default function App() {
     setSelectedItem(activeSubjectWords[prevIdx]);
     setEvaluation(null);
     setRecordedAudioUrl(null);
+    setIsCurrentAnswerSubmitted(false);
   };
 
   const handleClearHistory = () => {
@@ -833,20 +845,33 @@ export default function App() {
           /* ========================================================
              1. INTRODUCTORY LANDING PAGE (الصفحة الرئيسية التعريفية)
              ======================================================== */
-          <div className="flex flex-col gap-8 animate-in fade-in duration-300">
-            {/* Hero Banner */}
-            <div className="relative overflow-hidden rounded-3xl bg-linear-to-br from-slate-900 via-indigo-950 to-emerald-950 text-white p-7 sm:p-12 shadow-2xl border border-slate-800">
+          <div className="flex flex-col items-center justify-center animate-in fade-in duration-300 py-2 sm:py-6">
+            {/* Main Hero Card - Controlled exclusively by sheet 'الرئيسية' B21:B27 */}
+            <div
+              className="relative overflow-hidden rounded-3xl text-white shadow-2xl border border-slate-800/80 max-w-4xl w-full mx-auto"
+              style={
+                homeConfig?.card?.cardBgUrl
+                  ? {
+                      backgroundImage: `url(${homeConfig.card.cardBgUrl})`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                    }
+                  : undefined
+              }
+            >
+              {/* Dark overlay for contrast and crystal-clear readability (supports static images & animated GIFs) */}
+              <div className="absolute inset-0 bg-linear-to-b from-slate-950/90 via-slate-950/85 to-slate-950/92 backdrop-blur-xs" />
               <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
               <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
 
-              <div className="relative z-10 max-w-3xl">
-                {/* Custom Logo from sheet "الرئيسية" */}
-                {homeConfig?.logoUrl && (
-                  <div className="mb-5 inline-block">
+              <div className="relative z-10 flex flex-col items-center text-center p-7 sm:p-14 max-w-3xl mx-auto">
+                {/* 1. B21: Card Logo (Centered) */}
+                {homeConfig?.card?.cardLogoUrl && (
+                  <div className="mb-6 flex justify-center">
                     <img
-                      src={homeConfig.logoUrl}
-                      alt="شعار المنصة"
-                      className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover border-2 border-white/20 shadow-2xl shadow-emerald-500/20"
+                      src={homeConfig.card.cardLogoUrl}
+                      alt="شعار البطاقة"
+                      className="w-20 h-20 sm:w-28 sm:h-28 rounded-3xl object-contain shadow-2xl border-2 border-white/20 bg-white/10 p-2 backdrop-blur-xs"
                       onError={(e) => {
                         (e.target as any).style.display = 'none';
                       }}
@@ -854,39 +879,47 @@ export default function App() {
                   </div>
                 )}
 
-                <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight font-amiri leading-tight sm:leading-snug mb-4">
-                  {homeConfig?.title || 'فَصِيح — منصة تدريب وتقييم النطق ومخارج الحروف العربية'}
+                {/* 2. B23: Card Main Title */}
+                <h1 className="text-2xl sm:text-4xl md:text-5xl font-extrabold tracking-tight font-amiri leading-tight sm:leading-snug mb-4 text-white">
+                  {homeConfig?.card?.cardTitle || homeConfig?.title || 'فَصِيح — منصة تدريب وتقييم النطق ومخارج الحروف العربية'}
                 </h1>
 
-                <p className="text-sm sm:text-base text-slate-300 leading-relaxed mb-8">
-                  {homeConfig?.subtitle ||
-                    'برنامج تعليمي متكامل لضبط وتجويد نطق الحروف والكلمات العربية، يجمع بين دقة التفريغ الصوتي المحلي بالذكاء الاصطناعي، والمقارنة الطيفية الفيزيائية مع تسجيل صوت المعلم (الأسلوب الهجين 50% + 50%)، مع توثيق تلقائي في Google Sheets و Google Drive.'}
+                {/* 3. B24: Card Subtitle / Description */}
+                <p className="text-sm sm:text-base text-slate-200 leading-relaxed max-w-2xl mx-auto mb-6">
+                  {homeConfig?.card?.cardSubtitle ||
+                    homeConfig?.subtitle ||
+                    'برنامج تعليمي متكامل لضبط وتجويد نطق الحروف والكلمات العربية، يجمع بين دقة التفريغ الصوتي المحلي بالذكاء الاصطناعي، والمقارنة الطيفية الفيزيائية مع تسجيل صوت المعلم.'}
                 </p>
 
-                {/* Primary Action Buttons */}
-                <div className="flex flex-wrap items-center gap-3.5">
+                {/* 4. B25:B27: Optional Extra Texts */}
+                {(homeConfig?.card?.extraText1 || homeConfig?.card?.extraText2 || homeConfig?.card?.extraText3) && (
+                  <div className="flex flex-wrap items-center justify-center gap-2.5 max-w-2xl mx-auto mb-8">
+                    {homeConfig?.card?.extraText1 && (
+                      <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 backdrop-blur-xs">
+                        {homeConfig.card.extraText1}
+                      </span>
+                    )}
+                    {homeConfig?.card?.extraText2 && (
+                      <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-sky-500/20 text-sky-200 border border-sky-400/30 backdrop-blur-xs">
+                        {homeConfig.card.extraText2}
+                      </span>
+                    )}
+                    {homeConfig?.card?.extraText3 && (
+                      <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-indigo-500/20 text-indigo-200 border border-indigo-400/30 backdrop-blur-xs">
+                        {homeConfig.card.extraText3}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* 5. ONLY ONE ACTION BUTTON: [ فتح الدروس والتمارين 📚 ] */}
+                <div className="flex justify-center pt-2">
                   <button
                     onClick={() => setIsLessonsModalOpen(true)}
-                    className="flex items-center gap-2 px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-2xl text-sm sm:text-base transition-all shadow-lg shadow-emerald-500/25 cursor-pointer hover:scale-105 active:scale-95"
+                    className="flex items-center justify-center gap-2.5 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-2xl text-base sm:text-lg transition-all shadow-xl shadow-emerald-500/30 cursor-pointer hover:scale-105 active:scale-95"
                   >
                     <BookOpen className="w-5 h-5" />
                     <span>فتح الدروس والتمارين 📚</span>
-                  </button>
-
-                  <button
-                    onClick={() => setCurrentView('practice')}
-                    className="flex items-center gap-2 px-6 py-3.5 bg-white/10 hover:bg-white/20 text-white font-bold rounded-2xl text-sm sm:text-base border border-white/20 transition-all cursor-pointer hover:scale-105"
-                  >
-                    <Play className="w-4 h-4 fill-white" />
-                    <span>بدء التدريب الفوري ({selectedItem.word})</span>
-                  </button>
-
-                  <button
-                    onClick={handleOpenAdmin}
-                    className="flex items-center gap-2 px-4 py-3.5 text-slate-300 hover:text-white rounded-2xl text-xs sm:text-sm font-semibold transition-all cursor-pointer"
-                  >
-                    <Sliders className="w-4 h-4 text-emerald-400" />
-                    <span>لوحة تحكم المعلم (#admin)</span>
                   </button>
                 </div>
               </div>
@@ -950,6 +983,12 @@ export default function App() {
                 totalCount={activeSubjectWords.length}
                 onUpdateSettings={handleUpdateSettings}
                 onOpenLessons={() => setIsLessonsModalOpen(true)}
+                isSubmitted={isCurrentAnswerSubmitted}
+                onReRecord={() => {
+                  setIsCurrentAnswerSubmitted(false);
+                  setEvaluation(null);
+                  setRecordedAudioUrl(null);
+                }}
               />
 
               {/* Evaluation Results Card */}
@@ -959,6 +998,7 @@ export default function App() {
                   targetWordItem={selectedItem}
                   recordedAudioUrl={recordedAudioUrl}
                   onRetry={() => {
+                    setIsCurrentAnswerSubmitted(false);
                     setEvaluation(null);
                     setRecordedAudioUrl(null);
                   }}
@@ -967,10 +1007,12 @@ export default function App() {
                   audioEngine={settings.engine}
                   currentStudent={currentStudent}
                   webhookUrl={sheetsConfig.webhookUrl}
-                  driveFolderId={sheetsConfig.driveFolderId}
+                  driveFolderId={sheetsConfig.teacherDriveFolderId || sheetsConfig.driveFolderId}
+                  studentDriveFolderId={sheetsConfig.studentDriveFolderId || STUDENT_AUDIO_DRIVE_FOLDER_ID}
                   lessonSubject={selectedItem.lessonSubject || studentSubject}
                   wordIndex={currentIndex}
                   onRequestLogin={() => setIsLoginModalOpen(true)}
+                  onSubmissionSuccess={() => setIsCurrentAnswerSubmitted(true)}
                 />
               )}
             </div>

@@ -94,7 +94,9 @@ export interface GoogleSheetsConfig {
   webhookUrl: string;
   autoSync: boolean;
   lastSyncTime?: number;
-  driveFolderId?: string; // معرف مجلد Google Drive للأصوات
+  driveFolderId?: string; // معرف مجلد أصوات المعلم للتوافق
+  teacherDriveFolderId?: string; // معرف مجلد أصوات المعلم والإدارة (الافتراضي: 1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t)
+  studentDriveFolderId?: string; // معرف مجلد تسجيلات أصوات الطلاب (الافتراضي: 1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA)
   syncCurriculumFromSheets?: boolean; // مزامنة الدروس من ورقة "الدروس"
 }
 
@@ -123,9 +125,20 @@ export interface SocialLinkItem {
   label?: string;
 }
 
+export interface HomeCardConfig {
+  cardLogoUrl?: string; // B21: رابط صورة الشعار
+  cardBgUrl?: string; // B22: رابط صورة خلفية للبطاقة
+  cardTitle?: string; // B23: نص العنوان
+  cardSubtitle?: string; // B24: نص وصف العنوان
+  extraText1?: string; // B25: نص إضافي 1
+  extraText2?: string; // B26: نص إضافي 2
+  extraText3?: string; // B27: نص إضافي 3
+}
+
 export interface HomeBrandConfig {
-  logoUrl?: string;
-  title?: string;
-  subtitle?: string;
-  socialLinks: SocialLinkItem[];
+  logoUrl?: string; // B2: شعار الشريط العلوي
+  title?: string; // B3: عنوان المنصة في الشريط العلوي
+  subtitle?: string; // B4: وصف الشريط العلوي
+  socialLinks: SocialLinkItem[]; // B8:C17
+  card?: HomeCardConfig; // B21:B27: بطاقة الصفحة الرئيسية
 }
