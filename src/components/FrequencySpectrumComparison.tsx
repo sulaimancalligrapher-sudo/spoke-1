@@ -425,24 +425,25 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
           </div>
         </div>
 
-        {/* SVG Chart Area with Responsive Legend Overlay & Mobile Touch Support */}
-        <div className="relative w-full overflow-hidden bg-white select-none rounded-xl border border-slate-100">
-          {/* Top Corner Legend Box - Placed as HTML overlay: 100% stable, no text overflow, fully responsive */}
-          <div className="absolute top-2 left-2 sm:top-3 sm:left-3 z-10 bg-white/95 backdrop-blur-xs border border-blue-200/90 rounded-xl p-1.5 sm:p-2 px-2.5 sm:px-3 shadow-xs flex flex-col gap-1 select-none pointer-events-none">
-            <div className="flex items-center gap-2">
-              <span className="w-4 sm:w-5 h-1 sm:h-1.5 rounded-full bg-[#0066ff] shrink-0"></span>
-              <span className="text-[11px] sm:text-xs font-black text-[#0055d4] font-cairo">
-                الصوت الأصلي (المعلم)
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-4 sm:w-5 h-1 sm:h-1.5 rounded-full bg-[#00bb2d] shrink-0"></span>
-              <span className="text-[11px] sm:text-xs font-black text-[#008a20] font-cairo">
-                صوت المستخدم (المسجل)
-              </span>
-            </div>
+        {/* Distinct Colors Legend Row - Placed in an independent row OUTSIDE the chart so it never overlaps the curves */}
+        <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-6 py-2 px-3 mb-2.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs select-none shadow-2xs">
+          <div className="flex items-center gap-2">
+            <span className="w-5 h-2 rounded-full bg-[#0066ff] shrink-0 shadow-xs"></span>
+            <span className="font-extrabold text-[#0055d4] text-[11px] sm:text-xs">
+              الصوت الأصلي (المعلم)
+            </span>
           </div>
+          <div className="hidden sm:block w-px h-3.5 bg-slate-300"></div>
+          <div className="flex items-center gap-2">
+            <span className="w-5 h-2 rounded-full bg-[#00bb2d] shrink-0 shadow-xs"></span>
+            <span className="font-extrabold text-[#008a20] text-[11px] sm:text-xs">
+              صوت المستخدم (المسجل)
+            </span>
+          </div>
+        </div>
 
+        {/* SVG Chart Area with Mobile Touch Support */}
+        <div className="relative w-full overflow-hidden bg-white select-none rounded-xl border border-slate-100">
           <svg
             ref={svgRef}
             viewBox={`0 0 ${width} ${height}`}

@@ -847,44 +847,37 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setCurrentView('landing')}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                  title="العودة للصفحة الرئيسية التعريفية"
+                  className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer shadow-2xs"
+                  title="الصفحة الرئيسية"
                 >
-                  <Home className="w-3.5 h-3.5 text-slate-600" />
-                  <span>الرئيسية 🏠</span>
+                  <Home className="w-4 h-4 text-slate-700" />
                 </button>
 
                 <button
                   onClick={() => setIsLessonsModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
                   title="فتح قائمة الدروس واختيار تمرين آخر"
                 >
                   <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>فتح الدروس 📚 ({studentSubject})</span>
+                  <span>( فتح الدروس )</span>
                 </button>
               </div>
 
-              {/* Prev / Next Buttons */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handlePrevWord}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                  <span>السابق</span>
-                </button>
-
-                <div className="text-xs font-bold text-slate-500 px-1">
-                  {currentIndex + 1} من {activeSubjectWords.length}
-                </div>
-
-                <button
-                  onClick={handleNextWord}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                >
-                  <span>التالي</span>
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
+              {/* Lesson Metadata Badge: الموضوع | الفئة | عدد الدروس في الموضوع */}
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs">
+                <span className="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-900 font-bold border border-emerald-200/80 flex items-center gap-1">
+                  <span className="text-emerald-700 font-normal">الموضوع:</span>
+                  <span>{selectedItem.lessonSubject || studentSubject}</span>
+                </span>
+                {selectedItem.category && (
+                  <span className="px-2.5 py-1 rounded-xl bg-sky-50 text-sky-900 font-bold border border-sky-200/80 flex items-center gap-1">
+                    <span className="text-sky-700 font-normal">الفئة:</span>
+                    <span>{selectedItem.category}</span>
+                  </span>
+                )}
+                <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-800 font-bold border border-slate-200 flex items-center gap-1">
+                  <span>التمرين {currentIndex + 1} من {activeSubjectWords.length}</span>
+                </span>
               </div>
             </div>
 
@@ -894,6 +887,7 @@ export default function App() {
               <PracticeCard
                 wordItem={selectedItem}
                 settings={settings}
+                currentStudent={currentStudent}
                 onEvaluationComplete={handleEvaluationComplete}
                 isEvaluating={isEvaluating}
                 setIsEvaluating={setIsEvaluating}

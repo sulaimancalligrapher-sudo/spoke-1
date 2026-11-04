@@ -3,7 +3,7 @@ import { removeTashkeel } from './arabicMatcher';
 
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t';
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwzPmPoRBTv0DD8ksP8JgzZOHJmW-zo-xI9zwrI2qHgdivshKV-qkTKHYMSsxKRWopHEQ/exec';
+  'https://script.google.com/macros/s/AKfycbwXzm8v1X_sAFDeEYjIlkc7HkEuKcVZKQcz6ZchuuNhKRWzCuxcbcTJgDIWjtvpHARuyA/exec';
 
 /**
  * Fetch curriculum (lessons and exercises) directly from Google Sheet tab "الدروس"
@@ -980,7 +980,7 @@ function doPost(e) {
       var scoreVal = data.score !== undefined ? data.score : 0;
       var grade = String(data.grade || "").trim();
       
-      // 1. رفع صوت الطالب إلى Google Drive إذا توفر base64
+      // 1. رفع صوت الطالب إلى Google Drive مع تسمية الملف باسمه ورقمه وتاريخه والنص
       var directAudioUrl = "";
       if (data.audioBase64) {
         try {
@@ -989,9 +989,13 @@ function doPost(e) {
           if (cleanBase64.indexOf("base64,") !== -1) {
             cleanBase64 = cleanBase64.split("base64,")[1];
           }
-          var timeId = new Date().getTime();
-          var sSafe = studentId ? ("id_" + studentId) : "student";
-          var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), "audio/mp3", "ans_" + sSafe + "_" + timeId + ".mp3");
+          var cleanName = studentName.replace(/[/\\?%*:|"<>]/g, '_');
+          var cleanId = studentId.replace(/[/\\?%*:|"<>]/g, '_');
+          var cleanWord = (targetWord || detectedWord || "تمرين").replace(/[/\\?%*:|"<>]/g, '_');
+          var dateForFile = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT+3", "yyyy-MM-dd_HH-mm");
+          var fullFileName = (cleanId ? (cleanId + "_") : "") + cleanName + "_" + cleanWord + "_" + dateForFile + ".mp3";
+
+          var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), "audio/mp3", fullFileName);
           var driveFile;
           try {
             driveFile = folder.createFile(blob);
@@ -1087,6 +1091,37 @@ function doPost(e) {
       var requiredColMax = targetBlockCol + 4;
       if (ansSheet.getMaxColumns() < requiredColMax) {
         ansSheet.insertColumnsAfter(ansSheet.getMaxColumns(), requiredColMax - ansSheet.getMaxColumns());
+      }
+
+      // (تسجيل تلقائي لعناوين الأعمدة في ورقة answers 1)
+      try {
+        // تأكيد عناوين الأعمدة الأساسية (A:E)
+        var col1Header = ansSheet.getRange(1, 1).getValue();
+        if (!col1Header) {
+          var baseHeaders = ["وقت الارسال", "ID المشترك", "اسم المشترك", "موضوع الدرس", "حالة الإنجاز"];
+          ansSheet.getRange(1, 1, 1, 5).setValues([baseHeaders])
+            .setBackground("#047857")
+            .setFontColor("#ffffff")
+            .setFontWeight("bold");
+        }
+        // تأكيد وتوليد عناوين هذا التمرين الأفقي تلقائياً
+        var blockHeader = ansSheet.getRange(1, targetBlockCol).getValue();
+        if (!blockHeader) {
+          var exerciseNum = Math.floor((targetBlockCol - 6) / 5) + 1;
+          var blockHeaders = [
+            "الكلمة المستهدفة " + exerciseNum,
+            "النص المنطوق " + exerciseNum,
+            "رابط ملف الصوت " + exerciseNum,
+            "الدرجة " + exerciseNum + " (%)",
+            "التقدير " + exerciseNum
+          ];
+          ansSheet.getRange(1, targetBlockCol, 1, 5).setValues([blockHeaders])
+            .setBackground("#e6f4ea")
+            .setFontColor("#065f46")
+            .setFontWeight("bold");
+        }
+      } catch (headErr) {
+        Logger.log("Headers generation note: " + headErr);
       }
       
       if (targetRow !== -1) {

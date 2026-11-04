@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { WordItem, AudioSettings, PronunciationEvaluation, EvaluationMode } from '../types';
+import { WordItem, AudioSettings, PronunciationEvaluation, EvaluationMode, StudentRegistrant } from '../types';
 import {
   Volume2,
   Volume1,
@@ -17,6 +17,7 @@ import {
   Image as ImageIcon,
   BookOpen,
   CheckCircle,
+  CheckCircle2,
   Play,
   RotateCcw,
   Smartphone,
@@ -57,6 +58,7 @@ import { AudioWaveform } from './AudioWaveform';
 interface PracticeCardProps {
   wordItem: WordItem;
   settings: AudioSettings;
+  currentStudent?: StudentRegistrant | null;
   onEvaluationComplete: (
     evaluation: PronunciationEvaluation,
     recordedAudioUrl?: string,
@@ -73,6 +75,7 @@ interface PracticeCardProps {
 export const PracticeCard: React.FC<PracticeCardProps> = ({
   wordItem,
   settings,
+  currentStudent,
   onEvaluationComplete,
   isEvaluating,
   setIsEvaluating,
@@ -86,9 +89,43 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   const [recordDuration, setRecordDuration] = useState(0);
   const [liveTranscript, setLiveTranscript] = useState('');
   const [showMakhrajDetails, setShowMakhrajDetails] = useState(false);
-  const [manualInputMode, setManualInputMode] = useState(false);
-  const [manualText, setManualText] = useState('');
   const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null);
+
+  // Check if this word was previously submitted and approved by this student
+  const [previousSubmission, setPreviousSubmission] = useState<{
+    score: number;
+    grade: string;
+    date?: string;
+    time?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!wordItem) {
+      setPreviousSubmission(null);
+      return;
+    }
+    try {
+      const studentId = currentStudent?.id || 'guest';
+      const subject = (wordItem.lessonSubject || '').trim();
+      const word = wordItem.word.trim();
+      const subKey = `faseeh_sub_${studentId}_${subject}_${word}`;
+      const raw = localStorage.getItem(subKey);
+      if (raw) {
+        setPreviousSubmission(JSON.parse(raw));
+      } else {
+        // Fallback check by word alone if student had no ID at first
+        const fallbackKey = `faseeh_sub_any_${subject}_${word}`;
+        const fallbackRaw = localStorage.getItem(fallbackKey);
+        if (fallbackRaw) {
+          setPreviousSubmission(JSON.parse(fallbackRaw));
+        } else {
+          setPreviousSubmission(null);
+        }
+      }
+    } catch {
+      setPreviousSubmission(null);
+    }
+  }, [currentStudent?.id, wordItem.id, wordItem.word, wordItem.lessonSubject]);
 
   const isMobileDevice = typeof navigator !== 'undefined' && (
     /Android|webOS|iPhone|iPad|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
@@ -486,7 +523,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   ) => {
     setIsEvaluating(true);
     try {
-      const textToEvaluate = spokenText || liveTranscriptRef.current || liveTranscript || manualText || '';
+      const textToEvaluate = spokenText || liveTranscriptRef.current || liveTranscript || '';
 
       // 1. DEDICATED IN-BROWSER WHISPER (Primary, 100% Dedicated & Isolated - No Fallback)
       if (activeEvalMode === 'whisper') {
@@ -531,7 +568,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
               }
             }
 
-            const textForEval = whisperTranscript || manualText || '';
+            const textForEval = whisperTranscript || '';
             const evalResult = evaluateArabicLocal(
               wordItem.word,
               textForEval,
@@ -598,20 +635,19 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             triggerCooldown(3);
             return;
           }
-        } else if (manualText.trim()) {
-          // Allow evaluating manually typed text directly without microphone requirement
+        } else if (textToEvaluate.trim()) {
           const evalResult = evaluateArabicLocal(
             wordItem.word,
-            manualText.trim(),
+            textToEvaluate.trim(),
             wordItem.repeatCount || 1,
             wordItem.difficultyLevel || 'medium'
           );
           onEvaluationComplete(
             {
               ...evalResult,
-              detectedWord: manualText.trim(),
+              detectedWord: textToEvaluate.trim(),
               engineUsed: 'whisper',
-              engineNotice: 'تم التقييم بنجاح بناءً على النص المُدخل يدوياً.',
+              engineNotice: 'تم التقييم بنجاح.',
             },
             undefined,
             studentName
@@ -761,52 +797,41 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     }
   };
 
-  const handleManualSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!manualText.trim()) return;
-    evaluateStudentAttempt(undefined, manualText.trim());
-  };
-
   return (
     <div className="bg-white rounded-3xl p-6 sm:p-10 shadow-xl shadow-slate-100 border border-slate-100 relative overflow-hidden">
       {/* Background soft glow */}
       <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-50/60 rounded-full blur-3xl -z-10 pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-80 h-80 bg-sky-50/60 rounded-full blur-3xl -z-10 pointer-events-none" />
 
-      {/* Header: Lesson Subject, Category, Open Lessons & Student Name */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-slate-100">
-        <div className="flex items-center gap-2 flex-wrap">
-          {onOpenLessons && (
-            <button
-              onClick={onOpenLessons}
-              className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/90 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-              title="فتح قائمة الدروس واختيار درس آخر"
-            >
-              <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
-              <span>فتح الدروس 📚</span>
-            </button>
-          )}
-          <span className="px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200/80 rounded-full text-xs font-bold flex items-center gap-1.5">
-            <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
-            {wordItem.lessonSubject || 'الدرس الحالي'}
-          </span>
-          <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-semibold">
-            {wordItem.category}
-          </span>
+      {/* Previous Submission Alert Banner if this exercise was already submitted by the student */}
+      {previousSubmission && (
+        <div className="mb-6 p-3.5 sm:p-4 bg-linear-to-r from-emerald-50 via-teal-50/40 to-white border border-emerald-300 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs animate-in fade-in duration-300">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
+            </div>
+            <div>
+              <div className="font-extrabold text-emerald-950 flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <span>سبق إرسال واعتماد هذا التمرين:</span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-900 text-xs font-black">
+                  {previousSubmission.score}%
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 text-xs font-bold">
+                  {previousSubmission.grade}
+                </span>
+                {previousSubmission.date && (
+                  <span className="text-[11px] text-slate-500 font-normal">
+                    ({previousSubmission.date})
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-slate-600 mt-0.5 font-medium">
+                درجتك موثقة بنجاح في النظام. يمكنك إعادة التسجيل الآن متى أردت لتحسين النطق والدرجة 🔄
+              </div>
+            </div>
+          </div>
         </div>
-
-        {/* Student Name Input */}
-        <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 px-3 py-1 rounded-xl">
-          <User className="w-3.5 h-3.5 text-slate-400" />
-          <input
-            type="text"
-            value={studentName}
-            onChange={(e) => handleStudentNameChange(e.target.value)}
-            placeholder="اسم الطالب (لتسجيل الدرجات)..."
-            className="text-xs bg-transparent border-none focus:outline-hidden text-slate-700 w-36 placeholder:text-slate-400"
-          />
-        </div>
-      </div>
+      )}
 
       {/* Main Arabic Display Stage with Optional Image */}
       <div className="text-center py-4 sm:py-6 border-b border-slate-100">
@@ -1068,43 +1093,6 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             </div>
           )}
         </div>
-      </div>
-
-      {/* Manual Input Fallback */}
-      <div className="mt-4 pt-4 border-t border-slate-100 text-center">
-        {!manualInputMode ? (
-          <button
-            onClick={() => setManualInputMode(true)}
-            className="text-[11px] text-slate-400 hover:text-slate-600 underline cursor-pointer"
-          >
-            لا يعمل الميكروفون لديك؟ جرّب التقييم اليدوي
-          </button>
-        ) : (
-          <form onSubmit={handleManualSubmit} className="max-w-md mx-auto flex items-center gap-2">
-            <input
-              type="text"
-              value={manualText}
-              onChange={(e) => setManualText(e.target.value)}
-              placeholder="اكتب ما نطقته هنا للتقييم..."
-              className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-hidden focus:border-emerald-500"
-            />
-            <button
-              type="submit"
-              disabled={isEvaluating || !manualText.trim()}
-              className="px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-1 hover:bg-emerald-700 disabled:opacity-50 cursor-pointer"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>تقييم</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setManualInputMode(false)}
-              className="text-xs text-slate-400 hover:text-slate-600 px-2 cursor-pointer"
-            >
-              إلغاء
-            </button>
-          </form>
-        )}
       </div>
 
       {/* Mobile / Tablet Quota Exhausted Modal */}
