@@ -5,6 +5,7 @@ import {
   StudentSubmissionRecord,
   EvaluationMode,
   DifficultyLevel,
+  Answers1SubmissionRow,
 } from '../types';
 import {
   ALL_CURRICULUM,
@@ -83,6 +84,7 @@ import {
   DEFAULT_WEBHOOK_URL,
   DEFAULT_DRIVE_AUDIO_FOLDER_ID,
   STUDENT_AUDIO_DRIVE_FOLDER_ID,
+  fetchAllSubmissionsFromSheet,
 } from '../utils/googleSheets';
 import { speakArabicBrowser, playUniversalArabicStream, playCustomAudio, stopAllAudio, blobToBase64 } from '../utils/arabicAudio';
 import { normalizeMediaUrl, getDirectImageUrl, getDirectAudioUrl } from '../utils/mediaUrl';
@@ -165,6 +167,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [copiedSyncUrl, setCopiedSyncUrl] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [qrLoading, setQrLoading] = useState(false);
+
+  // Google Sheets Guides Accordion Collapses
+  const [showLessonsStructureGuide, setShowLessonsStructureGuide] = useState(false);
+  const [showAnswersStructureGuide, setShowAnswersStructureGuide] = useState(false);
+  const [showScriptCodeGuide, setShowScriptCodeGuide] = useState(false);
+
+  // Confirm Sheets Connection
+  const [isConfirmingConnection, setIsConfirmingConnection] = useState(false);
+  const [connectionConfirmed, setConnectionConfirmed] = useState(false);
+
+  // Live "answers 1" Submissions
+  const [answers1Submissions, setAnswers1Submissions] = useState<Answers1SubmissionRow[]>([]);
+  const [loadingAnswers1, setLoadingAnswers1] = useState(false);
+  const [selectedSubmissionDetail, setSelectedSubmissionDetail] = useState<Answers1SubmissionRow | null>(null);
 
   // Curriculum Sub-tabs & Sync Statuses
   const [lessonsSubTab, setLessonsSubTab] = useState<'add' | 'list'>('list');
@@ -729,36 +745,67 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
     setTimeout(() => setCopiedCurriculumCode(false), 2500);
   };
 
-  // Generate Compact Mobile/Tablet Sync URL (encodes only custom additions for small size)
+  // Clean QR sync URL: points directly to current web application link
   const getSyncUrl = () => {
     if (typeof window === 'undefined') return '';
-    const defaultIds = new Set(ALL_CURRICULUM.map((c) => c.id));
-    const customItems = curriculum.filter(
-      (c) => !defaultIds.has(c.id) || c.id.startsWith('custom-')
-    );
-    const customSubjects = subjects.filter((s) => !INITIAL_LESSON_SUBJECTS.includes(s));
-    const customCategories = categories.filter((c) => !INITIAL_CATEGORIES.includes(c));
+    return window.location.origin + window.location.pathname;
+  };
 
-    // Compact item structure for minimal QR payload (under 500 chars)
-    const compactWords = customItems.map((item) => ({
-      id: item.id,
-      w: item.word,
-      p: item.plainWord,
-      m: item.meaning,
-      c: item.category,
-      s: item.lessonSubject,
-      a: item.audioUrl || undefined,
-      t: item.autoReadText || undefined,
-      img: item.imageUrl || undefined,
-      tip: item.makhrajTip || undefined,
-    }));
+  const handleLoadAnswers1 = async () => {
+    const effectiveWebhook = (sheetsConfig.webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+    if (!effectiveWebhook) return;
+    setLoadingAnswers1(true);
+    try {
+      const subs = await fetchAllSubmissionsFromSheet(effectiveWebhook);
+      setAnswers1Submissions(subs);
+    } catch (e) {
+      console.warn('Failed to load answers 1 submissions:', e);
+    } finally {
+      setLoadingAnswers1(false);
+    }
+  };
 
-    const payload = {
-      cw: compactWords,
-      cs: customSubjects,
-      cc: customCategories,
-    };
-    return `${window.location.origin}/#sync=${encodeURIComponent(JSON.stringify(payload))}`;
+  React.useEffect(() => {
+    if (activeTab === 'submissions' && sheetsConfig.webhookUrl) {
+      handleLoadAnswers1();
+    }
+  }, [activeTab, sheetsConfig.webhookUrl]);
+
+  const handleConfirmSheetsConnection = async () => {
+    const effectiveWebhook = (sheetsConfig.webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+    if (!effectiveWebhook) {
+      alert('يرجى إدخال رابط Google Sheets Webhook أولاً.');
+      return;
+    }
+    setIsConfirmingConnection(true);
+    setConnectionConfirmed(false);
+    setTestStatus({ loading: true, message: 'جاري فحص وتأكيد الاتصال بـ Google Sheets...' });
+    try {
+      const res = await fetchCurriculumFromSheets(effectiveWebhook);
+      setIsConfirmingConnection(false);
+      if (res.success) {
+        setConnectionConfirmed(true);
+        onUpdateSheetsConfig({ webhookUrl: effectiveWebhook, enabled: true });
+        setTestStatus({
+          loading: false,
+          success: true,
+          message: `تم تأكيد الاتصال بنجاح! متصل بملف (${res.spreadsheetName || 'Google Sheets'}). تم حفظ الرابط تلقائياً! ✅`,
+        });
+      } else {
+        setTestStatus({
+          loading: false,
+          success: false,
+          message: res.error || 'تعذر الاتصال بـ Webhook. تأكد من نشر السكربت كـ Web App بصلاحية Anyone.',
+        });
+      }
+    } catch (err: any) {
+      setIsConfirmingConnection(false);
+      setTestStatus({
+        loading: false,
+        success: false,
+        message: err.message || 'فشل الاتصال بـ Google Sheets Webhook.',
+      });
+    }
   };
 
   const handleOpenQrModal = async () => {
@@ -908,58 +955,31 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Guide Button moved into Admin */}
+            {/* Unified Guide & Settings Button */}
             {onOpenGuide && (
               <button
                 onClick={onOpenGuide}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
-                title="دليل وكيف يعمل النظام"
+                title="دليل النظام وإعدادات الصوت والتقييم"
               >
-                <HelpCircle className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden sm:inline">الدليل</span>
+                <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
+                <span>الدليل</span>
               </button>
             )}
 
-            {/* Sound Settings Button moved into Admin */}
-            {onOpenSettings && (
-              <button
-                onClick={onOpenSettings}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
-                title="إعدادات الصوت والنطق"
-              >
-                <Settings className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden sm:inline">إعدادات الصوت</span>
-              </button>
-            )}
-
-            {/* Import JSON button */}
-            <label
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
-              title="استيراد دروس وكلمات من ملف JSON محفوظ"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">استيراد منهج</span>
-              <input
-                type="file"
-                accept=".json"
-                className="hidden"
-                onChange={handleImportJSON}
-              />
-            </label>
-
-            {/* Export JSON button */}
+            {/* QR Sync Button (Text: QR with Icon only) */}
             <button
-              onClick={handleExportJSON}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
-              title="تصدير المنهج كملف JSON لمستودع GitHub"
+              onClick={handleOpenQrModal}
+              className="flex items-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 rounded-xl text-xs font-bold cursor-pointer transition-all shadow-xs"
+              title="رمز QR لفتح التطبيق على الجوال والتابليت فوراً"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">نسخ احتياطي</span>
+              <QrCode className="w-3.5 h-3.5" />
+              <span>QR</span>
             </button>
 
             <button
               onClick={onBackToApp}
-              className="flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+              className="flex items-center gap-2 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
               title="العودة لواجهة الطالب"
             >
               <span>صفحة الطالب</span>
@@ -982,100 +1002,6 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
 
       {/* Main Admin Body */}
       <main className="max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 flex-1 flex flex-col gap-6">
-        {/* Sync & GitHub Deployment Bar */}
-        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-3xl p-5 sm:p-6 shadow-lg border border-slate-700/60 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                مزامنة الأجهزة والنشر
-              </span>
-              <h2 className="text-sm sm:text-base font-bold text-white">
-                نشر الدروس المضافة لجميع الطلاب والأجهزة (GitHub & Vercel)
-              </h2>
-            </div>
-            <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-              لتظهر الدروس الجديدة على هواتف الطلاب والأجهزة اللوحية، احفظ التعديلات في ملفات المشروع ثم ارفعها لمستودع GitHub.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-            {/* Quick Mobile Sync via QR Code or Link */}
-            <button
-              onClick={handleOpenQrModal}
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-md cursor-pointer animate-pulse"
-              title="مزامنة فورية للدروس مع الجوال أو التابليت بكود QR أو رابط"
-            >
-              <QrCode className="w-4 h-4 text-slate-950" />
-              <span>مزامنة للجوال والتابليت (رمز QR)</span>
-            </button>
-
-            <button
-              onClick={handleSaveToServer}
-              disabled={saveFileStatus?.loading}
-              className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-sm cursor-pointer"
-              title="حفظ التعديلات في كود المشروع مباشرة"
-            >
-              <Save className="w-4 h-4" />
-              <span>{saveFileStatus?.loading ? 'جاري الحفظ...' : 'حفظ بالملفات'}</span>
-            </button>
-
-            <button
-              onClick={handleDownloadTSFile}
-              className="flex items-center gap-1.5 px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 rounded-xl text-xs font-semibold transition-all cursor-pointer"
-              title="تحميل ملف arabicCurriculum.ts المحدث"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>تحميل ملف المنهج (.ts)</span>
-            </button>
-
-            <button
-              onClick={handleCopyTSCode}
-              className="flex items-center gap-1.5 px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 rounded-xl text-xs font-semibold transition-all cursor-pointer"
-              title="نسخ كود المنهج ولصقه في GitHub"
-            >
-              {copiedCurriculumCode ? (
-                <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
-              ) : (
-                <Copy className="w-3.5 h-3.5" />
-              )}
-              <span>{copiedCurriculumCode ? 'تم نسخ الكود!' : 'نسخ الكود'}</span>
-            </button>
-
-            <button
-              onClick={() => setShowSyncGuideModal(true)}
-              className="flex items-center gap-1.5 px-3 py-2.5 bg-indigo-600/40 hover:bg-indigo-600/60 text-indigo-200 border border-indigo-500/40 rounded-xl text-xs font-bold transition-all cursor-pointer"
-            >
-              <HelpCircle className="w-3.5 h-3.5 text-indigo-300" />
-              <span>طريقة التحديث</span>
-            </button>
-          </div>
-        </div>
-
-        {saveFileStatus && (
-          <div
-            className={`p-3.5 rounded-2xl border text-xs font-semibold flex items-center justify-between gap-3 animate-in fade-in duration-200 ${
-              saveFileStatus.success
-                ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
-                : 'bg-rose-50 text-rose-900 border-rose-300'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              {saveFileStatus.success ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              ) : (
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-              )}
-              <span>{saveFileStatus.message}</span>
-            </div>
-            <button
-              onClick={() => setSaveFileStatus(null)}
-              className="text-xs opacity-60 hover:opacity-100 p-1 cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
         {/* Navigation Tabs */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-slate-200">
           <button
@@ -1098,23 +1024,11 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                 : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
             }`}
           >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
-            <span>ربط Google Sheets</span>
+            <Settings className="w-4 h-4 text-emerald-500" />
+            <span>إعدادات ربط Google Sheets</span>
             {sheetsConfig.enabled && sheetsConfig.webhookUrl && (
               <span className="w-2 h-2 rounded-full bg-emerald-400" />
             )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('system')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'system'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
-            }`}
-          >
-            <Sliders className="w-4 h-4" />
-            <span>نظاما التقييم (داخلي / ذكاء اصطناعي)</span>
           </button>
 
           <button
@@ -1126,7 +1040,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             }`}
           >
             <Table className="w-4 h-4" />
-            <span>سجل نتائج الطلاب ({submissions.length})</span>
+            <span>نتائج الطلاب (answers 1)</span>
           </button>
         </div>
 
@@ -1979,76 +1893,20 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
-                  <FileSpreadsheet className="w-6 h-6" />
+                  <Settings className="w-6 h-6 text-emerald-700" />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">
-                    ربط Google Sheets لإدارة الدروس ومزامنة الكلمات وحفظ النتائج
+                    إعدادات ربط Google Sheets ومجلدات Google Drive
                   </h3>
                   <p className="text-xs text-slate-500">
-                    مزامنة فورية للدروس من ورقة "الدروس"، ورفع الأصوات تلقائياً لمجلد Google Drive، وحفظ درجات الطلاب
+                    مزامنة الدروس تلقائياً، حفظ أصوات وشروحات المعلم، وتوثيق إجابات الطلاب في ورقة answers 1
                   </p>
                 </div>
               </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={handleSyncCurriculumToSheets}
-                  disabled={isPushingCurriculumToSheets || !sheetsConfig.webhookUrl}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/20 cursor-pointer flex items-center gap-1.5"
-                  title="رفع المنهج كاملاً من النظام إلى ورقة 'الدروس' في Google Sheets بالهيكل الأفقي"
-                >
-                  <Upload className={`w-3.5 h-3.5 ${isPushingCurriculumToSheets ? 'animate-bounce' : ''}`} />
-                  <span>{isPushingCurriculumToSheets ? 'جاري الرفع للشيت...' : 'رفع المنهج إلى الشيت الآن'}</span>
-                </button>
-
-                <button
-                  onClick={handleSyncCurriculumFromSheets}
-                  disabled={isSyncingSheetsCurriculum || !sheetsConfig.webhookUrl}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/20 cursor-pointer flex items-center gap-1.5"
-                  title="جلب وتحديث جميع الكلمات والدروس من ورقة 'الدروس' في جدولك"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingSheetsCurriculum ? 'animate-spin' : ''}`} />
-                  <span>{isSyncingSheetsCurriculum ? 'جاري الاستيراد...' : 'مزامنة الدروس من الشيت الآن'}</span>
-                </button>
-
-                <button
-                  onClick={handleTestSheetsConnection}
-                  disabled={testStatus?.loading}
-                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>{testStatus?.loading ? 'جاري الاختبار...' : 'تجربة الاتصال'}</span>
-                </button>
-              </div>
             </div>
 
-            {/* Sheets Curriculum Status Banner */}
-            {sheetsCurriculumStatus && (
-              <div
-                className={`p-3.5 rounded-2xl border text-xs font-semibold flex items-center justify-between gap-2 animate-in fade-in duration-200 ${
-                  sheetsCurriculumStatus.success
-                    ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
-                    : 'bg-rose-50 text-rose-900 border-rose-300'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  {sheetsCurriculumStatus.success ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                  )}
-                  <span>{sheetsCurriculumStatus.message}</span>
-                </div>
-                <button
-                  onClick={() => setSheetsCurriculumStatus(null)}
-                  className="text-xs opacity-60 hover:opacity-100 p-1 cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
+            {/* Test Status Banner */}
             {testStatus && (
               <div
                 className={`p-3.5 rounded-2xl border text-xs font-semibold flex items-center gap-2 ${
@@ -2058,9 +1916,9 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                 }`}
               >
                 {testStatus.success ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                 ) : (
-                  <AlertCircle className="w-4 h-4 text-amber-600" />
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                 )}
                 <span>{testStatus.message}</span>
               </div>
@@ -2070,22 +1928,52 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             <div className="p-5 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-800 mb-1.5">
-                  1- رابط Google Sheets Webhook (رابط تطبيق الويب Apps Script):
+                  رابط Google Sheets Webhook (رابط تطبيق الويب Apps Script):
                 </label>
-                <input
-                  type="url"
-                  value={sheetsConfig.webhookUrl}
-                  onChange={(e) =>
-                    onUpdateSheetsConfig({
-                      webhookUrl: e.target.value,
-                      enabled: !!e.target.value.trim(),
-                    })
-                  }
-                  placeholder="https://script.google.com/macros/s/.../exec"
-                  className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-900 focus:outline-hidden focus:border-emerald-500 dir-ltr text-left"
-                />
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <input
+                    type="url"
+                    value={sheetsConfig.webhookUrl}
+                    onChange={(e) => {
+                      setConnectionConfirmed(false);
+                      onUpdateSheetsConfig({
+                        webhookUrl: e.target.value,
+                        enabled: !!e.target.value.trim(),
+                      });
+                    }}
+                    placeholder="https://script.google.com/macros/s/.../exec"
+                    className="flex-1 px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-900 focus:outline-hidden focus:border-emerald-500 dir-ltr text-left"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleConfirmSheetsConnection}
+                    disabled={isConfirmingConnection}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5 shrink-0 ${
+                      connectionConfirmed
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                    }`}
+                  >
+                    {isConfirmingConnection ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>جاري الفحص...</span>
+                      </>
+                    ) : connectionConfirmed ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                        <span>تم تأكيد الاتصال بنجاح! ✅</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        <span>تأكيد الاتصال</span>
+                      </>
+                    )}
+                  </button>
+                </div>
                 <span className="text-[11px] text-slate-500 mt-1 block">
-                  انسخ الرابط الناتج من خطوة نشر الـ Apps Script وضعه هنا ليتم جلب الدروس وحفظ النتائج.
+                  انسخ الرابط الناتج من خطوة نشر الـ Apps Script وضعه هنا ثم انقر "تأكيد الاتصال" لفحصه وحفظه.
                 </span>
               </div>
 
@@ -2166,621 +2054,297 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                   className="w-5 h-5 text-emerald-600 rounded-sm focus:ring-emerald-500 cursor-pointer"
                 />
               </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-200/80">
-                <div>
-                  <div className="text-xs font-bold text-slate-800">
-                    تفعيل تسجيل درجات الطلاب التلقائي في الشيت
-                  </div>
-                  <div className="text-[11px] text-slate-500">
-                    عندما ينتهي الطالب من التقييم، تُسجل درجته واسمه في ورقة "سجل_النتائج"
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={sheetsConfig.autoSync}
-                  onChange={(e) => onUpdateSheetsConfig({ autoSync: e.target.checked })}
-                  className="w-5 h-5 text-emerald-600 rounded-sm focus:ring-emerald-500 cursor-pointer"
-                />
-              </div>
             </div>
 
-            {/* Structure of sheet "الدروس" Guide Card */}
-            <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-3">
-              <div className="flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-emerald-700" />
-                <h4 className="text-xs font-bold text-emerald-950">
-                  هيكل ورقة (الدروس) المعتمد في Google Sheets (نظام التمارين الأفقية للدرس):
-                </h4>
-              </div>
-              <p className="text-xs text-emerald-900 leading-relaxed">
-                في ورقة <strong>الدروس</strong>، يمثل كل صف درساً مستقلاً يبدأ في <strong>العامود A (موضوع الدرس)</strong>، وتتتابع تمارين الكلمات والنصوص أفقياً في نفس الصف؛ كل تمرين يأخذ 8 أعمدة:
-              </p>
-              
-              <div className="space-y-2 text-xs">
-                {/* Exercise 1 */}
-                <div className="bg-white p-2.5 rounded-xl border border-emerald-200">
-                  <span className="text-[11px] font-bold text-emerald-800 block mb-1">
-                    🔹 التمرين الأول (الأعمدة B إلى I):
-                  </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-1.5 text-[10px] text-center font-semibold">
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>B</b>: الفئة</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>C</b>: الصورة</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>D</b>: الصوت</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>E</b>: قراءة آلية</span>
-                    <span className="bg-emerald-50 p-1.5 rounded-lg border border-emerald-300 text-emerald-900"><b>F</b>: نص الدرس</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>G</b>: المعنى</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>H</b>: المخرج</span>
-                    <span className="bg-amber-50 p-1.5 rounded-lg border border-amber-300 text-amber-900"><b>I</b>: التكرار</span>
-                  </div>
-                </div>
-
-                {/* Exercise 2 */}
-                <div className="bg-white p-2.5 rounded-xl border border-emerald-200">
-                  <span className="text-[11px] font-bold text-indigo-800 block mb-1">
-                    🔹 التمرين الثاني (الأعمدة J إلى Q):
-                  </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-1.5 text-[10px] text-center font-semibold">
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>J</b>: الفئة</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>K</b>: الصورة</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>L</b>: الصوت</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>M</b>: قراءة آلية</span>
-                    <span className="bg-indigo-50 p-1.5 rounded-lg border border-indigo-300 text-indigo-900"><b>N</b>: نص الدرس</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>O</b>: المعنى</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>P</b>: المخرج</span>
-                    <span className="bg-amber-50 p-1.5 rounded-lg border border-amber-300 text-amber-900"><b>Q</b>: التكرار</span>
-                  </div>
-                </div>
-
-                {/* Exercise 3 & Beyond */}
-                <div className="bg-white p-2.5 rounded-xl border border-emerald-200 text-[11px] text-slate-700 font-semibold flex items-center justify-between">
-                  <span>🔹 التمرين الثالث (الأعمدة <b>R:Y</b>) | التمرين الرابع (<b>Z:AG</b>)... وهكذا بلا حدود</span>
-                  <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md font-bold">
-                    8 أعمدة لكل نص
-                  </span>
-                </div>
-              </div>
-
-              <span className="text-[10px] text-emerald-800/90 block pt-0.5">
-                💡 تستطيع إضافة عدد غير محدود من الكلمات والنصوص في صف كل درس، وسيقوم النظام بفرزها وتجميعها تحت موضوع الدرس تلقائياً!
-              </span>
-            </div>
-
-            {/* Structure of sheet "answers 1" Guide Card */}
-            <div className="p-4 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-3">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-4 h-4 text-teal-700" />
-                <h4 className="text-xs font-bold text-teal-950">
-                  هيكل ورقة (answers 1) المعتمد لإجابات ودرجات الطلاب (النظام الأفقي):
-                </h4>
-              </div>
-              <p className="text-xs text-teal-900 leading-relaxed">
-                في ورقة <strong>answers 1</strong>، يُسجل لكل مشترك صف مستقل لكل درس يضم بياناته الأساسية (الأعمدة A إلى E)، ثم تُسجل إجابات التمارين أفقياً في نفس الصف؛ كل تمرين يأخذ 5 أعمدة:
-              </p>
-              
-              <div className="space-y-2 text-xs">
-                {/* Basic Columns A:E */}
-                <div className="bg-white p-2.5 rounded-xl border border-teal-200">
-                  <span className="text-[11px] font-bold text-slate-800 block mb-1">
-                    🔹 الأعمدة الأساسية (A إلى E):
-                  </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-[10px] text-center font-semibold">
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>A</b>: وقت الارسال</span>
-                    <span className="bg-teal-50 p-1.5 rounded-lg border border-teal-300 text-teal-950"><b>B</b>: ID المشترك</span>
-                    <span className="bg-teal-50 p-1.5 rounded-lg border border-teal-300 text-teal-950"><b>C</b>: اسم المشترك</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>D</b>: موضوع الدرس</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200 text-slate-400"><b>E</b>: (محجوز)</span>
-                  </div>
-                </div>
-
-                {/* Exercise 1 Columns F:J */}
-                <div className="bg-white p-2.5 rounded-xl border border-teal-200">
-                  <span className="text-[11px] font-bold text-teal-800 block mb-1">
-                    🔹 الإجابة الأولى (الأعمدة F إلى J):
-                  </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-[10px] text-center font-semibold">
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>F</b>: الكلمة المستهدفة</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>G</b>: النص المنطوق</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>H</b>: رابط ملف الصوت</span>
-                    <span className="bg-emerald-50 p-1.5 rounded-lg border border-emerald-300 text-emerald-900"><b>I</b>: الدرجة (%)</span>
-                    <span className="bg-slate-50 p-1.5 rounded-lg border border-slate-200"><b>J</b>: التقدير</span>
-                  </div>
-                </div>
-
-                {/* Exercise 2 & Beyond */}
-                <div className="bg-white p-2.5 rounded-xl border border-teal-200 text-[11px] text-slate-700 font-semibold flex items-center justify-between">
-                  <span>🔹 الإجابة الثانية (الأعمدة <b>K:O</b>) | الإجابة الثالثة (<b>P:T</b>)... وهكذا لكل تمرين 5 أعمدة في نفس الصف!</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Setup Instructions */}
-            <div className="border border-slate-200 rounded-2xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-emerald-600" />
-                  <span>كود Google Apps Script المحدث (يدعم ورقة الدروس ومجلد Google Drive):</span>
-                </div>
-                <button
-                  onClick={handleCopyScriptCode}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                >
-                  {copiedCode ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-600" />
-                      <span className="text-emerald-700">تم نسخ الكود!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>نسخ كود الربط الكامل</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <ol className="list-decimal list-inside space-y-1.5 text-xs text-slate-600 leading-relaxed pr-1">
-                <li>افتح جدول Google Sheets الخاص بك وأنشئ ورقة باسم: <strong>الدروس</strong>.</li>
-                <li>من القائمة العلوية: اضغط على <strong>التطبيقات الملحقة (Extensions)</strong> ثم <strong>Apps Script</strong>.</li>
-                <li>امسح ما بداخل الملف والصق الكود الذي نسخته بالزر أعلاه.</li>
-                <li>اضغط على الزر الأزرق بالأعلى: <strong>نشر (Deploy)</strong> ثم <strong>نشر جديد (New deployment)</strong>.</li>
-                <li>اختر النوع: <strong>تطبيق ويب (Web app)</strong>، واجعل صلاحية الوصول: <strong>أي شخص (Anyone)</strong>.</li>
-                <li>انسخ رابط تطبيق الويب والصقه في خانة الرابط أعلاه! انتهى الربط وستعمل المزامنة المباشرة.</li>
-              </ol>
-
-              <div className="relative mt-2">
-                <pre className="p-3 bg-slate-900 text-slate-200 rounded-xl text-[11px] font-mono overflow-x-auto max-h-40 dir-ltr text-left">
-                  {GOOGLE_APPS_SCRIPT_TEMPLATE}
-                </pre>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: DUAL EVALUATION SYSTEM SETTINGS & QUOTA MONITOR */}
-        {activeTab === 'system' && (
-          <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-md border border-slate-100 space-y-6">
-            <div className="pb-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                  <Gauge className="w-5 h-5 text-indigo-600" />
-                  <span>التحكم بنظام التقييم ومراقبة الاستهلاك اليومي</span>
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  نظام التقييم بالذكاء الاصطناعي (Audio-First) هو الأساسي لجميع الأجهزة مع تحول ذكي للمحرك المحلي
-                </p>
-              </div>
-
+            {/* Accordion 1: Structure of sheet "الدروس" Guide Card */}
+            <div className="border border-emerald-200 rounded-2xl overflow-hidden bg-white shadow-2xs">
               <button
                 type="button"
-                onClick={() => setShowBillingGuideModal(true)}
-                className="px-4 py-2 bg-linear-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-sm cursor-pointer flex items-center gap-1.5 self-start sm:self-auto"
+                onClick={() => setShowLessonsStructureGuide(!showLessonsStructureGuide)}
+                className="w-full p-4 bg-emerald-50/70 hover:bg-emerald-100/60 flex items-center justify-between transition-colors text-right cursor-pointer"
               >
-                <CreditCard className="w-4 h-4 text-slate-950" />
-                <span>دليل الترقية والدفع وتفعيل الباقة المفتوحة</span>
-              </button>
-            </div>
-
-            {/* AI DAILY QUOTA & USAGE MONITOR (شريط الاستهلاك والإنذار) */}
-            <div className="p-5 sm:p-6 bg-linear-to-br from-slate-900 via-slate-800 to-indigo-950 text-white rounded-3xl border border-slate-700 shadow-xl space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 flex items-center justify-center font-bold">
-                    <TrendingUp className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                      <span>استهلاك التقييم الصوتي اليومي (AI Daily Quota)</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        تجدد تلقائي منتصف الليل
-                      </span>
-                    </h4>
-                    <p className="text-xs text-slate-300 mt-0.5">
-                      تتبع دقيق لعدد محاولات الطلاب اليومية لحمايتك وضمان استمرار الخدمة
-                    </p>
-                  </div>
-                </div>
-
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleResetDailyQuota}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 rounded-xl text-xs font-semibold cursor-pointer transition-all"
-                    title="تصفير العداد لليوم والبدء من 0"
-                  >
-                    تصفير العداد يدوياً (0)
-                  </button>
-                </div>
-              </div>
-
-              {/* Progress Bar Container */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs font-bold">
-                  <span className="text-slate-300">
-                    استهلاك التقييم الصوتي اليوم:
-                    <strong className="text-amber-400 text-sm font-cairo mr-1.5">
-                      [ {quotaStatus.count} / {quotaStatus.maxDaily} ]
-                    </strong>
-                    محاولة
-                  </span>
-                  <span
-                    className={`font-cairo text-sm font-extrabold ${
-                      quotaStatus.isExceeded
-                        ? 'text-rose-400'
-                        : quotaStatus.isWarning
-                        ? 'text-amber-400'
-                        : 'text-emerald-400'
-                    }`}
-                  >
-                    {quotaStatus.percentage}%
+                  <BookOpen className="w-4 h-4 text-emerald-700" />
+                  <span className="text-xs font-bold text-emerald-950">
+                    📖 هيكل ورقة (الدروس) المعتمد في Google Sheets (نظام التمارين الأفقية للدرس)
                   </span>
                 </div>
-
-                {/* The Visual Progress Track */}
-                <div className="w-full h-3.5 bg-slate-950/80 rounded-full overflow-hidden p-0.5 border border-slate-700">
-                  <div
-                    className={`h-full rounded-full transition-all duration-700 ease-out ${
-                      quotaStatus.isExceeded
-                        ? 'bg-linear-to-r from-rose-500 to-rose-600 animate-pulse'
-                        : quotaStatus.isWarning
-                        ? 'bg-linear-to-r from-amber-400 to-amber-500'
-                        : 'bg-linear-to-r from-emerald-400 to-teal-400'
-                    }`}
-                    style={{ width: `${Math.min(100, Math.max(3, quotaStatus.percentage))}%` }}
-                  />
-                </div>
-              </div>
-
-              {/* Early Warning Alerts (80% and 100%) */}
-              {quotaStatus.isExceeded ? (
-                <div className="p-3.5 bg-rose-950/70 border border-rose-500/80 rounded-2xl text-xs text-rose-200 flex items-start gap-2.5 animate-in fade-in duration-200">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    <span className="font-bold text-rose-300 block">
-                      🛑 تم استهلاك الحصة المجانية لليوم بالكامل ({quotaStatus.count} / {quotaStatus.maxDaily})!
-                    </span>
-                    <p className="text-[11px] text-rose-200/90 leading-relaxed">
-                      يعمل النظام التلقائي الآن بمرونة: أجهزة الكمبيوتر تكمل التدريب عبر المحرك المحلي الداخلي، بينما تظهر للهواتف والتابليت رسالة لطيفة بالعودة للكمبيوتر أو الانتظار لتجدد الرصيد المجاني في منتصف الليل.
-                    </p>
-                  </div>
-                </div>
-              ) : quotaStatus.isWarning ? (
-                <div className="p-3.5 bg-amber-950/70 border border-amber-500/80 rounded-2xl text-xs text-amber-200 flex items-start gap-2.5 animate-in fade-in duration-200">
-                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    <span className="font-bold text-amber-300 block">
-                      ⚠️ تنبيه مبكر: تم استهلاك {quotaStatus.percentage}% من الحصة اليومية المتاحة (بقي {quotaStatus.remaining} محاولة)
-                    </span>
-                    <p className="text-[11px] text-amber-200/90 leading-relaxed">
-                      عند اكتمال الـ 100%، سيتحول الكمبيوتر تلقائياً إلى المحرك الداخلي بدون انقطاع، مع إرشاد أجهزة الجوال.
-                    </p>
-                  </div>
-                </div>
-              ) : null}
-
-              {/* Feedback Notice on Action */}
-              {quotaNotice && (
-                <div className="p-2.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 rounded-xl text-xs font-semibold">
-                  {quotaNotice}
-                </div>
-              )}
-
-              {/* 3 Metric Cards + Limit Setter */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-                <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700/80">
-                  <span className="text-[11px] text-slate-400 block mb-0.5">المتبقي لليوم:</span>
-                  <div className="text-base font-bold text-white font-cairo">
-                    {quotaStatus.remaining} <span className="text-xs text-slate-400 font-normal">محاولة</span>
-                  </div>
-                </div>
-
-                <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700/80">
-                  <span className="text-[11px] text-slate-400 block mb-0.5">التجدد التلقائي:</span>
-                  <div className="text-xs font-bold text-emerald-400 flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>منتصف الليل (12:00 ص)</span>
-                  </div>
-                </div>
-
-                {/* Adjust Limit Form */}
-                <form
-                  onSubmit={handleUpdateMaxDailyQuota}
-                  className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700/80 flex items-center gap-2"
-                >
-                  <input
-                    type="number"
-                    min="10"
-                    max="100000"
-                    value={customMaxDailyInput}
-                    onChange={(e) => setCustomMaxDailyInput(e.target.value)}
-                    placeholder={`الحد (${quotaStatus.maxDaily})...`}
-                    className="w-full bg-slate-900 border border-slate-700 px-2.5 py-1.5 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-hidden"
-                  />
-                  <button
-                    type="submit"
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shrink-0 cursor-pointer"
-                  >
-                    تعديل
-                  </button>
-                </form>
-              </div>
-            </div>
-
-            {/* DUAL EVALUATION ENGINE CARDS */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div
-                onClick={() => onUpdateDefaultEvalMode('ai')}
-                className={`p-5 rounded-2xl border-2 transition-all cursor-pointer relative ${
-                  defaultEvalMode === 'ai'
-                    ? 'border-indigo-500 bg-indigo-50/40 shadow-xs'
-                    : 'border-slate-200 bg-white hover:border-slate-300'
-                }`}
-              >
-                {defaultEvalMode === 'ai' && (
-                  <span className="absolute top-4 left-4 px-2 py-0.5 bg-indigo-600 text-white rounded-full text-[10px] font-bold">
-                    الأساسي الافتراضي (موصى به)
-                  </span>
-                )}
-                <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold mb-3">
-                  ✨
-                </div>
-                <h4 className="text-sm font-bold text-slate-900 mb-1">
-                  النظام الأساسي: تقييم الذكاء الاصطناعي (Audio-First Evaluation)
-                </h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  يستمع لملف الصوت المسجل الحقيقي من أي جوال أو كمبيوتر، ويكتب الكلمة المنطوقة بدقة ويقيم مخارج الحروف.
-                </p>
-                <ul className="mt-3 space-y-1 text-[11px] text-indigo-800 font-medium">
-                  <li>✓ يعمل على 100% من الهواتف والأجهزة اللوحية دون قيود المتصفح</li>
-                  <li>✓ تفريغ الكلمة المسموعة حرفياً مع تحليل الحركات والمخارج</li>
-                  <li>✓ باقة مجانية حتى 1,500 تقييم يومياً مع إمكانية الترقية المفتوحة</li>
-                </ul>
-              </div>
-
-              <div
-                onClick={() => onUpdateDefaultEvalMode('local')}
-                className={`p-5 rounded-2xl border-2 transition-all cursor-pointer relative ${
-                  defaultEvalMode === 'local'
-                    ? 'border-emerald-500 bg-emerald-50/40 shadow-xs'
-                    : 'border-slate-200 bg-white hover:border-slate-300'
-                }`}
-              >
-                {defaultEvalMode === 'local' && (
-                  <span className="absolute top-4 left-4 px-2 py-0.5 bg-emerald-600 text-white rounded-full text-[10px] font-bold">
-                    الافتراضي الحالي
-                  </span>
-                )}
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold mb-3">
-                  ⚡
-                </div>
-                <h4 className="text-sm font-bold text-slate-900 mb-1">
-                  النظام البديل: التقييم الداخلي السريع (Local Matcher)
-                </h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  يعمل داخل متصفح الكمبيوتر كبديل فوري عند نفاد الحصة اليومية للذكاء الاصطناعي.
-                </p>
-                <ul className="mt-3 space-y-1 text-[11px] text-emerald-800 font-medium">
-                  <li>✓ فوري ومجاني بلا إنترنت على الكمبيوتر</li>
-                  <li>✓ يضمن استمرار الطلاب على الكمبيوتر بدون أي توقف</li>
-                  <li>✓ تدريب سريع بدون استهلاك أي رصيد</li>
-                </ul>
-              </div>
-            </div>
-
-            {/* AI Status & Diagnostic Tool */}
-            <div className="mt-6 p-6 bg-slate-50 border border-slate-200/90 rounded-3xl space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
-                    <Cpu className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900">
-                      أداة فحص واختبار اتصال الذكاء الاصطناعي (Gemini AI Diagnostic)
-                    </h4>
-                    <p className="text-xs text-slate-500">
-                      تأكد مما إذا كان محرك الذكاء الاصطناعي مفعلاً ويعمل على سيرفرك أو Vercel
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleCheckAIStatus}
-                  disabled={aiDiagnostic?.loading}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition-all shadow-xs cursor-pointer flex items-center gap-2 self-start sm:self-auto"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${aiDiagnostic?.loading ? 'animate-spin' : ''}`} />
-                  <span>{aiDiagnostic?.loading ? 'جاري الفحص...' : 'فحص اتصال Gemini الآن'}</span>
-                </button>
-              </div>
-
-              {aiDiagnostic && !aiDiagnostic.loading && (
-                <div
-                  className={`p-4 rounded-2xl border text-xs animate-in fade-in duration-200 ${
-                    aiDiagnostic.configured && aiDiagnostic.status === 'active'
-                      ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
-                      : 'bg-amber-50 text-amber-900 border-amber-300'
-                  }`}
-                >
-                  <div className="flex items-start gap-2.5">
-                    {aiDiagnostic.configured && aiDiagnostic.status === 'active' ? (
-                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                    ) : (
-                      <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                    )}
-                    <div className="space-y-1.5 flex-1">
-                      <div className="font-bold text-sm">
-                        {aiDiagnostic.configured && aiDiagnostic.status === 'active'
-                          ? 'الذكاء الاصطناعي متصل وجاهز للعمل 100%!'
-                          : 'تنبيه: محرك الذكاء الاصطناعي غير متصل أو لم يُعثر على المفتاح'}
+                <span className="text-xs font-bold text-emerald-700 font-mono">
+                  {showLessonsStructureGuide ? '▲ إخفاء الشرح' : '▼ فتح الشرح'}
+                </span>
+              </button>
+              {showLessonsStructureGuide && (
+                <div className="p-4 space-y-3 border-t border-emerald-100 text-xs animate-in fade-in duration-200">
+                  <p className="text-xs text-emerald-900 leading-relaxed">
+                    في ورقة <strong>الدروس</strong>، يمثل كل صف درساً مستقلاً يبدأ في <strong>العامود A (موضوع الدرس)</strong>، وتتتابع تمارين الكلمات والنصوص أفقياً في نفس الصف؛ كل تمرين يأخذ 8 أعمدة:
+                  </p>
+                  
+                  <div className="space-y-2 text-xs">
+                    {/* Exercise 1 */}
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-emerald-200">
+                      <span className="text-[11px] font-bold text-emerald-800 block mb-1">
+                        🔹 التمرين الأول (الأعمدة B إلى I):
+                      </span>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-1.5 text-[10px] text-center font-semibold">
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>B</b>: الفئة</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>C</b>: الصورة</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>D</b>: الصوت</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>E</b>: قراءة آلية</span>
+                        <span className="bg-emerald-50 p-1.5 rounded-lg border border-emerald-300 text-emerald-900"><b>F</b>: نص الدرس</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>G</b>: المعنى</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>H</b>: المخرج</span>
+                        <span className="bg-amber-50 p-1.5 rounded-lg border border-amber-300 text-amber-900"><b>I</b>: التكرار</span>
                       </div>
-                      <p className="leading-relaxed">
-                        {aiDiagnostic.message || aiDiagnostic.error || 'تم استلام الاستجابة من الخادم.'}
-                      </p>
-                      {aiDiagnostic.sample && (
-                        <div className="text-[11px] font-mono bg-white/70 p-2 rounded-lg text-slate-700 mt-1">
-                          استجابة نموذج الذكاء الاصطناعي التجريبية: "{aiDiagnostic.sample}"
-                        </div>
-                      )}
+                    </div>
+
+                    {/* Exercise 2 */}
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-emerald-200">
+                      <span className="text-[11px] font-bold text-indigo-800 block mb-1">
+                        🔹 التمرين الثاني (الأعمدة J إلى Q):
+                      </span>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-1.5 text-[10px] text-center font-semibold">
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>J</b>: الفئة</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>K</b>: الصورة</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>L</b>: الصوت</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>M</b>: قراءة آلية</span>
+                        <span className="bg-indigo-50 p-1.5 rounded-lg border border-indigo-300 text-indigo-900"><b>N</b>: نص الدرس</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>O</b>: المعنى</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>P</b>: المخرج</span>
+                        <span className="bg-amber-50 p-1.5 rounded-lg border border-amber-300 text-amber-900"><b>Q</b>: التكرار</span>
+                      </div>
+                    </div>
+
+                    {/* Exercise 3 & Beyond */}
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-emerald-200 text-[11px] text-slate-700 font-semibold flex items-center justify-between">
+                      <span>🔹 التمرين الثالث (الأعمدة <b>R:Y</b>) | التمرين الرابع (<b>Z:AG</b>)... وهكذا بلا حدود</span>
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md font-bold">
+                        8 أعمدة لكل نص
+                      </span>
                     </div>
                   </div>
                 </div>
               )}
+            </div>
 
-              {/* Clarification on Why Difference Wasn't Visible */}
-              <div className="p-4 bg-white border border-slate-200 rounded-2xl space-y-2 text-xs">
-                <div className="font-bold text-slate-900 flex items-center gap-2">
-                  <HelpCircle className="w-4 h-4 text-indigo-600" />
-                  <span>لماذا لم تلاحظ فرقاً بين التقييمين سابقاً؟</span>
+            {/* Accordion 2: Structure of sheet "answers 1" Guide Card */}
+            <div className="border border-teal-200 rounded-2xl overflow-hidden bg-white shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setShowAnswersStructureGuide(!showAnswersStructureGuide)}
+                className="w-full p-4 bg-teal-50/70 hover:bg-teal-100/60 flex items-center justify-between transition-colors text-right cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Table className="w-4 h-4 text-teal-700" />
+                  <span className="text-xs font-bold text-teal-950">
+                    📊 هيكل ورقة (answers 1) المعتمد لإجابات ودرجات الطلاب (النظام الأفقي)
+                  </span>
                 </div>
-                <p className="text-slate-600 leading-relaxed text-[11px]">
-                  عند رفع المشروع على Vercel، لا يكون مفتاح <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">GEMINI_API_KEY</code> موجوداً تلقائياً. لذلك، عندما كان يفشل الاتصال بسيرفر الذكاء الاصطناعي، كان النظام يرجع تلقائياً للمحرك الداخلي حتى لا يتعطل الطالب، فكانت النتيجة تظهر متطابقة!
-                </p>
-                <div className="mt-2 p-3 bg-indigo-50/70 rounded-xl border border-indigo-100 text-[11px] text-indigo-950 space-y-1">
-                  <div className="font-bold">كيفية تفعيل الذكاء الاصطناعي على Vercel في 3 خطوات مجاناً:</div>
-                  <ol className="list-decimal list-inside space-y-1 text-slate-700">
-                    <li>ادخل إلى حسابك في موقع Vercel واختر مشروع تطبيقك.</li>
-                    <li>اضغط على <strong>Settings</strong> ثم اختر <strong>Environment Variables</strong> من القائمة الجانبية.</li>
-                    <li>أضف متغيراً جديداً: الاسم <code className="font-mono bg-white px-1">GEMINI_API_KEY</code> والقيمة مفتاحك المجاني من Google AI Studio، ثم اضغط Save.</li>
-                    <li>أعد النشر (Redeploy) وسيعمل تقييم الذكاء الاصطناعي الفائق فوراً!</li>
+                <span className="text-xs font-bold text-teal-700 font-mono">
+                  {showAnswersStructureGuide ? '▲ إخفاء الشرح' : '▼ فتح الشرح'}
+                </span>
+              </button>
+              {showAnswersStructureGuide && (
+                <div className="p-4 space-y-3 border-t border-teal-100 text-xs animate-in fade-in duration-200">
+                  <p className="text-xs text-teal-900 leading-relaxed">
+                    في ورقة <strong>answers 1</strong>، يُسجل لكل مشترك صف مستقل لكل درس يضم بياناته الأساسية (الأعمدة A إلى E)، ثم تُسجل إجابات التمارين أفقياً في نفس الصف؛ كل تمرين يأخذ 5 أعمدة:
+                  </p>
+                  
+                  <div className="space-y-2 text-xs">
+                    {/* Basic Columns A:E */}
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-teal-200">
+                      <span className="text-[11px] font-bold text-slate-800 block mb-1">
+                        🔹 الأعمدة الأساسية (A إلى E):
+                      </span>
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-[10px] text-center font-semibold">
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>A</b>: وقت الارسال</span>
+                        <span className="bg-teal-50 p-1.5 rounded-lg border border-teal-300 text-teal-950"><b>B</b>: ID المشترك</span>
+                        <span className="bg-teal-50 p-1.5 rounded-lg border border-teal-300 text-teal-950"><b>C</b>: اسم المشترك</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>D</b>: موضوع الدرس</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200 text-slate-400"><b>E</b>: (حالة الإنجاز)</span>
+                      </div>
+                    </div>
+
+                    {/* Exercise 1 Columns F:J */}
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-teal-200">
+                      <span className="text-[11px] font-bold text-teal-800 block mb-1">
+                        🔹 الإجابة الأولى (الأعمدة F إلى J):
+                      </span>
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-[10px] text-center font-semibold">
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>F</b>: الكلمة المستهدفة</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>G</b>: النص المنطوق</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>H</b>: رابط ملف الصوت</span>
+                        <span className="bg-emerald-50 p-1.5 rounded-lg border border-emerald-300 text-emerald-900"><b>I</b>: الدرجة (%)</span>
+                        <span className="bg-white p-1.5 rounded-lg border border-slate-200"><b>J</b>: التقدير</span>
+                      </div>
+                    </div>
+
+                    {/* Exercise 2 & Beyond */}
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-teal-200 text-[11px] text-slate-700 font-semibold flex items-center justify-between">
+                      <span>🔹 الإجابة الثانية (الأعمدة <b>K:O</b>) | الإجابة الثالثة (<b>P:T</b>)... وهكذا لكل تمرين 5 أعمدة في نفس الصف!</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Accordion 3: Setup Instructions & Apps Script Code */}
+            <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setShowScriptCodeGuide(!showScriptCodeGuide)}
+                className="w-full p-4 bg-slate-50 hover:bg-slate-100/80 flex items-center justify-between transition-colors text-right cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <FileCode className="w-4 h-4 text-indigo-600" />
+                  <span className="text-xs font-bold text-slate-900">
+                    💻 كود Google Apps Script المحدث (يدعم ورقة الدروس ومجلد Google Drive و answers 1)
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-bold text-indigo-600 font-mono">
+                    {showScriptCodeGuide ? '▲ إخفاء الكود' : '▼ فتح الكود'}
+                  </span>
+                </div>
+              </button>
+
+              {showScriptCodeGuide && (
+                <div className="p-5 space-y-3 border-t border-slate-200 text-xs animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-800">انسخ الكود والصقه في Apps Script بملف Google Sheets:</span>
+                    <button
+                      type="button"
+                      onClick={handleCopyScriptCode}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs"
+                    >
+                      {copiedCode ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-emerald-400">تم نسخ الكود!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>نسخ الكود الكامل</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <ol className="list-decimal list-inside space-y-1.5 text-xs text-slate-600 leading-relaxed pr-1">
+                    <li>افتح جدول Google Sheets الخاص بك وأنشئ ورقة باسم: <strong>الدروس</strong>.</li>
+                    <li>من القائمة العلوية: اضغط على <strong>التطبيقات الملحقة (Extensions)</strong> ثم <strong>Apps Script</strong>.</li>
+                    <li>امسح ما بداخل الملف والصق الكود الذي نسخته بالزر أعلاه.</li>
+                    <li>اضغط على الزر الأزرق بالأعلى: <strong>نشر (Deploy)</strong> ثم <strong>نشر جديد (New deployment)</strong>.</li>
+                    <li>اختر النوع: <strong>تطبيق ويب (Web app)</strong>، واجعل صلاحية الوصول: <strong>أي شخص (Anyone)</strong>.</li>
+                    <li>انسخ رابط تطبيق الويب والصقه في خانة الرابط أعلاه ثم اضغط "تأكيد الاتصال"!</li>
                   </ol>
-                </div>
-              </div>
 
-              {/* Direct Comparison Table */}
-              <div className="pt-2">
-                <h5 className="font-bold text-xs text-slate-800 mb-2">
-                  مقارنة تفصيلية بين النظامين:
-                </h5>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-right text-[11px] bg-white rounded-xl border border-slate-200">
-                    <thead>
-                      <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
-                        <th className="p-2.5">وجه المقارنة</th>
-                        <th className="p-2.5 text-emerald-800">النظام الداخلي (الأساسي)</th>
-                        <th className="p-2.5 text-indigo-800">نظام الذكاء الاصطناعي (Gemini)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      <tr>
-                        <td className="p-2.5 font-bold text-slate-700">التكلفة والحدود</td>
-                        <td className="p-2.5 text-emerald-700 font-semibold">مجاني 100% للأبد بلا أي حدود</td>
-                        <td className="p-2.5 text-indigo-700">مجاني حتى 1500 تقييم يومياً (Google Tier)</td>
-                      </tr>
-                      <tr>
-                        <td className="p-2.5 font-bold text-slate-700">سرعة الاستجابة</td>
-                        <td className="p-2.5 text-emerald-700 font-semibold">لحظية وفورية (0.1 ثانية)</td>
-                        <td className="p-2.5 text-indigo-700">1 - 2 ثانية لتحليل المقطع الصوتي</td>
-                      </tr>
-                      <tr>
-                        <td className="p-2.5 font-bold text-slate-700">طريقة التقييم</td>
-                        <td className="p-2.5 text-slate-600">مطابقة الحروف والتشكيل المباشرة (Levenshtein)</td>
-                        <td className="p-2.5 text-slate-600">تحليل صوتي فيزيائي لمخارج الحروف والتجويد</td>
-                      </tr>
-                      <tr>
-                        <td className="p-2.5 font-bold text-slate-700">التغذية الراجعة</td>
-                        <td className="p-2.5 text-slate-600">نسبة تطابق + الحروف الصحيحة والناقصة</td>
-                        <td className="p-2.5 text-slate-600">نصائح دقيقة لموضع اللسان والشفتين والحلق</td>
-                      </tr>
-                      <tr>
-                        <td className="p-2.5 font-bold text-slate-700">العمل دون إنترنت</td>
-                        <td className="p-2.5 text-emerald-700 font-semibold">يعمل أوفلاين بالكامل على المتصفح</td>
-                        <td className="p-2.5 text-slate-600">يحتاج اتصالاً بالإنترنت</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                  <div className="relative mt-2">
+                    <pre className="p-3 bg-slate-900 text-slate-200 rounded-xl text-[11px] font-mono overflow-x-auto max-h-48 dir-ltr text-left">
+                      {GOOGLE_APPS_SCRIPT_TEMPLATE}
+                    </pre>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* TAB 4: SUBMISSIONS LOG */}
+        {/* TAB 4: SUBMISSIONS LOG (LIVE FROM ANSWERS 1) */}
         {activeTab === 'submissions' && (
-          <div className="bg-white rounded-3xl p-6 shadow-md border border-slate-100 flex flex-col">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">
-                  سجل استجابات ودرجات الطلاب ({submissions.length})
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  يمكنك استعراض الدرجات وتصديرها لملف Excel بضغطة زر
-                </p>
+          <div className="bg-white rounded-3xl p-6 shadow-md border border-slate-100 flex flex-col space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold">
+                  <Table className="w-5 h-5 text-teal-700" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    سجل نتائج واستجابات الطلاب المباشر من ورقة (answers 1)
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    قراءة حية للنتائج والدرجات المحفوظة أفقياً في ورقة Google Sheets
+                  </p>
+                </div>
               </div>
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => exportRecordsToCSV(submissions)}
-                  disabled={submissions.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                  type="button"
+                  onClick={handleLoadAnswers1}
+                  disabled={loadingAnswers1}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>تصدير إلى Excel / CSV</span>
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingAnswers1 ? 'animate-spin' : ''}`} />
+                  <span>{loadingAnswers1 ? 'جاري التحديث...' : 'تحديث من الشيت'}</span>
                 </button>
-
-                {submissions.length > 0 && (
-                  <button
-                    onClick={onClearSubmissions}
-                    className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                    title="مسح السجل"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
+                <span className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold font-mono">
+                  {answers1Submissions.length} صفوف مسجلة
+                </span>
               </div>
             </div>
 
-            {submissions.length === 0 ? (
-              <div className="text-center py-16 text-xs text-slate-400">
-                لم يتم تسجيل أي درجات بعد. عندما يتدرب الطلاب ستظهر درجاتهم هنا تلقائياً وتُرسل لـ Google Sheets.
+            {loadingAnswers1 ? (
+              <div className="py-16 flex flex-col items-center justify-center gap-2 text-xs text-slate-500">
+                <Loader2 className="w-7 h-7 text-emerald-600 animate-spin" />
+                <span>جاري قراءة البيانات المباشرة من ورقة answers 1...</span>
+              </div>
+            ) : answers1Submissions.length === 0 ? (
+              <div className="text-center py-16 text-xs text-slate-400 space-y-2">
+                <p>لم يتم العثور على أي نتائج مسجلة حتى الآن في ورقة answers 1.</p>
+                <p className="text-[11px] text-slate-400">
+                  عندما يتدرب الطلاب ويُعتمد إرسال التمارين، ستُسجل أفقياً في الشيت وتظهر هنا مباشرة.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleLoadAnswers1}
+                  className="mt-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                >
+                  إعادة المحاولة
+                </button>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-right text-xs">
                   <thead>
-                    <tr className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
-                      <th className="p-3">الوقت</th>
-                      <th className="p-3">اسم الطالب</th>
-                      <th className="p-3">الكلمة</th>
-                      <th className="p-3">الدرجة</th>
-                      <th className="p-3">التقدير</th>
-                      <th className="p-3">ما نطق به</th>
-                      <th className="p-3">نوع التقييم</th>
+                    <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                      <th className="p-3">وقت الإرسال</th>
+                      <th className="p-3">رقم المشترك</th>
+                      <th className="p-3">اسم المشترك</th>
+                      <th className="p-3">موضوع الدرس</th>
+                      <th className="p-3 text-center">عدد التمارين</th>
+                      <th className="p-3 text-center">الإجراء</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {submissions.map((sub) => (
-                      <tr key={sub.id} className="hover:bg-slate-50/70">
-                        <td className="p-3 text-[11px] text-slate-400">
-                          {new Date(sub.timestamp).toLocaleTimeString('ar-SA', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+                    {answers1Submissions.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-teal-50/40 transition-colors">
+                        <td className="p-3 text-[11px] text-slate-500 whitespace-nowrap font-mono dir-ltr text-right">
+                          {row.timestamp || '—'}
                         </td>
-                        <td className="p-3 font-bold text-slate-800">
-                          {sub.studentName || 'طالب'}
+                        <td className="p-3 font-mono font-bold text-teal-900">
+                          {row.studentId ? `#${row.studentId}` : '—'}
                         </td>
-                        <td className="p-3 font-amiri text-base font-bold text-emerald-800">
-                          {sub.word}
+                        <td className="p-3 font-bold text-slate-900">
+                          {row.studentName || 'مشترك'}
                         </td>
-                        <td className="p-3">
-                          <span
-                            className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${
-                              sub.score >= 85
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : sub.score >= 70
-                                ? 'bg-sky-100 text-sky-800'
-                                : 'bg-amber-100 text-amber-800'
-                            }`}
-                          >
-                            {sub.score}%
+                        <td className="p-3 text-slate-700 font-semibold">
+                          {row.lessonSubject || 'عام'}
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className="px-2.5 py-1 bg-teal-100 text-teal-800 rounded-full font-bold text-[11px]">
+                            {row.totalExercises} تمارين
                           </span>
                         </td>
-                        <td className="p-3 text-slate-600">{sub.grade}</td>
-                        <td className="p-3 font-amiri text-slate-700">{sub.detectedWord || '—'}</td>
-                        <td className="p-3 text-[11px] text-slate-500">
-                          {sub.engineUsed === 'ai' ? 'ذكاء اصطناعي' : 'داخلي'}
+                        <td className="p-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedSubmissionDetail(row)}
+                            className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                          >
+                            <span>عرض تفاصيل الإجابات</span>
+                            <span>👁️</span>
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -2790,6 +2354,131 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             )}
           </div>
         )}
+
+      {/* MODAL: SUBMISSION EXERCISES DETAIL MODAL (answers 1) */}
+      {selectedSubmissionDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 relative max-h-[90vh] flex flex-col">
+            <button
+              onClick={() => setSelectedSubmissionDetail(null)}
+              className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Header info */}
+            <div className="flex items-center gap-3 pb-4 border-b border-slate-100 mb-4">
+              <div className="w-10 h-10 rounded-2xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold">
+                <Table className="w-5 h-5 text-teal-700" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  تفاصيل إجابات المشترك: {selectedSubmissionDetail.studentName} ({selectedSubmissionDetail.studentId ? `#${selectedSubmissionDetail.studentId}` : ''})
+                </h3>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-0.5">
+                  <span className="font-semibold text-teal-900">درس: {selectedSubmissionDetail.lessonSubject}</span>
+                  <span>•</span>
+                  <span>{selectedSubmissionDetail.timestamp}</span>
+                  <span>•</span>
+                  <span>{selectedSubmissionDetail.exercises.length} تمرين مسجل</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Exercises Grid */}
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {selectedSubmissionDetail.exercises.length === 0 ? (
+                <div className="text-center py-10 text-xs text-slate-400">
+                  لا توجد تفاصيل تمارين في هذا السجل
+                </div>
+              ) : (
+                selectedSubmissionDetail.exercises.map((ex, exIdx) => (
+                  <div
+                    key={exIdx}
+                    className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-500">
+                        تمرين رقم #{exIdx + 1}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full font-bold text-xs ${
+                            ex.score >= 85
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : ex.score >= 70
+                              ? 'bg-sky-100 text-sky-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          الدرجة: {ex.score}%
+                        </span>
+                        {ex.grade && (
+                          <span className="px-2 py-0.5 bg-slate-200 text-slate-700 rounded-md font-bold text-[11px]">
+                            {ex.grade}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3 rounded-xl border border-slate-100">
+                      <div>
+                        <span className="text-[11px] text-slate-400 block mb-0.5">الكلمة المستهدفة:</span>
+                        <span className="font-amiri text-lg font-bold text-emerald-800">
+                          {ex.word}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[11px] text-slate-400 block mb-0.5">ما نطق به المشترك:</span>
+                        <span className="font-amiri text-base font-semibold text-slate-700">
+                          {ex.spokenText || '—'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Audio Player */}
+                    {ex.audioUrl ? (
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-slate-200/60">
+                        <div className="flex items-center gap-2 flex-1">
+                          <Volume2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <audio
+                            controls
+                            src={getDirectAudioUrl(ex.audioUrl)}
+                            className="h-8 w-full max-w-xs"
+                          />
+                        </div>
+                        <a
+                          href={ex.audioUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 shrink-0"
+                        >
+                          <span>فتح الملف في Google Drive</span>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-slate-400 italic pt-1">
+                        لا يوجد رابط تسجيل صوتي مرفوع
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedSubmissionDetail(null)}
+                className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </main>
 
       {/* MODAL 1: SUBJECTS MANAGER (تعديل وحذف وإضافة مواضيع الدروس) */}

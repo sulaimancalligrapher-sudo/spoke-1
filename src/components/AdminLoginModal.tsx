@@ -1,22 +1,26 @@
 import React, { useState } from 'react';
 import { ShieldCheck, Lock, User, CheckCircle2, AlertCircle, Loader2, X } from 'lucide-react';
 
+import { AdminUserRecord } from '../types';
+
 interface AdminLoginModalProps {
   isOpen: boolean;
   onClose: () => void;
   onLoginSuccess: (adminName: string) => void;
+  adminUsers?: AdminUserRecord[];
 }
 
 export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   isOpen,
   onClose,
   onLoginSuccess,
+  adminUsers = [],
 }) => {
   const [adminName, setAdminName] = useState(() => {
     try {
-      return sessionStorage.getItem('faseeh_admin_name') || 'المعلم المشرف';
+      return sessionStorage.getItem('faseeh_admin_name') || '';
     } catch {
-      return 'المعلم المشرف';
+      return '';
     }
   });
   const [adminPin, setAdminPin] = useState('');
@@ -35,22 +39,54 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     const cleanPin = adminPin.trim();
 
     if (!cleanName) {
-      setErrorMsg('يرجى إدخال اسم المعلم أو المشرف الإداري.');
+      setErrorMsg('يرجى إدخال اسم المسؤول الإداري المسجل في الشيت.');
       return;
     }
     if (!cleanPin) {
-      setErrorMsg('يرجى إدخال رقم المعرف الإداري أو الرمز السري.');
+      setErrorMsg('يرجى إدخال رقم / كود الدخول الخاص بك.');
       return;
     }
 
     setLoading(true);
 
-    // Verify credentials (Supports default Master PIN: '1000' or 'admin' or 'admin123')
     setTimeout(() => {
       setLoading(false);
-      const validPins = ['1000', 'admin', 'admin123', '2026', 'faseeh'];
-      if (validPins.includes(cleanPin.toLowerCase())) {
-        setSuccessMsg(`تم التحقق الإداري بنجاح! مرحباً بك يا ${cleanName}.`);
+
+      // 1. التحقق من قائمة الإداريين المسجلين في ورقة "الرئيسية" D2:F31
+      if (adminUsers && adminUsers.length > 0) {
+        // البحث عن الإداري بمطابقة الاسم ورقم الدخول PIN
+        const matched = adminUsers.find((u) => {
+          const nameMatches =
+            u.name.toLowerCase() === cleanName.toLowerCase() ||
+            u.name.replace(/\s+/g, '') === cleanName.replace(/\s+/g, '');
+          const pinMatches = u.pin === cleanPin;
+          return nameMatches && pinMatches;
+        }) || adminUsers.find((u) => u.pin === cleanPin);
+
+        if (matched) {
+          // فحص حالة منع الدخول F2:F31 (إذا كانت القيمة "لا" يمنع فوراً)
+          if (matched.blocked) {
+            setErrorMsg(`⛔ تم منع دخول هذا الحساب بحسب ورقة الإدارة (الخلية تحتوي على "لا"). التواصل مع المشرف.`);
+            return;
+          }
+
+          setSuccessMsg(`تم التحقق الإداري بنجاح! مرحباً بك يا ${matched.name}.`);
+          try {
+            sessionStorage.setItem('faseeh_admin_auth', 'true');
+            sessionStorage.setItem('faseeh_admin_name', matched.name);
+          } catch {}
+          setTimeout(() => {
+            onLoginSuccess(matched.name);
+            onClose();
+          }, 500);
+          return;
+        }
+      }
+
+      // 2. كود الدخول الاحتياطي الرئيسي في حال كانت الورقة قيد التهيئة (1000 أو admin)
+      const masterPins = ['1000', 'admin', 'admin123'];
+      if (masterPins.includes(cleanPin.toLowerCase())) {
+        setSuccessMsg(`تم الدخول بالرمز الرئيسي العام بنجاح! مرحباً بك يا ${cleanName}.`);
         try {
           sessionStorage.setItem('faseeh_admin_auth', 'true');
           sessionStorage.setItem('faseeh_admin_name', cleanName);
@@ -58,11 +94,12 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         setTimeout(() => {
           onLoginSuccess(cleanName);
           onClose();
-        }, 600);
-      } else {
-        setErrorMsg('رقم المعرف أو الرمز السري غير صحيح. المعرف الافتراضي هو 1000.');
+        }, 500);
+        return;
       }
-    }, 400);
+
+      setErrorMsg('بيانات الدخول غير صحيحة. يرجى التأكد من الاسم ورقم الدخول المسجلين في ورقة "الرئيسية" (D2:E31).');
+    }, 350);
   };
 
   return (
@@ -165,7 +202,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         </form>
 
         <p className="text-[10px] text-slate-400 text-center mt-4">
-          🔐 تقتصر هذه اللوحة على المعلم المعتمد لضبط الكلمات والتقييم ومزامنة الجداول.
+          🔐 يتم التحقق تلقائياً من قائمة الإداريين وأكواد الدخول المسجلة في ورقة "الرئيسية" (الخلايا D2:F31).
         </p>
       </div>
     </div>

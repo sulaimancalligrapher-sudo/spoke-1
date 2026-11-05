@@ -5,13 +5,15 @@ import {
   HomeBrandConfig,
   SocialLinkItem,
   PracticeHistoryItem,
+  Answers1SubmissionRow,
+  AdminUserRecord,
 } from '../types';
 import { removeTashkeel } from './arabicMatcher';
 
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbw5dnjEGtgIc2nXRfaaRMrx4e7dPPYuTrnHXbrpKp6hP_1yZ65kkqrpfTsQIUrL3d38eQ/exec';
+  'https://script.google.com/macros/s/AKfycbwC2jjZrG3wMBxq0rL_PF3qABqMcgUIRpcPnoFBg6EA7wc76sX3udOZFuoDcD-6CQP9jg/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -749,6 +751,7 @@ export async function fetchHomeConfigFromSheets(webhookUrl: string): Promise<Hom
         ? data.homeConfig.socialLinks.filter((s: any) => s.url && s.iconKey)
         : [],
       card: cardConfig,
+      adminUsers: Array.isArray(data.homeConfig.adminUsers) ? data.homeConfig.adminUsers : [],
     };
 
     try {
@@ -859,6 +862,41 @@ export async function fetchStudentSubmissionsFromSheet(
 
   // Sort by latest timestamp first
   return resultList.sort((a, b) => b.timestamp - a.timestamp);
+}
+
+/**
+ * Fetch all student submissions summary from sheet "answers 1"
+ */
+export async function fetchAllSubmissionsFromSheet(webhookUrl: string): Promise<Answers1SubmissionRow[]> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return [];
+  }
+
+  const cleanUrl = webhookUrl.trim();
+  const targetUrl = cleanUrl.includes('?')
+    ? `${cleanUrl}&action=get_all_submissions&_t=${Date.now()}`
+    : `${cleanUrl}?action=get_all_submissions&_t=${Date.now()}`;
+
+  let data: any = null;
+  try {
+    const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+    if (proxyRes.ok) data = await proxyRes.json().catch(() => null);
+  } catch {}
+
+  if (!data || !Array.isArray(data.submissions)) {
+    try {
+      const directRes = await fetch(targetUrl, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      if (directRes.ok) data = await directRes.json().catch(() => null);
+    } catch {}
+  }
+
+  if (data && Array.isArray(data.submissions)) {
+    return data.submissions;
+  }
+  return [];
 }
 
 /**
@@ -1055,12 +1093,32 @@ function readHomeConfig(ss) {
       extraText3: extraText3
     };
 
+    // D2:F31: مخصص لأسماء الإداريين وأرقام الدخول وحالة منع الدخول (إذا كانت "لا" يمنع الدخول فوراً)
+    var adminUsers = [];
+    try {
+      var adminValues = hSheet.getRange(2, 4, 30, 3).getValues(); // Cols D, E, F (Rows 2 to 31)
+      for (var a = 0; a < adminValues.length; a++) {
+        var aName = String(adminValues[a][0] || "").trim();
+        var aPin = String(adminValues[a][1] || "").trim();
+        var aBlock = String(adminValues[a][2] || "").trim();
+        var isBlocked = (aBlock === "لا" || aBlock.toLowerCase() === "no" || aBlock === "ممنوع" || aBlock === "نعم منع");
+        if (aName && aPin) {
+          adminUsers.push({
+            name: aName,
+            pin: aPin,
+            blocked: isBlocked
+          });
+        }
+      }
+    } catch(adErr) {}
+
     return {
       logoUrl: logoUrl,
       title: title,
       subtitle: subtitle,
       socialLinks: socialLinks,
-      card: cardConfig
+      card: cardConfig,
+      adminUsers: adminUsers
     };
   } catch(e) {
     return null;
@@ -1287,6 +1345,59 @@ function doGet(e) {
       }
       return ContentService.createTextOutput(JSON.stringify({ success: true, registrants: registrants }))
         .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (ج-2) إذا كان الطلب جلب ملخص نتائج إجابات الطلاب من ورقة "answers 1"
+    if (e && e.parameter && e.parameter.action === "get_all_submissions") {
+      var ansSheet = getAnswers1Sheet(ss);
+      var lastR = ansSheet.getLastRow();
+      var lastC = Math.max(5, ansSheet.getLastColumn());
+      var submissionsList = [];
+      if (lastR > 1) {
+        var dataRows = ansSheet.getRange(2, 1, lastR - 1, lastC).getValues();
+        for (var r = 0; r < dataRows.length; r++) {
+          var row = dataRows[r];
+          var rowTime = String(row[0] || "").trim();
+          var rowId = String(row[1] || "").trim();
+          var rowName = String(row[2] || "").trim();
+          var rowSubj = String(row[3] || "").trim();
+          var rowStatus = String(row[4] || "").trim();
+          
+          if (rowId || rowName || rowSubj) {
+            var exercises = [];
+            for (var c = 5; c < row.length; c += 5) {
+              var word = String(row[c] || "").trim();
+              if (word) {
+                var spoken = String(row[c + 1] || "").trim();
+                var audio = String(row[c + 2] || "").trim();
+                var scoreRaw = String(row[c + 3] || "").replace(/[^0-9]/g, '');
+                var grade = String(row[c + 4] || "").trim();
+                exercises.push({
+                  word: word,
+                  spokenText: spoken,
+                  audioUrl: audio,
+                  score: scoreRaw ? parseInt(scoreRaw) : 0,
+                  grade: grade
+                });
+              }
+            }
+            submissionsList.push({
+              rowIndex: r + 2,
+              timestamp: rowTime,
+              studentId: rowId,
+              studentName: rowName,
+              lessonSubject: rowSubj,
+              status: rowStatus,
+              totalExercises: exercises.length,
+              exercises: exercises
+            });
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        submissions: submissionsList
+      })).setMimeType(ContentService.MimeType.JSON);
     }
 
     var sheet = getLessonsSheet(ss);

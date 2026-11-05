@@ -375,7 +375,24 @@ export default function App() {
               // Fetch Home tab configuration (branding & dynamic social media channels)
               fetchHomeConfigFromSheets(activeConfig.webhookUrl)
                 .then((cfg) => {
-                  if (cfg) setHomeConfig(cfg);
+                  if (cfg) {
+                    setHomeConfig(cfg);
+                    if (sessionStorage.getItem('faseeh_admin_auth') === 'true') {
+                      const currentAdminName = sessionStorage.getItem('faseeh_admin_name') || '';
+                      if (cfg.adminUsers && cfg.adminUsers.length > 0) {
+                        const blockedRecord = cfg.adminUsers.find(
+                          (u) =>
+                            (u.name.toLowerCase() === currentAdminName.toLowerCase() ||
+                              currentAdminName.includes(u.name)) &&
+                            u.blocked
+                        );
+                        if (blockedRecord) {
+                          handleAdminLogout();
+                          alert('⛔ تم إيقاف صلاحية هذا الحساب الإداري فوراً من ورقة الإدارة.');
+                        }
+                      }
+                    }
+                  }
                 })
                 .catch(() => {});
             }
@@ -855,6 +872,10 @@ export default function App() {
         <GuideModal
           isOpen={isGuideOpen}
           onClose={() => setIsGuideOpen(false)}
+          settings={settings}
+          onUpdateSettings={handleUpdateSettings}
+          defaultEvalMode={settings.preferredEvaluationMode}
+          onUpdateDefaultEvalMode={(mode) => handleUpdateSettings({ preferredEvaluationMode: mode })}
         />
       </>
     );
@@ -1146,6 +1167,10 @@ export default function App() {
       <GuideModal
         isOpen={isGuideOpen}
         onClose={() => setIsGuideOpen(false)}
+        settings={settings}
+        onUpdateSettings={handleUpdateSettings}
+        defaultEvalMode={settings.preferredEvaluationMode}
+        onUpdateDefaultEvalMode={(mode) => handleUpdateSettings({ preferredEvaluationMode: mode })}
       />
 
       {/* Lessons Selector Modal */}
@@ -1174,6 +1199,7 @@ export default function App() {
         isOpen={showAdminLoginModal}
         onClose={() => setShowAdminLoginModal(false)}
         onLoginSuccess={handleAdminLoginSuccess}
+        adminUsers={homeConfig?.adminUsers}
       />
     </div>
   );

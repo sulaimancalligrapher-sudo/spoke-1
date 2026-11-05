@@ -135,10 +135,36 @@ export interface HomeCardConfig {
   extraText3?: string; // B27: نص إضافي 3
 }
 
+export interface AdminUserRecord {
+  name: string;
+  pin: string;
+  blocked: boolean; // if cell contains 'لا' -> blocked from entering
+}
+
+export interface Answers1ExerciseDetail {
+  word: string;
+  spokenText: string;
+  audioUrl?: string;
+  score: number;
+  grade: string;
+}
+
+export interface Answers1SubmissionRow {
+  rowIndex: number;
+  timestamp: string;
+  studentId: string;
+  studentName: string;
+  lessonSubject: string;
+  status: string;
+  totalExercises: number;
+  exercises: Answers1ExerciseDetail[];
+}
+
 export interface HomeBrandConfig {
   logoUrl?: string; // B2: شعار الشريط العلوي
   title?: string; // B3: عنوان المنصة في الشريط العلوي
   subtitle?: string; // B4: وصف الشريط العلوي
   socialLinks: SocialLinkItem[]; // B8:C17
   card?: HomeCardConfig; // B21:B27: بطاقة الصفحة الرئيسية
+  adminUsers?: AdminUserRecord[]; // D2:F31: أسماء الإداريين وأرقام الدخول وحالة المنع
 }
