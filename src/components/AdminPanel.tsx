@@ -61,6 +61,8 @@ import {
   AlertTriangle,
   Gauge,
   Clock,
+  Settings,
+  LogOut,
 } from 'lucide-react';
 import {
   getDailyQuotaStatus,
@@ -107,6 +109,9 @@ interface AdminPanelProps {
   onDeleteSubject: (subj: string) => void;
   onResetCurriculum: () => void;
   onImportCurriculum: (imported: WordItem[]) => void;
+  onOpenSettings?: () => void;
+  onOpenGuide?: () => void;
+  onLogout?: () => void;
 }
 
 const TASHKEEL_BUTTONS = [
@@ -143,6 +148,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onDeleteSubject,
   onResetCurriculum,
   onImportCurriculum,
+  onOpenSettings,
+  onOpenGuide,
+  onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<'lessons' | 'sheets' | 'system' | 'submissions'>('lessons');
   const [searchQuery, setSearchQuery] = useState('');
@@ -232,6 +240,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [modalAudioBase64, setModalAudioBase64] = useState<string | null>(null);
   const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
   const [driveUploadResult, setDriveUploadResult] = useState<{ success: boolean; url?: string; message: string } | null>(null);
+  const [customVoiceFileName, setCustomVoiceFileName] = useState('');
   const voiceModalRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceModalChunksRef = useRef<Blob[]>([]);
   const voiceTimerRef = useRef<any>(null);
@@ -431,11 +440,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIsUploadingToDrive(true);
     setDriveUploadResult(null);
 
+    const finalAudioName = customVoiceFileName.trim() || wordText.trim() || 'صوت_شرح';
     const res = await uploadAudioToDrive(
       effectiveWebhook,
       modalAudioBase64,
-      wordText.trim() || 'صوت_شرح',
-      targetFolder
+      finalAudioName,
+      targetFolder,
+      customVoiceFileName.trim() || undefined
     );
 
     setIsUploadingToDrive(false);
@@ -887,7 +898,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                   لوحة إدارة المعلم والدروس
                 </h1>
                 <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full text-[10px] font-bold">
-                  الرابط: /#admin
+                  الرابط السري: /#control
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 hidden sm:block">
@@ -897,13 +908,37 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Guide Button moved into Admin */}
+            {onOpenGuide && (
+              <button
+                onClick={onOpenGuide}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
+                title="دليل وكيف يعمل النظام"
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden sm:inline">الدليل</span>
+              </button>
+            )}
+
+            {/* Sound Settings Button moved into Admin */}
+            {onOpenSettings && (
+              <button
+                onClick={onOpenSettings}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
+                title="إعدادات الصوت والنطق"
+              >
+                <Settings className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden sm:inline">إعدادات الصوت</span>
+              </button>
+            )}
+
             {/* Import JSON button */}
             <label
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
               title="استيراد دروس وكلمات من ملف JSON محفوظ"
             >
               <Upload className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">استيراد منهج (JSON)</span>
+              <span className="hidden sm:inline">استيراد منهج</span>
               <input
                 type="file"
                 accept=".json"
@@ -919,16 +954,28 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
               title="تصدير المنهج كملف JSON لمستودع GitHub"
             >
               <Download className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">نسخ احتياطي (JSON)</span>
+              <span className="hidden sm:inline">نسخ احتياطي</span>
             </button>
 
             <button
               onClick={onBackToApp}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+              className="flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+              title="العودة لواجهة الطالب"
             >
               <span>صفحة الطالب</span>
               <ArrowRight className="w-4 h-4 rotate-180" />
             </button>
+
+            {/* Admin Logout button: Icon only without text */}
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                title="تسجيل الخروج من لوحة الإدارة"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -3378,6 +3425,24 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                 <span className="text-slate-500">مجلد الحفظ في Google Drive:</span>
                 <span className="font-mono text-[11px] text-slate-700 font-semibold">{sheetsConfig.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID}</span>
               </div>
+            </div>
+
+            {/* Custom Voice File Name Field (اسم الملف الصوتي مع التاريخ) */}
+            <div className="space-y-1.5 bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-right">
+              <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                <span>اسم الملف الصوتي للمعلم (اختياري):</span>
+                <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">يُضاف التاريخ تلقائياً</span>
+              </label>
+              <input
+                type="text"
+                value={customVoiceFileName}
+                onChange={(e) => setCustomVoiceFileName(e.target.value)}
+                placeholder={wordText.trim() ? `مثال: شرح_${wordText.trim()}` : "مثال: شرح_الدرس_الأول"}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-emerald-500 transition-colors"
+              />
+              <p className="text-[10px] text-slate-500 leading-relaxed">
+                سيُحفظ الملف في Google Drive بالاسم المكتوب مع تاريخ وتوقيت الرفع تلقائياً: <span className="font-mono text-emerald-800 dir-ltr inline-block font-bold">{(customVoiceFileName.trim() || wordText.trim() || "شرح") + "_YYYY-MM-DD_HH-mm.mp3"}</span>
+              </p>
             </div>
 
             {/* Step 1 & 2: Recording Controls */}

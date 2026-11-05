@@ -685,22 +685,6 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
             </>
           )}
         </button>
-
-        {submissionSuccess && (
-          <div className="mt-2.5 p-3 rounded-2xl bg-emerald-50 border border-emerald-200/90 text-emerald-950 text-xs flex flex-wrap items-center justify-between gap-2 animate-in fade-in">
-            <span className="flex items-center gap-1.5 font-bold">
-              <Lock className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-              <span>تم اعتماد الإجابة وتوثيقها في الشيت وإقفال التسجيل.</span>
-            </span>
-            <button
-              onClick={onRetry}
-              className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-xs active:scale-95"
-            >
-              <RotateCcw className="w-3 h-3" />
-              <span>إعادة التسجيل 🔄</span>
-            </button>
-          </div>
-        )}
       </div>
 
       {/* 6. BOTTOM ACTIONS: 3 DISTINCTLY COLORED BUTTONS */}

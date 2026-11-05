@@ -16,10 +16,12 @@ interface NavbarProps {
   streak: number;
   totalPracticed: number;
   onOpenStats: () => void;
-  onOpenSettings: () => void;
-  onOpenGuide: () => void;
-  onOpenCustom: () => void;
+  onOpenSettings?: () => void;
+  onOpenGuide?: () => void;
+  onOpenCustom?: () => void;
   onOpenAdmin: () => void;
+  isAdminAuthenticated?: boolean;
+  onAdminLogout?: () => void;
   isSheetsActive?: boolean;
   onOpenLessons?: () => void;
   onGoHome?: () => void;
@@ -39,6 +41,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenGuide,
   onOpenCustom,
   onOpenAdmin,
+  isAdminAuthenticated,
+  onAdminLogout,
   isSheetsActive,
   onOpenLessons,
   onGoHome,
@@ -160,40 +164,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
 
-          {/* Admin Panel Direct Link */}
-          <button
-            onClick={onOpenAdmin}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
-            title="الانتقال إلى لوحة إدارة المعلم والدروس"
-          >
-            <Sliders className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-[11px] sm:text-xs">لوحة الإدارة</span>
-            {isSheetsActive && (
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            )}
-          </button>
-
-          {/* Desktop Streak indicator */}
-          {streak > 0 && (
-            <div
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-full text-xs font-bold shadow-2xs"
-              title={`سلسلة إنجاز متواصلة: ${streak} كلمات`}
-            >
-              <Flame className="w-4 h-4 text-amber-500 fill-amber-500" />
-              <span>{streak}</span>
-            </div>
-          )}
-
-          {/* Guide question button */}
-          <button
-            onClick={onOpenGuide}
-            className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/80 rounded-xl text-xs font-semibold transition-all cursor-pointer"
-            title="دليل وكيف يعمل النظام؟"
-          >
-            <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
-            <span className="text-[11px] sm:text-xs">الدليل</span>
-          </button>
-
           {/* Stats Button: ONLY DISPLAYED IF STUDENT IS LOGGED IN */}
           {currentStudent && (
             <button
@@ -211,14 +181,42 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           )}
 
-          {/* Settings Button */}
-          <button
-            onClick={onOpenSettings}
-            className="p-1.5 sm:p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-transparent hover:border-slate-200 transition-all cursor-pointer"
-            title="إعدادات الصوت"
-          >
-            <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
+          {/* Desktop Streak indicator */}
+          {streak > 0 && (
+            <div
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-full text-xs font-bold shadow-2xs"
+              title={`سلسلة إنجاز متواصلة: ${streak} كلمات`}
+            >
+              <Flame className="w-4 h-4 text-amber-500 fill-amber-500" />
+              <span>{streak}</span>
+            </div>
+          )}
+
+          {/* Admin Panel Link: ONLY SHOWN IF ADMIN IS AUTHENTICATED */}
+          {isAdminAuthenticated && (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={onOpenAdmin}
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                title="الانتقال إلى لوحة إدارة المعلم والدروس"
+              >
+                <Sliders className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-[11px] sm:text-xs">لوحة الإدارة</span>
+                {isSheetsActive && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                )}
+              </button>
+              {onAdminLogout && (
+                <button
+                  onClick={onAdminLogout}
+                  className="p-1.5 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 rounded-xl transition-colors cursor-pointer border border-slate-200"
+                  title="تسجيل خروج الإدارة"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </header>

@@ -11,7 +11,7 @@ import { removeTashkeel } from './arabicMatcher';
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbx71s_mOJ-IMThnn0QSMcPBGafvA_zj-xNr-PgBpQgZImbSoq92ab48TTmnXGEuu5F4aA/exec';
+  'https://script.google.com/macros/s/AKfycbw5dnjEGtgIc2nXRfaaRMrx4e7dPPYuTrnHXbrpKp6hP_1yZ65kkqrpfTsQIUrL3d38eQ/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -308,7 +308,8 @@ export async function uploadAudioToDrive(
   webhookUrl: string,
   audioBase64: string,
   wordText: string,
-  driveFolderId = DEFAULT_DRIVE_AUDIO_FOLDER_ID
+  driveFolderId = DEFAULT_DRIVE_AUDIO_FOLDER_ID,
+  customFileName?: string
 ): Promise<{ success: boolean; audioUrl?: string; fileId?: string; message: string }> {
   if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
     return { success: false, message: 'رابط Google Sheets Webhook غير مدخل' };
@@ -318,6 +319,7 @@ export async function uploadAudioToDrive(
     action: 'upload_audio',
     driveFolderId,
     word: wordText || 'lesson',
+    customFileName: customFileName || undefined,
     audioBase64,
   };
 
@@ -1065,27 +1067,109 @@ function readHomeConfig(ss) {
   }
 }
 
+// دالة مساعدة للتأكد التلقائي وتوليد كافة عناوين الأعمدة في ورقة "الدروس" مهما زاد عدد الأعمدة أفقياً
+function ensureLessonsHeaders(sheet, maxColNeeded) {
+  try {
+    var col1 = sheet.getRange(1, 1).getValue();
+    if (!col1) {
+      sheet.getRange(1, 1).setValue("موضوع الدرس").setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
+    }
+    var targetColMax = Math.max(sheet.getLastColumn(), maxColNeeded || 9);
+    var totalBlocks = Math.ceil((targetColMax - 1) / 8);
+    for (var k = 1; k <= totalBlocks; k++) {
+      var startC = 2 + (k - 1) * 8;
+      if (sheet.getMaxColumns() < startC + 7) {
+        sheet.insertColumnsAfter(sheet.getMaxColumns(), (startC + 7) - sheet.getMaxColumns());
+      }
+      var hVal = sheet.getRange(1, startC).getValue();
+      if (!hVal) {
+        var blockHeaders = [
+          "الفئة " + k,
+          "رابط الصورة " + k,
+          "رابط الصوت " + k,
+          "نص للقراءة الآلية " + k,
+          "نص الدرس " + k,
+          "المعنى والتوضيح " + k,
+          "إرشادات المخرج " + k,
+          "عدد التكرار " + k
+        ];
+        sheet.getRange(1, startC, 1, 8).setValues([blockHeaders])
+          .setBackground("#e6f4ea")
+          .setFontColor("#065f46")
+          .setFontWeight("bold");
+      }
+    }
+  } catch (err) {
+    Logger.log("ensureLessonsHeaders note: " + err);
+  }
+}
+
+// دالة مساعدة للتأكد التلقائي وتوليد كافة عناوين الأعمدة في ورقة "answers 1" مهما زاد عدد الإجابات أفقياً
+function ensureAnswersHeaders(sheet, maxColNeeded) {
+  try {
+    var col1 = sheet.getRange(1, 1).getValue();
+    if (!col1) {
+      var baseHeaders = ["وقت الارسال", "ID المشترك", "اسم المشترك", "موضوع الدرس", "حالة الإنجاز"];
+      sheet.getRange(1, 1, 1, 5).setValues([baseHeaders])
+        .setBackground("#047857")
+        .setFontColor("#ffffff")
+        .setFontWeight("bold");
+    }
+    var targetColMax = Math.max(sheet.getLastColumn(), maxColNeeded || 10);
+    var totalBlocks = Math.ceil((targetColMax - 5) / 5);
+    for (var k = 1; k <= totalBlocks; k++) {
+      var startC = 6 + (k - 1) * 5;
+      if (sheet.getMaxColumns() < startC + 4) {
+        sheet.insertColumnsAfter(sheet.getMaxColumns(), (startC + 4) - sheet.getMaxColumns());
+      }
+      var hVal = sheet.getRange(1, startC).getValue();
+      if (!hVal) {
+        var blockHeaders = [
+          "الكلمة المستهدفة " + k,
+          "النص المنطوق " + k,
+          "رابط ملف الصوت " + k,
+          "الدرجة " + k + " (%)",
+          "التقدير " + k
+        ];
+        sheet.getRange(1, startC, 1, 5).setValues([blockHeaders])
+          .setBackground("#e6f4ea")
+          .setFontColor("#065f46")
+          .setFontWeight("bold");
+      }
+    }
+  } catch (err) {
+    Logger.log("ensureAnswersHeaders note: " + err);
+  }
+}
+
 // دالة مساعدة ذكية للعثور على ورقة الدروس وتجنب أي خطأ في التسمية
 function getLessonsSheet(ss) {
   var sheet = ss.getSheetByName("الدروس");
-  if (sheet) return sheet;
-  var all = ss.getSheets();
-  for (var i = 0; i < all.length; i++) {
-    var name = all[i].getName().trim();
-    if (name === "الدروس" || name === "دروس") {
-      return all[i];
-    }
-  }
-  try {
-    return ss.insertSheet("الدروس");
-  } catch(e) {
-    for (var j = 0; j < all.length; j++) {
-      if (all[j].getName().indexOf("سجل") === -1 && all[j].getName().indexOf("نتائج") === -1) {
-        return all[j];
+  if (!sheet) {
+    var all = ss.getSheets();
+    for (var i = 0; i < all.length; i++) {
+      var name = all[i].getName().trim();
+      if (name === "الدروس" || name === "دروس") {
+        sheet = all[i];
+        break;
       }
     }
-    return all[0];
+    if (!sheet) {
+      try {
+        sheet = ss.insertSheet("الدروس");
+      } catch(e) {
+        for (var j = 0; j < all.length; j++) {
+          if (all[j].getName().indexOf("سجل") === -1 && all[j].getName().indexOf("نتائج") === -1) {
+            sheet = all[j];
+            break;
+          }
+        }
+        if (!sheet) sheet = all[0];
+      }
+    }
   }
+  ensureLessonsHeaders(sheet, 33);
+  return sheet;
 }
 
 // دالة مساعدة لإنشاء أو استرجاع ورقة المشتركين "ID registrants"
@@ -1107,25 +1191,15 @@ function getAnswers1Sheet(ss) {
     var all = ss.getSheets();
     for (var i = 0; i < all.length; i++) {
       if (all[i].getName().trim().toLowerCase() === "answers 1") {
-        return all[i];
+        sheet = all[i];
+        break;
       }
     }
-    sheet = ss.insertSheet("answers 1");
-    var headerRow = [
-      "وقت الارسال",
-      "ID المشترك",
-      "اسم المشترك",
-      "موضوع الدرس",
-      "حالة الإنجاز",
-      "الكلمة المستهدفة 1", "النص المنطوق 1", "رابط ملف الصوت 1", "الدرجة 1 (%)", "التقدير 1",
-      "الكلمة المستهدفة 2", "النص المنطوق 2", "رابط ملف الصوت 2", "الدرجة 2 (%)", "التقدير 2",
-      "الكلمة المستهدفة 3", "النص المنطوق 3", "رابط ملف الصوت 3", "الدرجة 3 (%)", "التقدير 3",
-      "الكلمة المستهدفة 4", "النص المنطوق 4", "رابط ملف الصوت 4", "الدرجة 4 (%)", "التقدير 4"
-    ];
-    sheet.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
-    sheet.getRange(1, 1, 1, 5).setBackground("#047857").setFontColor("#ffffff").setFontWeight("bold");
-    sheet.getRange(1, 6, 1, headerRow.length - 5).setBackground("#e6f4ea").setFontWeight("bold");
+    if (!sheet) {
+      sheet = ss.insertSheet("answers 1");
+    }
   }
+  ensureAnswersHeaders(sheet, 25);
   return sheet;
 }
 
@@ -1352,8 +1426,10 @@ function doPost(e) {
       if (cleanBase64.indexOf("base64,") !== -1) {
         cleanBase64 = cleanBase64.split("base64,")[1];
       }
-      var timeId = new Date().getTime();
-      var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), "audio/mp3", "audio_" + timeId + ".mp3");
+      var dateForFile = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT+3", "yyyy-MM-dd_HH-mm");
+      var baseName = String(data.customFileName || data.word || data.fileName || "teacher_audio").trim().replace(/[/\\?%*:|"<>]/g, '_');
+      var finalTeacherFileName = baseName + "_" + dateForFile + ".mp3";
+      var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), "audio/mp3", finalTeacherFileName);
       var driveFile;
       try {
         driveFile = teacherFolder.createFile(blob);
@@ -1502,33 +1578,9 @@ function doPost(e) {
         ansSheet.insertColumnsAfter(ansSheet.getMaxColumns(), requiredColMax - ansSheet.getMaxColumns());
       }
 
-      // (تسجيل تلقائي لعناوين الأعمدة في ورقة answers 1)
+      // (تسجيل تلقائي وتأكيد كافة عناوين الأعمدة في ورقة answers 1)
       try {
-        // تأكيد عناوين الأعمدة الأساسية (A:E)
-        var col1Header = ansSheet.getRange(1, 1).getValue();
-        if (!col1Header) {
-          var baseHeaders = ["وقت الارسال", "ID المشترك", "اسم المشترك", "موضوع الدرس", "حالة الإنجاز"];
-          ansSheet.getRange(1, 1, 1, 5).setValues([baseHeaders])
-            .setBackground("#047857")
-            .setFontColor("#ffffff")
-            .setFontWeight("bold");
-        }
-        // تأكيد وتوليد عناوين هذا التمرين الأفقي تلقائياً
-        var blockHeader = ansSheet.getRange(1, targetBlockCol).getValue();
-        if (!blockHeader) {
-          var exerciseNum = Math.floor((targetBlockCol - 6) / 5) + 1;
-          var blockHeaders = [
-            "الكلمة المستهدفة " + exerciseNum,
-            "النص المنطوق " + exerciseNum,
-            "رابط ملف الصوت " + exerciseNum,
-            "الدرجة " + exerciseNum + " (%)",
-            "التقدير " + exerciseNum
-          ];
-          ansSheet.getRange(1, targetBlockCol, 1, 5).setValues([blockHeaders])
-            .setBackground("#e6f4ea")
-            .setFontColor("#065f46")
-            .setFontWeight("bold");
-        }
+        ensureAnswersHeaders(ansSheet, requiredColMax);
       } catch (headErr) {
         Logger.log("Headers generation note: " + headErr);
       }
@@ -1585,8 +1637,10 @@ function doPost(e) {
           if (cleanBase64.indexOf("base64,") !== -1) {
             cleanBase64 = cleanBase64.split("base64,")[1];
           }
-          var timeId = new Date().getTime();
-          var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), "audio/mp3", "audio_" + timeId + ".mp3");
+          var dateForFile = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT+3", "yyyy-MM-dd_HH-mm");
+          var baseName = String(data.customFileName || item.word || "teacher_audio").trim().replace(/[/\\?%*:|"<>]/g, '_');
+          var finalTeacherFileName = baseName + "_" + dateForFile + ".mp3";
+          var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), "audio/mp3", finalTeacherFileName);
           var driveFile;
           try {
             driveFile = folder.createFile(blob);
@@ -1669,6 +1723,13 @@ function doPost(e) {
           sheet.insertColumnsAfter(sheet.getMaxColumns(), newRow.length - sheet.getMaxColumns());
         }
         sheet.appendRow(newRow);
+      }
+
+      // التحقق وتوليد عناوين الأعمدة التلقائية لورقة الدروس
+      try {
+        ensureLessonsHeaders(sheet, Math.max(sheet.getLastColumn(), 9));
+      } catch (lhErr) {
+        Logger.log("Lessons headers note: " + lhErr);
       }
       
       return ContentService.createTextOutput(JSON.stringify({

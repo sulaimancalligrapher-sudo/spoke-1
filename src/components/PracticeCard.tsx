@@ -1128,26 +1128,14 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             {isSubmitted && !isReRecording ? (
               <div className="flex flex-col items-center animate-in fade-in">
                 <div
-                  className="w-20 h-20 rounded-full flex flex-col items-center justify-center bg-slate-100 text-slate-400 border-2 border-slate-300 shadow-inner select-none cursor-not-allowed"
-                  title="تم اعتماد الإجابة وإقفال زر التسجيل"
+                  className="w-20 h-20 rounded-full flex items-center justify-center bg-slate-200 text-slate-400 border border-slate-300 select-none cursor-not-allowed shadow-inner"
+                  title="تم التسجيل والتقييم"
                 >
-                  <Lock className="w-8 h-8 text-slate-500" />
+                  <Mic className="w-8 h-8 text-slate-400" />
                 </div>
-                <span className="text-[11px] font-bold text-slate-600 mt-2 flex items-center gap-1">
-                  <span>🔒 تم اعتماد الإجابة وإقفال زر التسجيل</span>
+                <span className="text-xs font-bold text-slate-600 mt-2.5">
+                  تم التسجيل و التقييم
                 </span>
-                {onReRecord && (
-                  <button
-                    onClick={() => {
-                      setIsReRecording(true);
-                      onReRecord();
-                    }}
-                    className="mt-2.5 flex items-center gap-1.5 px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer active:scale-95"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>إعادة التسجيل 🔄</span>
-                  </button>
-                )}
               </div>
             ) : cooldownSeconds > 0 ? (
               <div className="w-20 h-20 rounded-full flex flex-col items-center justify-center bg-amber-50 text-amber-700 border-2 border-amber-300 shadow-inner select-none animate-in fade-in">

@@ -24,6 +24,7 @@ import { GuideModal } from './components/GuideModal';
 import { AdminPanel } from './components/AdminPanel';
 import { LessonsModal } from './components/LessonsModal';
 import { StudentLoginModal } from './components/StudentLoginModal';
+import { AdminLoginModal } from './components/AdminLoginModal';
 import { SocialIcon, getSocialBrandClasses } from './components/SocialIcon';
 import {
   sendScoreToGoogleSheets,
@@ -81,8 +82,16 @@ export default function App() {
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [streak, setStreak] = useState(0);
 
-  // Separate Admin View routing (supports URL: #admin or pathname /admin)
+  // Separate Admin View routing (supports URL: #control / #admin)
   const [isAdminView, setIsAdminView] = useState(false);
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('faseeh_admin_auth') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [showAdminLoginModal, setShowAdminLoginModal] = useState(false);
 
   // Student View: Active Lesson Subject
   const [studentSubject, setStudentSubject] = useState<string>(
@@ -237,8 +246,20 @@ export default function App() {
         }
       }
 
-      if (hash.toLowerCase() === '#admin' || path === '/admin') {
-        setIsAdminView(true);
+      const isControlRoute =
+        hash.toLowerCase() === '#control' ||
+        path === '/control' ||
+        hash.toLowerCase() === '#admin' ||
+        path === '/admin';
+
+      if (isControlRoute) {
+        const authed = sessionStorage.getItem('faseeh_admin_auth') === 'true';
+        if (authed) {
+          setIsAdminView(true);
+        } else {
+          setIsAdminView(false);
+          setShowAdminLoginModal(true);
+        }
       } else {
         setIsAdminView(false);
       }
@@ -757,10 +778,33 @@ export default function App() {
     }
   };
 
-  // Route to Admin or Student View
+  // Route to Admin or Student View with Authentication
   const handleOpenAdmin = () => {
-    window.location.hash = 'admin';
+    if (isAdminAuthenticated) {
+      window.location.hash = 'control';
+      setIsAdminView(true);
+    } else {
+      setShowAdminLoginModal(true);
+    }
+  };
+
+  const handleAdminLoginSuccess = () => {
+    setIsAdminAuthenticated(true);
+    try {
+      sessionStorage.setItem('faseeh_admin_auth', 'true');
+    } catch {}
+    setShowAdminLoginModal(false);
+    window.location.hash = 'control';
     setIsAdminView(true);
+  };
+
+  const handleAdminLogout = () => {
+    setIsAdminAuthenticated(false);
+    try {
+      sessionStorage.removeItem('faseeh_admin_auth');
+    } catch {}
+    setIsAdminView(false);
+    window.location.hash = '';
   };
 
   const handleBackToStudent = () => {
@@ -771,31 +815,48 @@ export default function App() {
   // IF ADMIN VIEW IS ACTIVE: Render Revamped Admin Section
   if (isAdminView) {
     return (
-      <AdminPanel
-        curriculum={curriculum}
-        onAddWord={handleAddWord}
-        onUpdateWord={handleUpdateWord}
-        onDeleteWord={handleDeleteWord}
-        sheetsConfig={sheetsConfig}
-        onUpdateSheetsConfig={handleUpdateSheetsConfig}
-        submissions={submissions}
-        onClearSubmissions={handleClearSubmissions}
-        onBackToApp={handleBackToStudent}
-        defaultEvalMode={settings.preferredEvaluationMode}
-        onUpdateDefaultEvalMode={(mode: EvaluationMode) =>
-          handleUpdateSettings({ preferredEvaluationMode: mode })
-        }
-        categories={categories}
-        onAddCategory={handleAddCategory}
-        onRenameCategory={handleRenameCategory}
-        onDeleteCategory={handleDeleteCategory}
-        subjects={allSubjects}
-        onAddSubject={handleAddSubject}
-        onRenameSubject={handleRenameSubject}
-        onDeleteSubject={handleDeleteSubject}
-        onResetCurriculum={handleResetCurriculum}
-        onImportCurriculum={handleImportCurriculum}
-      />
+      <>
+        <AdminPanel
+          curriculum={curriculum}
+          onAddWord={handleAddWord}
+          onUpdateWord={handleUpdateWord}
+          onDeleteWord={handleDeleteWord}
+          sheetsConfig={sheetsConfig}
+          onUpdateSheetsConfig={handleUpdateSheetsConfig}
+          submissions={submissions}
+          onClearSubmissions={handleClearSubmissions}
+          onBackToApp={handleBackToStudent}
+          defaultEvalMode={settings.preferredEvaluationMode}
+          onUpdateDefaultEvalMode={(mode: EvaluationMode) =>
+            handleUpdateSettings({ preferredEvaluationMode: mode })
+          }
+          categories={categories}
+          onAddCategory={handleAddCategory}
+          onRenameCategory={handleRenameCategory}
+          onDeleteCategory={handleDeleteCategory}
+          subjects={allSubjects}
+          onAddSubject={handleAddSubject}
+          onRenameSubject={handleRenameSubject}
+          onDeleteSubject={handleDeleteSubject}
+          onResetCurriculum={handleResetCurriculum}
+          onImportCurriculum={handleImportCurriculum}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenGuide={() => setIsGuideOpen(true)}
+          onLogout={handleAdminLogout}
+        />
+
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          settings={settings}
+          onUpdateSettings={handleUpdateSettings}
+        />
+
+        <GuideModal
+          isOpen={isGuideOpen}
+          onClose={() => setIsGuideOpen(false)}
+        />
+      </>
     );
   }
 
@@ -824,10 +885,10 @@ export default function App() {
           }
           setIsStatsOpen(true);
         }}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenGuide={() => setIsGuideOpen(true)}
         onOpenCustom={handleOpenAdmin}
         onOpenAdmin={handleOpenAdmin}
+        isAdminAuthenticated={isAdminAuthenticated}
+        onAdminLogout={handleAdminLogout}
         isSheetsActive={sheetsConfig.enabled && !!sheetsConfig.webhookUrl}
         onOpenLessons={() => setIsLessonsModalOpen(true)}
         onGoHome={() => setCurrentView('landing')}
@@ -1106,6 +1167,13 @@ export default function App() {
         onClose={() => setIsLoginModalOpen(false)}
         onLoginSuccess={handleLoginSuccess}
         webhookUrl={sheetsConfig.webhookUrl}
+      />
+
+      {/* Admin Login Verification Modal */}
+      <AdminLoginModal
+        isOpen={showAdminLoginModal}
+        onClose={() => setShowAdminLoginModal(false)}
+        onLoginSuccess={handleAdminLoginSuccess}
       />
     </div>
   );
