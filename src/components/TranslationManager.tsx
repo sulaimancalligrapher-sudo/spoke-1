@@ -19,6 +19,7 @@ import {
   AlertCircle,
   CheckCircle2,
 } from 'lucide-react';
+import { ensureTranslationsSheet } from '../utils/googleSheets';
 
 interface TranslationManagerProps {
   translations: TranslationItem[];
@@ -38,8 +39,31 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [translatingId, setTranslatingId] = useState<string | null>(null);
   const [isBatchTranslating, setIsBatchTranslating] = useState(false);
+  const [isInitializingSheet, setIsInitializingSheet] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const handleInitTranslationsSheet = async () => {
+    if (!webhookUrl) {
+      alert('يرجى التأكد من ربط رابط Google Sheets أولاً في تبويب الإعدادات.');
+      return;
+    }
+    setIsInitializingSheet(true);
+    setStatusMessage('جاري إنشاء وتجهيز ورقة "الترجمة" تلقائياً في ملف الشيت...');
+    try {
+      const res = await ensureTranslationsSheet(webhookUrl, items);
+      if (res.success) {
+        setStatusMessage('🎉 ' + res.message);
+      } else {
+        alert(res.message);
+      }
+    } catch (e: any) {
+      alert('حدث خطأ أثناء تجهيز ورقة الترجمة: ' + (e?.message || 'خطأ في الاتصال'));
+    } finally {
+      setIsInitializingSheet(false);
+      setTimeout(() => setStatusMessage(null), 6000);
+    }
+  };
 
   const filteredItems = items.filter((item) => {
     if (item.category !== activeTab) return false;
@@ -144,6 +168,28 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
+          {webhookUrl && (
+            <button
+              type="button"
+              onClick={handleInitTranslationsSheet}
+              disabled={isInitializingSheet}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+              title="إنشاء ورقة الترجمة في ملف Google Sheets تلقائياً وتصدير كافة النصوص إليها"
+            >
+              {isInitializingSheet ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                  <span>جاري إنشاء الورقة...</span>
+                </>
+              ) : (
+                <>
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>تجهيز ورقة "الترجمة" بالشيت 📑</span>
+                </>
+              )}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleTranslateAllInTab}
@@ -269,15 +315,24 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
           <tbody className="divide-y divide-slate-100">
             {filteredItems.map((item) => (
               <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
-                {/* Arabic Column */}
+                {/* Arabic Column - Editable */}
                 <td className="p-3 align-top">
-                  <div className="font-bold text-slate-900 leading-snug">{item.ar}</div>
-                  <div className="text-[10px] text-slate-400 font-mono mt-1">ID: {item.id}</div>
-                  {item.isSheetLinked && (
-                    <span className="inline-block mt-1 px-2 py-0.5 bg-amber-100 text-amber-800 rounded-md text-[10px] font-bold">
-                      🔗 {item.sheetSourceNote || 'متصل بالشيت'}
-                    </span>
-                  )}
+                  <textarea
+                    rows={2}
+                    value={item.ar}
+                    onChange={(e) => handleUpdateItem(item.id, { ar: e.target.value })}
+                    placeholder="اكتب أو عدّل النص العربي..."
+                    className="w-full p-2 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl text-xs font-bold text-slate-900 transition-colors resize-y leading-relaxed font-cairo"
+                    dir="rtl"
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-1 mt-1">
+                    <span className="text-[10px] text-slate-400 font-mono">ID: {item.id}</span>
+                    {item.isSheetLinked && (
+                      <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-md text-[9px] font-bold">
+                        🔗 {item.sheetSourceNote || 'متصل بالشيت'}
+                      </span>
+                    )}
+                  </div>
                 </td>
 
                 {/* Thai Column */}

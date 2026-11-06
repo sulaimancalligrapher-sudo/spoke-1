@@ -13,7 +13,7 @@ import { removeTashkeel } from './arabicMatcher';
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbzkfMhxyfmZ4O03TRlAI67KxzLOregfHqhxmNdonRLdQVG9_craSPgp8xd9x5nIgnq3Fw/exec';
+  'https://script.google.com/macros/s/AKfycbwMymou4u3eKAnzL3PKdVLxz9XRBpzFudQX23xj8CUbNSnQIW9GMIcDUYiNrnBb1D4rKQ/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -949,8 +949,31 @@ export async function saveTranslationsToSheets(
   return {
     success: res.success,
     message: res.success
-      ? 'تم حفظ وتوثيق الترجمات بنجاح في ورقة "الترجمة" في Google Sheets!'
+      ? 'تم حفظ وتوثيق الترجمات بنجاح في ورقة "الترجمة" وتحديث ورقة "الرئيسية" في Google Sheets!'
       : (res.error || 'تعذر حفظ الترجمات في الشيت'),
+  };
+}
+
+/**
+ * Automatically create and prepare the dedicated "الترجمة" sheet in Google Sheets
+ */
+export async function ensureTranslationsSheet(
+  webhookUrl: string,
+  items?: any[]
+): Promise<{ success: boolean; message: string }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'رابط Google Sheets غير متوفر' };
+  }
+  const payload = {
+    action: 'save_translations',
+    items: items || [],
+  };
+  const res = await callGoogleSheetsPost(webhookUrl, payload);
+  return {
+    success: res.success,
+    message: res.success
+      ? 'تم إنشاء وتجهيز ورقة "الترجمة" بنجاح في Google Sheets!'
+      : (res.error || 'تعذر إنشاء ورقة الترجمة في الشيت'),
   };
 }
 
@@ -1619,7 +1642,7 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (0-ج) حفظ الترجمات في ورقة "الترجمة"
+    // (0-ج) حفظ الترجمات في ورقة "الترجمة" وتحديث النصوص في ورقة "الرئيسية"
     if (data.action === "save_translations") {
       var tSheet = ss.getSheetByName("الترجمة") || ss.getSheetByName("Translations");
       if (!tSheet) {
@@ -1636,8 +1659,23 @@ function doPost(e) {
           return [item.id, item.category || "", item.ar || "", item.th || "", item.en || ""];
         });
         tSheet.getRange(2, 1, tRows.length, 5).setValues(tRows);
+
+        // مزامنة النصوص العربية المرتبطة بورقة "الرئيسية" (B3, B4, B23:B27) تلقائياً لمنع أي تعارض
+        var hSheet = ss.getSheetByName("الرئيسية");
+        if (hSheet) {
+          for (var k = 0; k < tItems.length; k++) {
+            var itm = tItems[k];
+            if (itm.id === "nav_platform_title" && itm.ar) hSheet.getRange(3, 2).setValue(itm.ar);
+            if (itm.id === "nav_platform_subtitle" && itm.ar) hSheet.getRange(4, 2).setValue(itm.ar);
+            if (itm.id === "home_card_title" && itm.ar) hSheet.getRange(23, 2).setValue(itm.ar);
+            if (itm.id === "home_card_subtitle" && itm.ar) hSheet.getRange(24, 2).setValue(itm.ar);
+            if (itm.id === "home_card_extra1" && itm.ar) hSheet.getRange(25, 2).setValue(itm.ar);
+            if (itm.id === "home_card_extra2" && itm.ar) hSheet.getRange(26, 2).setValue(itm.ar);
+            if (itm.id === "home_card_extra3" && itm.ar) hSheet.getRange(27, 2).setValue(itm.ar);
+          }
+        }
       }
-      return ContentService.createTextOutput(JSON.stringify({ success: true, message: "تم حفظ الترجمات بنجاح في ورقة الترجمة" }))
+      return ContentService.createTextOutput(JSON.stringify({ success: true, message: "تم حفظ الترجمات بنجاح في ورقة الترجمة وتحديث ورقة الرئيسية" }))
         .setMimeType(ContentService.MimeType.JSON);
     }
 

@@ -173,6 +173,39 @@ export default function App() {
   const handleUpdateTranslations = async (items: TranslationItem[]) => {
     setTranslations(items);
     saveStoredTranslations(items);
+
+    // Sync any sheet "الرئيسية" Arabic edits into homeConfig immediately
+    const titleItem = items.find((i) => i.id === 'nav_platform_title');
+    const subtitleItem = items.find((i) => i.id === 'nav_platform_subtitle');
+    const cardTitleItem = items.find((i) => i.id === 'home_card_title');
+    const cardSubtitleItem = items.find((i) => i.id === 'home_card_subtitle');
+    const extra1Item = items.find((i) => i.id === 'home_card_extra1');
+    const extra2Item = items.find((i) => i.id === 'home_card_extra2');
+    const extra3Item = items.find((i) => i.id === 'home_card_extra3');
+
+    setHomeConfig((prev) => {
+      const updated: HomeBrandConfig = {
+        title: titleItem?.ar || prev?.title || '',
+        subtitle: subtitleItem?.ar || prev?.subtitle || '',
+        logoUrl: prev?.logoUrl || '',
+        card: {
+          cardLogoUrl: prev?.card?.cardLogoUrl || '',
+          cardBgUrl: prev?.card?.cardBgUrl || '',
+          cardTitle: cardTitleItem?.ar || prev?.card?.cardTitle || '',
+          cardSubtitle: cardSubtitleItem?.ar || prev?.card?.cardSubtitle || '',
+          extraText1: extra1Item?.ar ?? prev?.card?.extraText1,
+          extraText2: extra2Item?.ar ?? prev?.card?.extraText2,
+          extraText3: extra3Item?.ar ?? prev?.card?.extraText3,
+        },
+        socialLinks: prev?.socialLinks || [],
+        adminUsers: prev?.adminUsers || [],
+      };
+      try {
+        localStorage.setItem('faseeh_cached_home_config', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
     if (sheetsConfig.webhookUrl) {
       try {
         await saveTranslationsToSheets(sheetsConfig.webhookUrl, items);
@@ -413,6 +446,35 @@ export default function App() {
                 .then((cfg) => {
                   if (cfg) {
                     setHomeConfig(cfg);
+
+                    // Sync sheet "الرئيسية" Arabic source texts into translations dictionary
+                    setTranslations((prev) => {
+                      return prev.map((item) => {
+                        if (item.id === 'nav_platform_title' && cfg.title) {
+                          return { ...item, ar: cfg.title };
+                        }
+                        if (item.id === 'nav_platform_subtitle' && cfg.subtitle) {
+                          return { ...item, ar: cfg.subtitle };
+                        }
+                        if (item.id === 'home_card_title' && (cfg.card?.cardTitle || cfg.title)) {
+                          return { ...item, ar: cfg.card?.cardTitle || cfg.title || item.ar };
+                        }
+                        if (item.id === 'home_card_subtitle' && (cfg.card?.cardSubtitle || cfg.subtitle)) {
+                          return { ...item, ar: cfg.card?.cardSubtitle || cfg.subtitle || item.ar };
+                        }
+                        if (item.id === 'home_card_extra1' && cfg.card?.extraText1) {
+                          return { ...item, ar: cfg.card.extraText1 };
+                        }
+                        if (item.id === 'home_card_extra2' && cfg.card?.extraText2) {
+                          return { ...item, ar: cfg.card.extraText2 };
+                        }
+                        if (item.id === 'home_card_extra3' && cfg.card?.extraText3) {
+                          return { ...item, ar: cfg.card.extraText3 };
+                        }
+                        return item;
+                      });
+                    });
+
                     if (sessionStorage.getItem('faseeh_admin_auth') === 'true') {
                       const currentAdminName = sessionStorage.getItem('faseeh_admin_name') || '';
                       if (cfg.adminUsers && cfg.adminUsers.length > 0) {
@@ -1051,17 +1113,17 @@ export default function App() {
                   <div className="flex flex-wrap items-center justify-center gap-2.5 max-w-2xl mx-auto mb-8">
                     {homeConfig?.card?.extraText1 && (
                       <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 backdrop-blur-xs">
-                        {homeConfig.card.extraText1}
+                        {currentLang === 'ar' ? homeConfig.card.extraText1 : t('home_card_extra1', homeConfig.card.extraText1)}
                       </span>
                     )}
                     {homeConfig?.card?.extraText2 && (
                       <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-sky-500/20 text-sky-200 border border-sky-400/30 backdrop-blur-xs">
-                        {homeConfig.card.extraText2}
+                        {currentLang === 'ar' ? homeConfig.card.extraText2 : t('home_card_extra2', homeConfig.card.extraText2)}
                       </span>
                     )}
                     {homeConfig?.card?.extraText3 && (
                       <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-indigo-500/20 text-indigo-200 border border-indigo-400/30 backdrop-blur-xs">
-                        {homeConfig.card.extraText3}
+                        {currentLang === 'ar' ? homeConfig.card.extraText3 : t('home_card_extra3', homeConfig.card.extraText3)}
                       </span>
                     )}
                   </div>

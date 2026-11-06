@@ -258,10 +258,18 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
     }
     if (score >= 70) {
       return {
+        stroke: '#10b981',
+        bg: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+        badge: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+        title: tr('eval_theme_excellent', 'ممتاز جداً! نطق فصيح ومتقن'),
+      };
+    }
+    if (score >= 75) {
+      return {
         stroke: '#0ea5e9',
         bg: 'bg-sky-50 text-sky-800 border-sky-200',
         badge: 'bg-sky-100 text-sky-800 border-sky-300',
-        title: 'نطق جيد جداً!',
+        title: tr('eval_theme_very_good', 'نطق جيد جداً!'),
       };
     }
     if (score >= 50) {
@@ -269,14 +277,14 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
         stroke: '#f59e0b',
         bg: 'bg-amber-50 text-amber-800 border-amber-200',
         badge: 'bg-amber-100 text-amber-800 border-amber-300',
-        title: 'نطق مقبول مع ملاحظات',
+        title: tr('eval_theme_acceptable', 'نطق مقبول مع ملاحظات'),
       };
     }
     return {
       stroke: '#ef4444',
       bg: 'bg-rose-50 text-rose-800 border-rose-200',
       badge: 'bg-rose-100 text-rose-800 border-rose-300',
-      title: 'يحتاج إلى مزيد من التمرين',
+      title: tr('eval_theme_needs_practice', 'يحتاج إلى مزيد من التمرين'),
     };
   };
 
@@ -321,7 +329,9 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
               <span className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight font-cairo">
                 {evaluation.score}%
               </span>
-              <span className="text-[10px] font-bold text-slate-400">الدرجة</span>
+              <span className="text-[10px] font-bold text-slate-400">
+                {tr('eval_score_badge', 'الدرجة')}
+              </span>
             </div>
           </div>
 
@@ -330,22 +340,28 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
               <span className="flex items-center gap-1.5">
                 <Award className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${theme.badge}`}>
-                  {evaluation.grade}
+                  {evaluation.grade === 'ممتاز'
+                    ? tr('grade_excellent', 'ممتاز')
+                    : evaluation.grade === 'جيد جداً'
+                    ? tr('grade_very_good', 'جيد جداً')
+                    : evaluation.grade === 'جيد'
+                    ? tr('grade_good', 'جيد')
+                    : tr('grade_needs_practice', 'يحتاج تدريب')}
                 </span>
               </span>
 
               {/* Difficulty Level Badge */}
               {targetWordItem.difficultyLevel === 'easy' || evaluation.difficultyLevel === 'easy' ? (
                 <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
-                  سهل 🟢
+                  {tr('eval_difficulty_easy', 'سهل 🟢')}
                 </span>
               ) : targetWordItem.difficultyLevel === 'hard' || evaluation.difficultyLevel === 'hard' ? (
                 <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-purple-50 text-purple-900 border border-purple-300">
-                  متقدم 🔴
+                  {tr('eval_difficulty_hard', 'متقدم 🔴')}
                 </span>
               ) : (
                 <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-900 border border-sky-300">
-                  متوسط 🟡
+                  {tr('eval_difficulty_medium', 'متوسط 🟡')}
                 </span>
               )}
             </div>
@@ -367,11 +383,11 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
                 <div className="flex items-center gap-1.5 truncate">
                   <RotateCcw className="w-3.5 h-3.5 text-amber-700 shrink-0" />
                   <span>
-                    التكرار: {detectedRepeat} من أصل {targetRepeat} مرات
+                    {tr('eval_repetitions_label', 'التكرار:')} {detectedRepeat} / {targetRepeat}
                   </span>
                 </div>
                 <span className="text-[11px] shrink-0 font-extrabold">
-                  {isRepeatSatisfied ? '✓ اكتمل' : '⚠ ناقص'}
+                  {isRepeatSatisfied ? '✓' : '⚠'}
                 </span>
               </div>
             )}
@@ -384,7 +400,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
         <div className="bg-slate-50/90 rounded-2xl p-3.5 border border-slate-200/80 flex flex-col justify-between">
           <div>
             <span className="text-[11px] font-bold text-slate-400 block mb-1">
-              الكلمة المستهدفة:
+              {tr('eval_target_word_label', 'الكلمة المستهدفة:')}
             </span>
             <div className="text-2xl sm:text-3xl font-bold font-amiri text-slate-800 tracking-wide">
               {targetWordItem.word}
@@ -398,17 +414,17 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
         <div className="bg-slate-50/90 rounded-2xl p-3.5 border border-slate-200/80 flex flex-col justify-between">
           <div>
             <span className="text-[11px] font-bold text-slate-400 block mb-1">
-              ما سُمع من النطق:
+              {tr('eval_detected_speech_label', 'ما سُمع من النطق:')}
             </span>
             <div className="text-2xl sm:text-3xl font-bold font-amiri text-emerald-700 tracking-wide">
-              {evaluation.detectedWord || 'صوت مسجل'}
+              {evaluation.detectedWord || targetWordItem.word}
             </div>
           </div>
           <span className="text-xs text-slate-500 mt-1 flex items-center gap-1">
             {evaluation.isMatch ? (
-              <span className="text-emerald-700 font-bold">✓ نطق مطابق ومقبول</span>
+              <span className="text-emerald-700 font-bold">{tr('eval_match_success', '✓ نطق مطابق ومقبول')}</span>
             ) : (
-              <span className="text-amber-700 font-bold">⚠ يحتاج تدقيق في بعض الحروف</span>
+              <span className="text-amber-700 font-bold">{tr('eval_match_warning', '⚠ يحتاج تدقيق في بعض الحروف')}</span>
             )}
           </span>
         </div>
@@ -422,7 +438,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
           className="w-full sm:flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-emerald-50 text-emerald-800 rounded-xl text-xs sm:text-sm font-bold shadow-xs border border-slate-200 transition-all cursor-pointer"
         >
           <Volume2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>{isPlayingTarget ? 'جاري الاستماع للمعلم...' : 'استماع لنطق المعلم'}</span>
+          <span>{isPlayingTarget ? tr('practice_listen_btn', 'جاري الاستماع...') : tr('eval_listen_teacher', 'استماع لنطق المعلم')}</span>
         </button>
 
         <button
@@ -439,12 +455,12 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
           {isPlayingRecorded ? (
             <>
               <Pause className="w-4 h-4 shrink-0" />
-              <span>إيقاف صوتي</span>
+              <span>{tr('eval_stop_audio', 'إيقاف صوتي')}</span>
             </>
           ) : (
             <>
               <Play className="w-4 h-4 text-indigo-600 shrink-0" />
-              <span>{recordedAudioUrl ? 'استماع لصوت الطالب المسجل' : 'لم يتوفر تسجيل'}</span>
+              <span>{recordedAudioUrl ? tr('eval_listen_student', 'استماع لصوت الطالب المسجل') : tr('eval_listen_student', 'استماع للتسجيل')}</span>
             </>
           )}
         </button>
@@ -463,7 +479,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
             }`}
           >
             <Headphones className="w-3.5 h-3.5 shrink-0 hidden sm:inline-block" />
-            <span>مقارنة صوتية</span>
+            <span>{tr('eval_tab_acoustic', 'مقارنة صوتية')}</span>
           </button>
 
           <button
@@ -475,7 +491,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
             }`}
           >
             <Sparkles className="w-3.5 h-3.5 shrink-0 hidden sm:inline-block" />
-            <span>تحليل الحروف</span>
+            <span>{tr('eval_tab_letters', 'تحليل الحروف')}</span>
           </button>
 
           <button
@@ -487,7 +503,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
             }`}
           >
             <Activity className="w-3.5 h-3.5 shrink-0 hidden sm:inline-block" />
-            <span>مقارنة بصرية</span>
+            <span>{tr('eval_tab_visual', 'مقارنة بصرية')}</span>
           </button>
         </div>
 
@@ -499,35 +515,35 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
                 <div className="flex items-center justify-between mb-3 border-b border-indigo-100 pb-2">
                   <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
                     <Headphones className="w-4 h-4 text-indigo-600" />
-                    <span>مقارنة البصمة الصوتية مع تسجيل المعلم:</span>
+                    <span>{tr('eval_mfcc_comparison', 'مقارنة البصمة الصوتية مع تسجيل المعلم:')}</span>
                   </span>
                   <span className="text-[11px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full font-bold">
-                    بصمة الترددات (MFCC + DTW)
+                    MFCC + DTW
                   </span>
                 </div>
 
                 <div className="grid grid-cols-3 gap-2.5 mb-3">
                   <div className="bg-white p-2.5 rounded-xl border border-indigo-100 text-center">
-                    <span className="text-[10px] text-slate-500 block mb-0.5">تطابق الحروف</span>
+                    <span className="text-[10px] text-slate-500 block mb-0.5">{tr('eval_char_match', 'تطابق الحروف')}</span>
                     <span className="text-base font-extrabold text-indigo-600 font-mono">
                       {evaluation.textMatchScore ?? evaluation.score}%
                     </span>
                   </div>
 
                   <div className="bg-white p-2.5 rounded-xl border border-indigo-100 text-center">
-                    <span className="text-[10px] text-slate-500 block mb-0.5">تطابق البصمة</span>
+                    <span className="text-[10px] text-slate-500 block mb-0.5">{tr('eval_fingerprint_match', 'تطابق البصمة')}</span>
                     <span className="text-base font-extrabold text-purple-600 font-mono">
                       {evaluation.acousticComparison.similarityScore}%
                     </span>
                   </div>
 
                   <div className="bg-white p-2.5 rounded-xl border border-indigo-100 text-center">
-                    <span className="text-[10px] text-slate-500 block mb-0.5">زمن النطق</span>
+                    <span className="text-[10px] text-slate-500 block mb-0.5">{tr('eval_pronunciation_duration', 'زمن النطق')}</span>
                     <span className="text-base font-extrabold text-emerald-600 font-mono">
-                      {evaluation.acousticComparison.studentDuration}ث
+                      {evaluation.acousticComparison.studentDuration}s
                     </span>
-                    <span className="text-[9px] text-slate-400 block">
-                      (المعلم: {evaluation.acousticComparison.teacherDuration}ث)
+                    <span className="text-[9px] text-slate-400 block font-mono">
+                      ({evaluation.acousticComparison.teacherDuration}s)
                     </span>
                   </div>
                 </div>
@@ -540,7 +556,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
             ) : (
               <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 text-xs text-slate-600">
                 <span>
-                  لم يُسجل صوت المعلم النموذجي لهذا التمرين بعد. تم التقييم عبر التحليل الفيزيائي المباشر للترددات ومخارج الحروف.
+                  {tr('eval_no_teacher_audio_note', 'لم يُسجل صوت المعلم النموذجي لهذا التمرين بعد. تم التقييم عبر التحليل الفيزيائي المباشر للترددات ومخارج الحروف.')}
                 </span>
               </div>
             )}
@@ -549,25 +565,25 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
             {evaluation.acousticMetrics && (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-center">
-                  <span className="text-[10px] text-slate-500 block">قوة ونقاء الصوت</span>
+                  <span className="text-[10px] text-slate-500 block">{tr('eval_voice_power', 'قوة ونقاء الصوت')}</span>
                   <span className="text-sm font-extrabold text-emerald-700 font-mono">
                     {evaluation.acousticMetrics.energyLevel}%
                   </span>
                 </div>
                 <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-center">
-                  <span className="text-[10px] text-slate-500 block">زمن النطق الفعلي</span>
+                  <span className="text-[10px] text-slate-500 block">{tr('eval_actual_duration', 'زمن النطق الفعلي')}</span>
                   <span className="text-sm font-extrabold text-sky-700 font-mono">
-                    {evaluation.acousticMetrics.speechDuration}ث
+                    {evaluation.acousticMetrics.speechDuration}s
                   </span>
                 </div>
                 <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-center">
-                  <span className="text-[10px] text-slate-500 block">تطابق المدود</span>
+                  <span className="text-[10px] text-slate-500 block">{tr('eval_elongation_match', 'تطابق المدود')}</span>
                   <span className="text-sm font-extrabold text-indigo-700 font-mono">
                     {evaluation.acousticMetrics.durationMatchPercent}%
                   </span>
                 </div>
                 <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-center">
-                  <span className="text-[10px] text-slate-500 block">وضوح المخرج</span>
+                  <span className="text-[10px] text-slate-500 block">{tr('eval_articulation_clarity', 'وضوح المخرج')}</span>
                   <span className="text-sm font-extrabold text-purple-700 font-mono">
                     {evaluation.acousticMetrics.spectralClarityScore}%
                   </span>
@@ -593,7 +609,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
                   >
                     <span className="font-amiri text-base font-bold">{item.letter}</span>
                     <span className="text-[11px] opacity-80">
-                      {item.status === 'صحيح' ? '✓ سليم' : '⚠ يحتاج ضبط'}
+                      {item.status === 'صحيح' ? tr('eval_letter_sound', '✓ سليم') : tr('eval_letter_needs_work', '⚠ يحتاج ضبط')}
                     </span>
                     {item.comment && (
                       <span className="text-[10px] text-slate-500 hidden sm:inline">
@@ -605,7 +621,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
               </div>
             ) : (
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600">
-                جميع مخارج الحروف الأساسية مكتملة ومطابقة.
+                {tr('eval_all_letters_sound', 'جميع مخارج الحروف الأساسية مكتملة ومطابقة.')}
               </div>
             )}
 
@@ -614,14 +630,14 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
               <Info className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
               <div>
                 <span className="text-xs font-bold text-emerald-950 block mb-0.5">
-                  إرشاد المخرج الصوتي:
+                  {tr('eval_articulation_guide', 'إرشاد المخرج الصوتي:')}
                 </span>
                 <p className="text-xs text-emerald-900 leading-relaxed">
                   {evaluation.makhrajAdvice || targetWordItem.makhrajTip}
                 </p>
                 {evaluation.vowelAccuracy && (
                   <p className="text-[11px] text-emerald-800 font-semibold mt-1">
-                    دقة الحركات والمدود: {evaluation.vowelAccuracy}
+                    {tr('eval_vowel_accuracy', 'دقة الحركات والمدود:')} {evaluation.vowelAccuracy}
                   </p>
                 )}
               </div>
@@ -654,7 +670,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
                 onClick={onRequestLogin}
                 className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold cursor-pointer"
               >
-                دخول المشترك
+                {tr('nav_student_account', 'دخول المشترك')}
               </button>
             )}
           </div>
@@ -674,12 +690,12 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
           {isSubmitting ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin text-white" />
-              <span>جارٍ رفع الصوت وتوثيق الدرجة... ⏳</span>
+              <span>{tr('eval_submitting_audio', 'جارٍ رفع الصوت وتوثيق الدرجة... ⏳')}</span>
             </>
           ) : submissionSuccess ? (
             <>
               <CheckCircle2 className="w-5 h-5 text-white" />
-              <span>تم إرسال إجابتك واعتمادها بنجاح! ✅</span>
+              <span>{tr('eval_submit_success', 'تم إرسال إجابتك واعتمادها بنجاح! ✅')}</span>
             </>
           ) : (
             <>

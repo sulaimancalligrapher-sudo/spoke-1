@@ -859,10 +859,10 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             </div>
             <div>
               <h3 className="font-extrabold text-base sm:text-lg">
-                سبق إرسال واعتماد هذا التمرين
+                {tr('practice_submitted_and_locked', 'تم التسجيل و التقييم')}
               </h3>
               <p className="text-xs text-emerald-100 mt-0.5">
-                تم توثيق إجابتك واعتماد درجاتك في ورقة answers 1 بنجاح
+                {tr('eval_submit_success', 'تم إرسال إجابتك واعتمادها بنجاح! ✅')}
               </p>
             </div>
           </div>
@@ -894,9 +894,11 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           <div className="text-4xl sm:text-6xl font-bold font-amiri text-slate-900 tracking-wide mb-2 select-all">
             {wordItem.word}
           </div>
-          <div className="text-xs sm:text-sm text-slate-500 font-medium">
-            {wordItem.meaning || 'تمرين معتمد ومسجل'}
-          </div>
+          {wordItem.meaning && (
+            <div className="text-xs sm:text-sm text-slate-500 font-medium">
+              {wordItem.meaning}
+            </div>
+          )}
         </div>
 
         {/* Student Submission Record: Spoken Text + Audio + Score + Grade */}
@@ -905,7 +907,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl flex flex-col justify-between">
             <div>
               <span className="text-[11px] text-slate-500 font-bold block mb-1">
-                النص المنطوق المسجل:
+                {tr('eval_detected_speech_label', 'ما سُمع من النطق:')}
               </span>
               <div className="text-lg font-bold font-amiri text-slate-800 bg-white p-2.5 rounded-xl border border-slate-100">
                 "{previousSubmission.detectedWord || wordItem.word}"
@@ -915,7 +917,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             {/* Audio player if student's audio is available */}
             {previousSubmission.audioUrl && (
               <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between gap-3">
-                <span className="text-xs text-slate-600 font-bold">تسجيلك الصوتي:</span>
+                <span className="text-xs text-slate-600 font-bold">{tr('eval_listen_student', 'تسجيلك الصوتي:')}</span>
                 <button
                   type="button"
                   onClick={() => handlePlaySubmittedVoice(previousSubmission.audioUrl!)}
@@ -924,12 +926,12 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
                   {isPlayingSubmittedAudio ? (
                     <>
                       <Pause className="w-3.5 h-3.5" />
-                      <span>إيقاف الصوت</span>
+                      <span>{tr('eval_stop_audio', 'إيقاف الصوت')}</span>
                     </>
                   ) : (
                     <>
                       <Play className="w-3.5 h-3.5" />
-                      <span>استمع لصوتك 🔊</span>
+                      <span>{tr('eval_listen_student', 'استمع لصوتك')}</span>
                     </>
                   )}
                 </button>
@@ -940,7 +942,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           {/* Box 2: Score & Grade */}
           <div className="p-4 bg-emerald-50/70 border border-emerald-200/80 rounded-2xl flex flex-col items-center justify-center text-center">
             <span className="text-[11px] text-emerald-800 font-bold mb-1">
-              درجة التقييم المعتمدة
+              {tr('eval_score_badge', 'درجة التقييم')}
             </span>
             <div className="text-4xl font-black font-cairo text-emerald-700 mb-1">
               {previousSubmission.score}%
@@ -954,7 +956,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         {/* Bottom Action: زر إعادة التسجيل 🔄 */}
         <div className="mt-8 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="text-xs text-slate-500 text-center sm:text-right">
-            هل ترغب في إعادة المحاولة وتوثيق تسجيل ودرجة جديدة؟
+            {tr('practice_retry_prompt', 'هل ترغب في إعادة المحاولة وتوثيق تسجيل ودرجة جديدة؟')}
           </div>
 
           <button
@@ -963,7 +965,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-2xl text-sm transition-all shadow-md shadow-indigo-600/20 cursor-pointer hover:scale-102 active:scale-98"
           >
             <RotateCcw className="w-4 h-4" />
-            <span>إعادة التسجيل 🔄</span>
+            <span>{tr('practice_re_record_btn', 'إعادة التسجيل')}</span>
           </button>
         </div>
       </div>
@@ -1009,10 +1011,10 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             <Gauge className="w-3.5 h-3.5" />
             <span>
               {wordItem.difficultyLevel === 'easy'
-                ? 'مستوى التدقيق: سهل 🟢 (تساهل تشجيعي للمبتدئين)'
+                ? tr('eval_difficulty_easy', 'سهل 🟢')
                 : wordItem.difficultyLevel === 'hard'
-                ? 'مستوى التدقيق: متقدم 🔴 (صارم في الحركات والمخارج)'
-                : 'مستوى التدقيق: متوسط 🟡 (متوازن)'}
+                ? tr('eval_difficulty_hard', 'متقدم 🔴')
+                : tr('eval_difficulty_medium', 'متوسط 🟡')}
             </span>
           </div>
 
@@ -1020,7 +1022,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           {wordItem.repeatCount && wordItem.repeatCount > 1 && (
             <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-amber-50 border-2 border-amber-300 text-amber-950 rounded-2xl text-xs font-bold shadow-xs">
               <RotateCcw className="w-4 h-4 text-amber-700 shrink-0" />
-              <span>🔁 كرر ({wordItem.repeatCount}) مرات متتالية</span>
+              <span>🔁 {tr('eval_repetitions_label', 'التكرار:')} {wordItem.repeatCount}x</span>
             </div>
           )}
         </div>
@@ -1054,7 +1056,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
               className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-full transition-colors cursor-pointer"
             >
               <HelpCircle className="w-3.5 h-3.5" />
-              <span>مخرج ونطق الحرف الصحيح</span>
+              <span>{tr('practice_makhraj_tip_title', 'مخرج الحرف وكيفية نطقه:')}</span>
               {showMakhrajDetails ? (
                 <ChevronUp className="w-3.5 h-3.5" />
               ) : (
@@ -1065,12 +1067,12 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             {showMakhrajDetails && (
               <div className="mt-3 p-4 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs text-slate-700 leading-relaxed max-w-lg mx-auto text-right animate-in fade-in duration-300">
                 <div className="font-bold text-emerald-800 mb-1 flex items-center gap-1">
-                  <span>💡 كيف تنطق هذا الحرف؟</span>
+                  <span>{tr('practice_makhraj_how_to', '💡 كيف تنطق هذا الحرف؟')}</span>
                 </div>
                 {wordItem.makhrajTip}
                 {wordItem.harakat && (
                   <div className="mt-2 text-slate-500 font-semibold border-t border-slate-200 pt-1.5">
-                    الحركات: {wordItem.harakat}
+                    {tr('practice_harakat_label', 'الحركات:')} {wordItem.harakat}
                   </div>
                 )}
               </div>
@@ -1150,12 +1152,12 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             ) : countdown !== null ? (
               <div className="w-20 h-20 rounded-full flex flex-col items-center justify-center bg-cyan-600 text-white shadow-xl shadow-cyan-600/40 animate-pulse scale-110 border-4 border-cyan-300 select-none">
                 <span className="text-3xl font-extrabold font-mono leading-none">{countdown}</span>
-                <span className="text-[9px] font-bold mt-1 text-cyan-100">استعد...</span>
+                <span className="text-[9px] font-bold mt-1 text-cyan-100">{tr('practice_get_ready', 'استعد...')}</span>
               </div>
             ) : isSafeStopping ? (
               <div className="w-20 h-20 rounded-full flex flex-col items-center justify-center bg-amber-500 text-white shadow-lg shadow-amber-500/30 animate-pulse select-none">
                 <Loader2 className="w-7 h-7 animate-spin" />
-                <span className="text-[9px] font-bold mt-1">حفظ الصوت...</span>
+                <span className="text-[9px] font-bold mt-1">{tr('practice_saving_audio', 'حفظ الصوت...')}</span>
               </div>
             ) : (
               <button
@@ -1185,15 +1187,15 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           <p className="text-xs font-medium text-slate-500 mt-3 text-center">
             {cooldownSeconds > 0 ? (
               <span className="text-amber-800 font-bold bg-amber-50 border border-amber-200 px-3 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse">
-                <span>⏳ استعد للمحاولة التالية خلال {cooldownSeconds} ثوانٍ...</span>
+                <span>⏳ {tr('practice_cooldown_wait', 'استعد للمحاولة التالية')} ({cooldownSeconds}s)</span>
               </span>
             ) : countdown !== null ? (
               <span className="text-cyan-800 font-bold bg-cyan-50 border border-cyan-300 px-4 py-1.5 rounded-full inline-flex items-center gap-1.5 animate-pulse shadow-xs">
-                <span>⏱️ استعد! سيبدأ الاستماع بعد {countdown} ثوانٍ...</span>
+                <span>⏱️ {tr('practice_countdown_listen', 'استعد! سيبدأ الاستماع بعد')} ({countdown}s)</span>
               </span>
             ) : isSafeStopping ? (
               <span className="text-amber-800 font-bold bg-amber-50 border border-amber-300 px-3.5 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse">
-                <span>💾 جاري حفظ مقطع الصوت بالكامل...</span>
+                <span>💾 {tr('practice_saving_audio', 'جاري حفظ مقطع الصوت بالكامل...')}</span>
               </span>
             ) : isRecording ? (
               <span className="text-rose-700 font-bold bg-rose-50 border border-rose-300 px-3.5 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse">
@@ -1203,7 +1205,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
                     (wordItem.repeatCount && wordItem.repeatCount > 1
                       ? Math.min(10, Math.max(7, wordItem.repeatCount * 2 + 3))
                       : 6) - recordDuration
-                  )}ث)
+                  )}s)
                 </span>
               </span>
             ) : (
@@ -1214,14 +1216,14 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           {(liveTranscript || isRecording) && (
             <div className="mt-4 w-full bg-slate-50 border border-slate-200/80 rounded-2xl p-3 text-center animate-in fade-in duration-200">
               <span className="text-[11px] font-semibold text-slate-400 block mb-0.5">
-                {liveTranscript ? 'ما تم رصده صوتياً:' : 'حالة الميكروفون:'}
+                {liveTranscript ? tr('eval_detected_speech_label', 'ما تم رصده صوتياً:') : tr('practice_mic_status', 'حالة الميكروفون:')}
               </span>
               <div className="text-base font-bold font-amiri text-emerald-800">
                 {liveTranscript ? (
                   <span>{liveTranscript}</span>
                 ) : (
                   <span className="text-slate-500 text-xs font-semibold flex items-center justify-center gap-1.5 animate-pulse">
-                    <span>🎙️ يستمع إليك... انطق الكلمة الآن بوضوح</span>
+                    <span>🎙️ {tr('practice_listening_prompt', 'يستمع إليك... انطق الكلمة الآن بوضوح')}</span>
                   </span>
                 )}
               </div>
@@ -1306,14 +1308,14 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
               <Sparkles className="w-8 h-8 text-emerald-600 animate-pulse" />
             </div>
             <h3 className="text-base font-bold text-slate-900 mb-1.5 font-cairo">
-              جاري تحليل نطقك وتدقيق الحركات...
+              {tr('practice_analyzing_modal_title', 'جاري تحليل نطقك وتدقيق الحركات...')}
             </h3>
             <p className="text-xs text-slate-500 mb-5 leading-relaxed">
-              يقوم محرك الذكاء بفحص مخارج الحركات ومطابقة الكلمة، استعد لرؤية النتيجة!
+              {tr('practice_analyzing_modal_desc', 'يقوم محرك الذكاء بفحص مخارج الحركات ومطابقة الكلمة، استعد لرؤية النتيجة!')}
             </p>
             <div className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-800 rounded-xl text-xs font-bold border border-emerald-200">
               <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
-              <span>لحظات قليلة وتظهر النتيجة...</span>
+              <span>{tr('practice_analyzing_modal_sub', 'لحظات قليلة وتظهر النتيجة...')}</span>
             </div>
           </div>
         </div>
