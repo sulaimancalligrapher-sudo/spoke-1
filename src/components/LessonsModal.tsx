@@ -23,6 +23,7 @@ interface LessonsModalProps {
   selectedSubject: string;
   onSelectSubject: (subject: string) => void;
   scoresMap: Record<string, number>;
+  t?: (id: string, fallback?: string) => string;
 }
 
 export const LessonsModal: React.FC<LessonsModalProps> = ({
@@ -35,7 +36,9 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
   selectedSubject,
   onSelectSubject,
   scoresMap,
+  t,
 }) => {
+  const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
   // Categories belonging to the currently selected subject
   const availableCategories = Array.from(
     new Set(
@@ -83,10 +86,10 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
             </div>
             <div>
               <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                قائمة الدروس والتمارين
+                {tr('lessons_modal_title', 'فهرس الدروس والكلمات')}
               </h3>
               <p className="text-xs text-slate-500">
-                اختر موضوع الدرس ثم الفئة والكلمة لبدء التسجيل والتقييم
+                {tr('lessons_modal_desc', 'اختر الدرس أو الموضوع للتدرب على كلماته ونطقه')}
               </p>
             </div>
           </div>
@@ -103,7 +106,7 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
         <div className="p-4 sm:p-5 border-b border-slate-100 bg-white space-y-3">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              📚 اختر موضوع الدرس:
+              📚 {tr('lessons_modal_desc', 'موضوع الدرس:')}
             </label>
             <select
               value={selectedSubject}
@@ -128,6 +131,14 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
                 (c) => (!selectedSubject || c.lessonSubject === selectedSubject) && c.category === cat
               ).length;
               const isSelected = currentCategory === cat;
+              const translatedCat =
+                cat === 'الحرف'
+                  ? tr('category_letter', 'الحرف')
+                  : cat === 'الكلمة'
+                  ? tr('category_word', 'الكلمة')
+                  : cat === 'الجملة'
+                  ? tr('category_sentence', 'الجملة')
+                  : cat;
               return (
                 <button
                   key={cat}
@@ -138,7 +149,7 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  {cat} ({count})
+                  {translatedCat} ({count})
                 </button>
               );
             })}
@@ -151,7 +162,7 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ابحث عن كلمة أو حرف أو معنى..."
+              placeholder={tr('lessons_search_placeholder', 'ابحث عن كلمة أو حرف أو معنى...')}
               className="w-full pr-10 pl-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:border-indigo-400 transition-all placeholder:text-slate-400"
             />
           </div>

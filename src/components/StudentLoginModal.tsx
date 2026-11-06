@@ -8,6 +8,7 @@ interface StudentLoginModalProps {
   onClose: () => void;
   onLoginSuccess: (student: StudentRegistrant) => void;
   webhookUrl: string;
+  t?: (id: string, fallback?: string) => string;
 }
 
 export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
@@ -15,7 +16,9 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
   onClose,
   onLoginSuccess,
   webhookUrl,
+  t,
 }) => {
+  const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
   const [studentName, setStudentName] = useState('');
   const [studentId, setStudentId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -93,10 +96,10 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
             </div>
             <div>
               <h3 className="text-base sm:text-lg font-bold text-white">
-                تسجيل دخول المشترك 🎓
+                {tr('login_modal_title', 'تسجيل دخول المشترك 🎓')}
               </h3>
               <p className="text-xs text-blue-100">
-                التحقق عبر ورقة المشتركين (ID registrants)
+                {tr('login_modal_desc', 'التحقق عبر ورقة المشتركين (ID registrants)')}
               </p>
             </div>
           </div>
@@ -132,14 +135,14 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
               <User className="w-4 h-4 text-emerald-600" />
-              <span>اسم المشترك:</span>
+              <span>{tr('login_name_label', 'اسم المشترك:')}</span>
             </label>
             <div className="relative">
               <input
                 type="text"
                 value={studentName}
                 onChange={(e) => setStudentName(e.target.value)}
-                placeholder="أدخل اسم المشترك كما هو مسجل (مثال: أحمد علي)"
+                placeholder="أحمد علي"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-medium"
                 required
               />
@@ -150,14 +153,14 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
               <KeyRound className="w-4 h-4 text-indigo-600" />
-              <span>رقم المشترك (ID):</span>
+              <span>{tr('login_id_label', 'رقم المشترك (ID) أو رقم الجوال:')}</span>
             </label>
             <div className="relative">
               <input
                 type="text"
                 value={studentId}
                 onChange={(e) => setStudentId(e.target.value)}
-                placeholder="أدخل رقم ID الخاص بك (مثال: 1001)"
+                placeholder="1001"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-mono font-bold"
                 required
               />
@@ -187,7 +190,7 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
               ) : (
                 <>
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>تسجيل الدخول والمتابعة</span>
+                  <span>{tr('login_submit_btn', 'تسجيل ومتابعة التدريب')}</span>
                 </>
               )}
             </button>

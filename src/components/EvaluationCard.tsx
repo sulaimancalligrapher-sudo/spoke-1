@@ -50,6 +50,7 @@ interface EvaluationCardProps {
   wordIndex?: number;
   onRequestLogin?: () => void;
   onSubmissionSuccess?: () => void;
+  t?: (id: string, fallback?: string) => string;
 }
 
 type TabType = 'acoustic' | 'letters' | 'visual';
@@ -75,7 +76,9 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
   wordIndex = 0,
   onRequestLogin,
   onSubmissionSuccess,
+  t,
 }) => {
+  const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
   const [activeTab, setActiveTab] = useState<TabType>('acoustic');
   const [isPlayingTarget, setIsPlayingTarget] = useState(false);
   const [isPlayingRecorded, setIsPlayingRecorded] = useState(false);
@@ -681,7 +684,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
           ) : (
             <>
               <Send className="w-4 h-4" />
-              <span>إرسال واعتماد الإجابة 📤</span>
+              <span>{tr('practice_send_sheets', 'إرسال واعتماد الإجابة 📤')}</span>
             </>
           )}
         </button>
@@ -695,7 +698,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
           className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-amber-500 hover:bg-amber-600 text-white shadow-sm shadow-amber-500/20 transition-all cursor-pointer active:scale-98"
         >
           <RotateCcw className="w-4 h-4" />
-          <span>إعادة التسجيل</span>
+          <span>{tr('practice_re_record_btn', 'إعادة التسجيل')}</span>
         </button>
 
         {/* Button 2: فتح الدروس (Indigo / Royal Blue) */}
@@ -705,7 +708,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
             className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-600/20 transition-all cursor-pointer active:scale-98"
           >
             <BookOpen className="w-4 h-4 text-indigo-100" />
-            <span>( فتح الدروس )</span>
+            <span>({tr('nav_open_lessons', 'فتح الدروس')})</span>
           </button>
         )}
 
@@ -714,7 +717,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
           onClick={onNext}
           className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/25 transition-all cursor-pointer active:scale-98"
         >
-          <span>التالي</span>
+          <span>{tr('lessons_next_btn', 'التالي')}</span>
           <ArrowRight className="w-4 h-4 rotate-180" />
         </button>
       </div>

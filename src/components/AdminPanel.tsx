@@ -64,7 +64,10 @@ import {
   Clock,
   Settings,
   LogOut,
+  Languages,
 } from 'lucide-react';
+import { TranslationItem } from '../utils/translations';
+import { TranslationManager } from './TranslationManager';
 import {
   getDailyQuotaStatus,
   resetDailyQuota,
@@ -114,6 +117,9 @@ interface AdminPanelProps {
   onOpenSettings?: () => void;
   onOpenGuide?: () => void;
   onLogout?: () => void;
+  translations?: TranslationItem[];
+  onUpdateTranslations?: (items: TranslationItem[]) => void;
+  geminiApiKey?: string;
 }
 
 const TASHKEEL_BUTTONS = [
@@ -153,8 +159,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onOpenSettings,
   onOpenGuide,
   onLogout,
+  translations,
+  onUpdateTranslations,
+  geminiApiKey,
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'sheets' | 'system' | 'submissions'>('lessons');
+  const [activeTab, setActiveTab] = useState<'lessons' | 'submissions' | 'sheets' | 'translations'>('lessons');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -181,6 +190,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [answers1Submissions, setAnswers1Submissions] = useState<Answers1SubmissionRow[]>([]);
   const [loadingAnswers1, setLoadingAnswers1] = useState(false);
   const [selectedSubmissionDetail, setSelectedSubmissionDetail] = useState<Answers1SubmissionRow | null>(null);
+  const [submissionsSearch, setSubmissionsSearch] = useState('');
 
   // Curriculum Sub-tabs & Sync Statuses
   const [lessonsSubTab, setLessonsSubTab] = useState<'add' | 'list'>('list');
@@ -1017,6 +1027,23 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
+            onClick={() => {
+              setActiveTab('submissions');
+              if (answers1Submissions.length === 0 && !loadingAnswers1) {
+                handleLoadAnswers1();
+              }
+            }}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'submissions'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <Table className="w-4 h-4" />
+            <span>نتائج الطلاب (answers 1)</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('sheets')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'sheets'
@@ -1032,15 +1059,15 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('submissions')}
+            onClick={() => setActiveTab('translations')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'submissions'
-                ? 'bg-emerald-600 text-white shadow-xs'
+              activeTab === 'translations'
+                ? 'bg-indigo-600 text-white shadow-xs'
                 : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
             }`}
           >
-            <Table className="w-4 h-4" />
-            <span>نتائج الطلاب (answers 1)</span>
+            <Languages className="w-4 h-4 text-indigo-500" />
+            <span>إدارة وتخصيص الترجمة (التايلاندية / الإنجليزية)</span>
           </button>
         </div>
 
@@ -2284,6 +2311,29 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
               </div>
             </div>
 
+            {/* Search Bar in Submissions Table */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={submissionsSearch}
+                  onChange={(e) => setSubmissionsSearch(e.target.value)}
+                  placeholder="بحث برقم المشترك، اسم الطالب، أو موضوع الدرس..."
+                  className="w-full pr-9 pl-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:border-emerald-500 text-right"
+                />
+              </div>
+              {submissionsSearch && (
+                <button
+                  type="button"
+                  onClick={() => setSubmissionsSearch('')}
+                  className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer shrink-0"
+                >
+                  مسح البحث
+                </button>
+              )}
+            </div>
+
             {loadingAnswers1 ? (
               <div className="py-16 flex flex-col items-center justify-center gap-2 text-xs text-slate-500">
                 <Loader2 className="w-7 h-7 text-emerald-600 animate-spin" />
@@ -2308,7 +2358,6 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                 <table className="w-full text-right text-xs">
                   <thead>
                     <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
-                      <th className="p-3">وقت الإرسال</th>
                       <th className="p-3">رقم المشترك</th>
                       <th className="p-3">اسم المشترك</th>
                       <th className="p-3">موضوع الدرس</th>
@@ -2317,42 +2366,58 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {answers1Submissions.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-teal-50/40 transition-colors">
-                        <td className="p-3 text-[11px] text-slate-500 whitespace-nowrap font-mono dir-ltr text-right">
-                          {row.timestamp || '—'}
-                        </td>
-                        <td className="p-3 font-mono font-bold text-teal-900">
-                          {row.studentId ? `#${row.studentId}` : '—'}
-                        </td>
-                        <td className="p-3 font-bold text-slate-900">
-                          {row.studentName || 'مشترك'}
-                        </td>
-                        <td className="p-3 text-slate-700 font-semibold">
-                          {row.lessonSubject || 'عام'}
-                        </td>
-                        <td className="p-3 text-center">
-                          <span className="px-2.5 py-1 bg-teal-100 text-teal-800 rounded-full font-bold text-[11px]">
-                            {row.totalExercises} تمارين
-                          </span>
-                        </td>
-                        <td className="p-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedSubmissionDetail(row)}
-                            className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5"
-                          >
-                            <span>عرض تفاصيل الإجابات</span>
-                            <span>👁️</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {answers1Submissions
+                      .filter((row) => {
+                        if (!submissionsSearch.trim()) return true;
+                        const q = submissionsSearch.trim().toLowerCase();
+                        const idMatch = row.studentId && row.studentId.toLowerCase().includes(q);
+                        const nameMatch = row.studentName && row.studentName.toLowerCase().includes(q);
+                        const subjMatch = row.lessonSubject && row.lessonSubject.toLowerCase().includes(q);
+                        return idMatch || nameMatch || subjMatch;
+                      })
+                      .map((row, idx) => (
+                        <tr key={idx} className="hover:bg-teal-50/40 transition-colors">
+                          <td className="p-3 font-mono font-bold text-teal-900">
+                            {row.studentId ? `#${row.studentId}` : '—'}
+                          </td>
+                          <td className="p-3 font-bold text-slate-900">
+                            {row.studentName || 'مشترك'}
+                          </td>
+                          <td className="p-3 text-slate-700 font-semibold">
+                            {row.lessonSubject || 'عام'}
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className="px-2.5 py-1 bg-teal-100 text-teal-800 rounded-full font-bold text-[11px]">
+                              {row.totalExercises} تمارين
+                            </span>
+                          </td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedSubmissionDetail(row)}
+                              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                            >
+                              <span>عرض تفاصيل الإجابات</span>
+                              <span>👁️</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </div>
             )}
           </div>
+        )}
+
+        {/* TAB 4: TRANSLATION MANAGEMENT */}
+        {activeTab === 'translations' && (
+          <TranslationManager
+            translations={translations || []}
+            onSaveTranslations={onUpdateTranslations || (() => {})}
+            geminiApiKey={geminiApiKey}
+            webhookUrl={sheetsConfig.webhookUrl}
+          />
         )}
 
       {/* MODAL: SUBMISSION EXERCISES DETAIL MODAL (answers 1) */}

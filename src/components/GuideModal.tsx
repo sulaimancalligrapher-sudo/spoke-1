@@ -34,7 +34,7 @@ export const GuideModal: React.FC<GuideModalProps> = ({
   defaultEvalMode,
   onUpdateDefaultEvalMode,
 }) => {
-  const [activeTab, setActiveTab] = useState<'methodology' | 'steps' | 'settings'>('methodology');
+  const [activeTab, setActiveTab] = useState<'notes' | 'methodology' | 'steps' | 'settings'>('notes');
   const [apiKeyInput, setApiKeyInput] = useState(settings?.geminiApiKey || '');
   const [keySaved, setKeySaved] = useState(false);
 
@@ -72,8 +72,18 @@ export const GuideModal: React.FC<GuideModalProps> = ({
           </div>
         </div>
 
-        {/* Tab switcher: 3 Unified Tabs */}
-        <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-2xl mb-4">
+        {/* Tab switcher: 4 Unified Tabs */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1 bg-slate-100 rounded-2xl mb-4">
+          <button
+            onClick={() => setActiveTab('notes')}
+            className={`py-2 px-1 text-center rounded-xl text-xs font-bold transition-all cursor-pointer truncate ${
+              activeTab === 'notes'
+                ? 'bg-white text-emerald-900 shadow-xs ring-1 ring-emerald-500/20'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            📌 ملاحظات أساسية
+          </button>
           <button
             onClick={() => setActiveTab('methodology')}
             className={`py-2 px-1 text-center rounded-xl text-xs font-bold transition-all cursor-pointer truncate ${
@@ -105,6 +115,72 @@ export const GuideModal: React.FC<GuideModalProps> = ({
             🎛️ الصوت والتقييم
           </button>
         </div>
+
+        {/* Tab 0: Essential Notes & Important Guidelines */}
+        {activeTab === 'notes' && (
+          <div className="space-y-3.5 my-3 animate-in fade-in duration-200">
+            {/* Note 1: Whisper engine prominence */}
+            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-300 flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <Zap className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-bold text-emerald-950 text-sm flex items-center gap-1.5">
+                  <span>📌 ملاحظة هامة:</span>
+                  <span className="text-xs bg-emerald-200/80 text-emerald-900 px-2 py-0.5 rounded-full font-bold">المحرك الأساسي المعتمد</span>
+                </h4>
+                <p className="text-xs text-emerald-900 leading-relaxed font-semibold">
+                  تقييم نطق الطالب يعتمد بالدرجة الأولى على نموذج <strong className="text-emerald-950 underline">Whisper الداخلي</strong> (يعمل 100% داخل المتصفح بدون مفاتيح وبدون أي تكلفة أو استهلاك رصيد).
+                </p>
+              </div>
+            </div>
+
+            {/* Note 2: Gemini API in current environment */}
+            <div className="p-4 bg-indigo-50/80 rounded-2xl border border-indigo-200 flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-bold text-indigo-950 text-sm">
+                  🔹 بيئة العمل السحابية الحالية:
+                </h4>
+                <p className="text-xs text-indigo-900 leading-relaxed">
+                  <strong>لا يلزم إدخال المفتاح نهائياً في بيئة العمل الحالية:</strong> لأن الخادم الخلفي للتطبيق (server.ts) متصل تلقائياً ببيئة AI Studio التي توفر مفتاح Gemini API مباشرة في متغيرات البيئة.
+                </p>
+              </div>
+            </div>
+
+            {/* Note 3: Stored in localStorage */}
+            <div className="p-4 bg-sky-50/80 rounded-2xl border border-sky-200 flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-bold text-sky-950 text-sm">
+                  🔹 حفظ المفتاح في المتصفح:
+                </h4>
+                <p className="text-xs text-sky-900 leading-relaxed">
+                  <strong>إذا أدخلت مفتاحاً في حقل الإعدادات:</strong> يُحفظ مباشرة في ذاكرة المتصفح localStorage ولن تحتاج لكتابته مجدداً؛ يظل محفوظاً على جهازك تلقائياً.
+                </p>
+              </div>
+            </div>
+
+            {/* Note 4: Optional for Vercel/Static */}
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-300 flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-slate-800 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <Sliders className="w-5 h-5 text-emerald-400" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-bold text-slate-900 text-sm">
+                  🔹 مرونة النشر الخارجي:
+                </h4>
+                <p className="text-xs text-slate-700 leading-relaxed">
+                  <strong>حقل الإعدادات اختياري فقط:</strong> تم تصميمه كخيار مرن لمن يريد تشغيل الموقع على استضافة خارجية ثابتة مثل Vercel بدون خادم وسيط.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Tab 1: Methodology */}
         {activeTab === 'methodology' && (

@@ -11,6 +11,8 @@ import {
   LogOut,
 } from 'lucide-react';
 import { StudentRegistrant } from '../types';
+import { LanguageSelector } from './LanguageSelector';
+import { SupportedLang } from '../utils/translations';
 
 interface NavbarProps {
   streak: number;
@@ -31,6 +33,9 @@ interface NavbarProps {
   onLogout?: () => void;
   customLogoUrl?: string;
   customTitle?: string;
+  currentLang?: SupportedLang;
+  onSelectLang?: (lang: SupportedLang) => void;
+  t?: (id: string, fallback?: string) => string;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -52,7 +57,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   customLogoUrl,
   customTitle,
+  currentLang = 'ar',
+  onSelectLang,
+  t,
 }) => {
+  const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
+
   return (
     <header className="bg-white/90 backdrop-blur-md sticky top-0 z-40 border-b border-slate-100 shadow-2xs">
       <div className="max-w-6xl mx-auto px-3.5 sm:px-6 py-2 sm:py-0 sm:h-16 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
@@ -85,14 +95,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div>
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <h1 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight font-cairo">
-                  {customTitle || 'فَصِيح'}
+                  {customTitle || tr('nav_platform_title', 'فَصِيح')}
                 </h1>
                 <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-[10px] font-bold">
-                  تقييم النطق الذكي
+                  {tr('nav_smart_eval_badge', 'تقييم النطق الذكي')}
                 </span>
               </div>
               <p className="text-[10px] sm:text-[11px] text-slate-500 hidden sm:block">
-                تعليم النطق والاستماع وتقييم مخارج الحروف العربية
+                {tr('nav_platform_subtitle', 'تعليم النطق والاستماع وتقييم مخارج الحروف العربية')}
               </p>
             </div>
           </div>
@@ -106,7 +116,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   onClick={onLogout}
                   className="p-0.5 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
-                  title="تسجيل الخروج"
+                  title={tr('nav_logout', 'تسجيل الخروج')}
                 >
                   <LogOut className="w-3.5 h-3.5" />
                 </button>
@@ -115,25 +125,30 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 onClick={onOpenLogin}
                 className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-2xs transition-all cursor-pointer"
-                title="تسجيل دخول الطالب"
+                title={tr('nav_student_login', 'دخول الطالب')}
               >
                 <User className="w-3.5 h-3.5" />
-                <span>دخول الطالب</span>
+                <span>{tr('nav_student_login', 'دخول الطالب')}</span>
               </button>
             )}
           </div>
         </div>
 
         {/* ROW 2 ON MOBILE (باقي الأزرار): Dedicated row on mobile, right side on desktop */}
-        <div className="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-3 w-full sm:w-auto pt-1 sm:pt-0 border-t border-slate-100 sm:border-t-0">
+        <div className="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2.5 w-full sm:w-auto pt-1 sm:pt-0 border-t border-slate-100 sm:border-t-0">
+          {/* Unified Language Selector (Arabic, Thai, English) */}
+          {onSelectLang && (
+            <LanguageSelector currentLang={currentLang} onSelectLang={onSelectLang} />
+          )}
+
           {/* Quick Open Lessons Button */}
           {onOpenLessons && (
             <button
               onClick={onOpenLessons}
               className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-600/20 cursor-pointer"
-              title="فتح قائمة الدروس واختيار تمرين"
+              title={tr('nav_open_lessons', 'فتح قائمة الدروس واختيار تمرين')}
             >
-              <span>فتح الدروس 📚</span>
+              <span>{tr('nav_open_lessons', 'فتح الدروس 📚')}</span>
             </button>
           )}
 
@@ -147,7 +162,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   onClick={onLogout}
                   className="p-1 hover:bg-emerald-200/80 text-slate-400 hover:text-rose-600 rounded-md transition-colors cursor-pointer"
-                  title="تسجيل الخروج"
+                  title={tr('nav_logout', 'تسجيل الخروج')}
                 >
                   <LogOut className="w-3.5 h-3.5" />
                 </button>
@@ -156,10 +171,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 onClick={onOpenLogin}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
-                title="تسجيل دخول الطالب"
+                title={tr('nav_student_login', 'دخول المشترك')}
               >
                 <User className="w-3.5 h-3.5" />
-                <span>دخول المشترك</span>
+                <span>{tr('nav_student_login', 'دخول المشترك')}</span>
               </button>
             )}
           </div>
@@ -169,10 +184,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               onClick={onOpenStats}
               className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold transition-all cursor-pointer relative shadow-2xs group"
-              title="سجل التقييمات والإنجاز للطالب"
+              title={tr('nav_eval_history', 'سجل التقييمات والإنجاز للطالب')}
             >
               <Award className="w-4 h-4 text-amber-600 shrink-0" />
-              <span className="hidden sm:inline">سجل التقييمات والإنجاز</span>
+              <span className="hidden sm:inline">{tr('nav_eval_history', 'سجل التقييمات والإنجاز')}</span>
               {totalPracticed > 0 && (
                 <span className="px-1.5 py-0.2 bg-amber-600 text-white text-[10px] font-bold rounded-full">
                   {totalPracticed}

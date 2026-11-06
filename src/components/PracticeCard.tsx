@@ -74,6 +74,7 @@ interface PracticeCardProps {
   onOpenLessons?: () => void;
   isSubmitted?: boolean;
   onReRecord?: () => void;
+  t?: (id: string, fallback?: string) => string;
 }
 
 export const PracticeCard: React.FC<PracticeCardProps> = ({
@@ -89,7 +90,9 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   onOpenLessons,
   isSubmitted = false,
   onReRecord,
+  t,
 }) => {
+  const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordDuration, setRecordDuration] = useState(0);
@@ -1092,10 +1095,10 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             <Volume2 className={`w-5 h-5 ${isPlayingAudio ? 'text-white' : 'text-emerald-600'}`} />
             <span>
               {isPlayingAudio
-                ? 'جاري الاستماع...'
+                ? tr('practice_listen_btn', 'جاري الاستماع...')
                 : wordItem.audioUrl
-                ? 'استمع لصوت المعلم'
-                : 'استمع للنطق النموذجي'}
+                ? tr('practice_teacher_audio', 'استمع لصوت المعلم')
+                : tr('practice_listen_btn', 'استمع للنطق النموذجي')}
             </span>
           </button>
 
@@ -1107,7 +1110,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
               title="نطق بطيء للمبتدئين وللتدرب على التشكيل"
             >
               <Volume1 className="w-4 h-4 text-slate-500" />
-              <span>نطق بطيء (0.7x)</span>
+              <span>{tr('practice_slow_listen_btn', 'نطق بطيء (0.7x)')}</span>
             </button>
           )}
         </div>
@@ -1129,12 +1132,12 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
               <div className="flex flex-col items-center animate-in fade-in">
                 <div
                   className="w-20 h-20 rounded-full flex items-center justify-center bg-slate-200 text-slate-400 border border-slate-300 select-none cursor-not-allowed shadow-inner"
-                  title="تم التسجيل والتقييم"
+                  title={tr('practice_submitted_and_locked', 'تم التسجيل و التقييم')}
                 >
                   <Mic className="w-8 h-8 text-slate-400" />
                 </div>
                 <span className="text-xs font-bold text-slate-600 mt-2.5">
-                  تم التسجيل و التقييم
+                  {tr('practice_submitted_and_locked', 'تم التسجيل و التقييم')}
                 </span>
               </div>
             ) : cooldownSeconds > 0 ? (
@@ -1163,7 +1166,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
                     ? 'bg-rose-500 text-white hover:bg-rose-600 animate-mic-pulse shadow-rose-500/40 scale-105'
                     : 'bg-emerald-600 text-white hover:bg-emerald-700 hover:scale-105 shadow-emerald-600/30'
                 }`}
-                title={isRecording ? 'اضغط لإنهاء التسجيل والتقييم' : 'اضغط للتحدث ونطق الكلمة'}
+                title={isRecording ? tr('practice_recording_active', 'اضغط لإنهاء التسجيل والتقييم') : tr('practice_record_btn', 'اضغط للتحدث ونطق الكلمة')}
               >
                 {isRecording ? (
                   <div className="flex flex-col items-center justify-center">
@@ -1195,18 +1198,16 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
             ) : isRecording ? (
               <span className="text-rose-700 font-bold bg-rose-50 border border-rose-300 px-3.5 py-1 rounded-full inline-flex items-center gap-1.5 animate-pulse">
                 <span>
-                  🎙️ تحدّث الآن بوضوح (إيقاف تلقائي بعد{' '}
-                  {Math.max(
+                  🎙️ {tr('practice_recording_active', 'تحدّث الآن بوضوح')} ({Math.max(
                     0,
                     (wordItem.repeatCount && wordItem.repeatCount > 1
                       ? Math.min(10, Math.max(7, wordItem.repeatCount * 2 + 3))
                       : 6) - recordDuration
-                  )}
-                  ث)
+                  )}ث)
                 </span>
               </span>
             ) : (
-              'اضغط على الميكروفون ثم استعد للنطق بوضوح'
+              tr('practice_record_btn', 'اضغط على الميكروفون ثم استعد للنطق بوضوح')
             )}
           </p>
 

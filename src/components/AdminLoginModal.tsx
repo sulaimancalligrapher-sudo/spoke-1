@@ -66,7 +66,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         if (matched) {
           // فحص حالة منع الدخول F2:F31 (إذا كانت القيمة "لا" يمنع فوراً)
           if (matched.blocked) {
-            setErrorMsg(`⛔ تم منع دخول هذا الحساب بحسب ورقة الإدارة (الخلية تحتوي على "لا"). التواصل مع المشرف.`);
+            setErrorMsg('يوجد خطا في التسجيل .. يرجى التواصل مع الادارة');
             return;
           }
 
@@ -83,22 +83,25 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         }
       }
 
-      // 2. كود الدخول الاحتياطي الرئيسي في حال كانت الورقة قيد التهيئة (1000 أو admin)
-      const masterPins = ['1000', 'admin', 'admin123'];
-      if (masterPins.includes(cleanPin.toLowerCase())) {
-        setSuccessMsg(`تم الدخول بالرمز الرئيسي العام بنجاح! مرحباً بك يا ${cleanName}.`);
+      // 2. كود الدخول الافتراضي الرئيسي من داخل الكود (الاسم: عزام / رقم الدخول: 2026115)
+      const isDefaultAdmin =
+        (cleanName === 'عزام' && cleanPin === '2026115') ||
+        cleanPin === '2026115';
+      if (isDefaultAdmin) {
+        const activeName = cleanName || 'عزام';
+        setSuccessMsg(`تم الدخول بنجاح! مرحباً بك يا ${activeName}.`);
         try {
           sessionStorage.setItem('faseeh_admin_auth', 'true');
-          sessionStorage.setItem('faseeh_admin_name', cleanName);
+          sessionStorage.setItem('faseeh_admin_name', activeName);
         } catch {}
         setTimeout(() => {
-          onLoginSuccess(cleanName);
+          onLoginSuccess(activeName);
           onClose();
         }, 500);
         return;
       }
 
-      setErrorMsg('بيانات الدخول غير صحيحة. يرجى التأكد من الاسم ورقم الدخول المسجلين في ورقة "الرئيسية" (D2:E31).');
+      setErrorMsg('بيانات الدخول غير صحيح .. راجع الادارة');
     }, 350);
   };
 
@@ -155,7 +158,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
               type="text"
               value={adminName}
               onChange={(e) => setAdminName(e.target.value)}
-              placeholder="مثال: المعلم أو أ. أحمد"
+              placeholder="مثال: عزام"
               className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-hidden focus:border-emerald-500 focus:bg-white transition-all text-right"
               autoFocus
             />
@@ -168,14 +171,14 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                 <span>رقم المعرف الإداري أو الرمز السري:</span>
               </span>
               <span className="text-[10px] text-emerald-700 font-mono font-bold bg-emerald-50 px-1.5 py-0.5 rounded">
-                الافتراضي: 1000
+                الافتراضي: 2026115
               </span>
             </label>
             <input
               type="password"
               value={adminPin}
               onChange={(e) => setAdminPin(e.target.value)}
-              placeholder="أدخل الرمز الإداري (1000)"
+              placeholder="أدخل الرمز الإداري (2026115)"
               className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-hidden focus:border-emerald-500 focus:bg-white transition-all text-right"
             />
           </div>

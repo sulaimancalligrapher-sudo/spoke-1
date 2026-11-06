@@ -31,10 +31,21 @@ import {
   fetchCurriculumFromSheets,
   fetchHomeConfigFromSheets,
   fetchStudentSubmissionsFromSheet,
+  fetchTranslationsFromSheets,
+  saveTranslationsToSheets,
   DEFAULT_WEBHOOK_URL,
   DEFAULT_DRIVE_AUDIO_FOLDER_ID,
   STUDENT_AUDIO_DRIVE_FOLDER_ID,
 } from './utils/googleSheets';
+import {
+  SupportedLang,
+  TranslationItem,
+  getStoredLanguage,
+  setStoredLanguage,
+  getStoredTranslations,
+  saveStoredTranslations,
+  getTranslatedString,
+} from './utils/translations';
 import {
   Sparkles,
   ChevronRight,
@@ -145,6 +156,31 @@ export default function App() {
 
   // Student Submissions Log
   const [submissions, setSubmissions] = useState<StudentSubmissionRecord[]>([]);
+
+  // Translations & Language State (Supported: 'ar' | 'th' | 'en')
+  const [currentLang, setCurrentLang] = useState<SupportedLang>(getStoredLanguage);
+  const [translations, setTranslations] = useState<TranslationItem[]>(getStoredTranslations);
+
+  const t = (id: string, fallbackAr?: string): string => {
+    return getTranslatedString(id, currentLang, translations, fallbackAr);
+  };
+
+  const handleSelectLang = (lang: SupportedLang) => {
+    setCurrentLang(lang);
+    setStoredLanguage(lang);
+  };
+
+  const handleUpdateTranslations = async (items: TranslationItem[]) => {
+    setTranslations(items);
+    saveStoredTranslations(items);
+    if (sheetsConfig.webhookUrl) {
+      try {
+        await saveTranslationsToSheets(sheetsConfig.webhookUrl, items);
+      } catch (err) {
+        console.warn('Error saving translations to Google Sheets:', err);
+      }
+    }
+  };
 
   // Settings: Defaults to 'whisper' (In-Browser WebAssembly Whisper) across all devices and browsers
   const [settings, setSettings] = useState<AudioSettings>({
@@ -388,7 +424,7 @@ export default function App() {
                         );
                         if (blockedRecord) {
                           handleAdminLogout();
-                          alert('⛔ تم إيقاف صلاحية هذا الحساب الإداري فوراً من ورقة الإدارة.');
+                          alert('يوجد خطا في التسجيل .. يرجى التواصل مع الادارة');
                         }
                       }
                     }
@@ -399,6 +435,33 @@ export default function App() {
           })
           .catch((err) => {
             console.warn('Auto-sync from Google Sheets on startup notice:', err);
+          });
+      }
+
+      // Auto-fetch translations from sheet "الترجمة"
+      if (activeConfig.webhookUrl) {
+        fetchTranslationsFromSheets(activeConfig.webhookUrl)
+          .then((fetched) => {
+            if (fetched && Array.isArray(fetched) && fetched.length > 0) {
+              setTranslations((prev) => {
+                const map = new Map<string, TranslationItem>();
+                prev.forEach((p) => map.set(p.id, p));
+                fetched.forEach((t: any) => {
+                  const ex = map.get(t.id);
+                  if (ex) {
+                    map.set(t.id, { ...ex, th: t.th || ex.th, en: t.en || ex.en });
+                  } else if (t.id && t.ar) {
+                    map.set(t.id, t as TranslationItem);
+                  }
+                });
+                const merged = Array.from(map.values());
+                saveStoredTranslations(merged);
+                return merged;
+              });
+            }
+          })
+          .catch((err) => {
+            console.warn('Auto-fetch translations notice:', err);
           });
       }
 
@@ -860,6 +923,9 @@ export default function App() {
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenGuide={() => setIsGuideOpen(true)}
           onLogout={handleAdminLogout}
+          translations={translations}
+          onUpdateTranslations={handleUpdateTranslations}
+          geminiApiKey={settings.geminiApiKey}
         />
 
         <SettingsModal
@@ -918,7 +984,10 @@ export default function App() {
         onOpenLogin={() => setIsLoginModalOpen(true)}
         onLogout={handleLogout}
         customLogoUrl={homeConfig?.logoUrl}
-        customTitle={homeConfig?.title}
+        customTitle={currentLang === 'ar' ? homeConfig?.title : t('nav_platform_title', homeConfig?.title)}
+        currentLang={currentLang}
+        onSelectLang={handleSelectLang}
+        t={t}
       />
 
       {/* Main Content Area */}
@@ -963,14 +1032,18 @@ export default function App() {
 
                 {/* 2. B23: Card Main Title */}
                 <h1 className="text-2xl sm:text-4xl md:text-5xl font-extrabold tracking-tight font-amiri leading-tight sm:leading-snug mb-4 text-white">
-                  {homeConfig?.card?.cardTitle || homeConfig?.title || 'فَصِيح — منصة تدريب وتقييم النطق ومخارج الحروف العربية'}
+                  {currentLang === 'ar'
+                    ? (homeConfig?.card?.cardTitle || homeConfig?.title || 'فَصِيح — منصة تدريب وتقييم النطق ومخارج الحروف العربية')
+                    : t('home_card_title', homeConfig?.card?.cardTitle || homeConfig?.title || 'فَصِيح — منصة تدريب وتقييم النطق ومخارج الحروف العربية')}
                 </h1>
 
                 {/* 3. B24: Card Subtitle / Description */}
                 <p className="text-sm sm:text-base text-slate-200 leading-relaxed max-w-2xl mx-auto mb-6">
-                  {homeConfig?.card?.cardSubtitle ||
-                    homeConfig?.subtitle ||
-                    'برنامج تعليمي متكامل لضبط وتجويد نطق الحروف والكلمات العربية، يجمع بين دقة التفريغ الصوتي المحلي بالذكاء الاصطناعي، والمقارنة الطيفية الفيزيائية مع تسجيل صوت المعلم.'}
+                  {currentLang === 'ar'
+                    ? (homeConfig?.card?.cardSubtitle ||
+                      homeConfig?.subtitle ||
+                      'برنامج تعليمي متكامل لضبط وتجويد نطق الحروف والكلمات العربية، يجمع بين دقة التفريغ الصوتي المحلي بالذكاء الاصطناعي، والمقارنة الطيفية الفيزيائية مع تسجيل صوت المعلم.')
+                    : t('home_card_subtitle', homeConfig?.card?.cardSubtitle || homeConfig?.subtitle || 'برنامج تعليمي متكامل لضبط وتجويد نطق الحروف والكلمات العربية، يجمع بين دقة التفريغ الصوتي المحلي بالذكاء الاصطناعي، والمقارنة الطيفية الفيزيائية مع تسجيل صوت المعلم.')}
                 </p>
 
                 {/* 4. B25:B27: Optional Extra Texts */}
@@ -1001,7 +1074,7 @@ export default function App() {
                     className="flex items-center justify-center gap-2.5 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-2xl text-base sm:text-lg transition-all shadow-xl shadow-emerald-500/30 cursor-pointer hover:scale-105 active:scale-95"
                   >
                     <BookOpen className="w-5 h-5" />
-                    <span>فتح الدروس والتمارين 📚</span>
+                    <span>{t('nav_open_lessons', 'فتح الدروس والتمارين 📚')}</span>
                   </button>
                 </div>
               </div>
@@ -1018,7 +1091,7 @@ export default function App() {
                 <button
                   onClick={() => setCurrentView('landing')}
                   className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer shadow-2xs"
-                  title="الصفحة الرئيسية"
+                  title={currentLang === 'ar' ? 'الصفحة الرئيسية' : currentLang === 'th' ? 'หน้าหลัก' : 'Home'}
                 >
                   <Home className="w-4 h-4 text-slate-700" />
                 </button>
@@ -1026,27 +1099,45 @@ export default function App() {
                 <button
                   onClick={() => setIsLessonsModalOpen(true)}
                   className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                  title="فتح قائمة الدروس واختيار تمرين آخر"
+                  title={t('nav_open_lessons', 'فتح قائمة الدروس واختيار تمرين آخر')}
                 >
                   <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>( فتح الدروس )</span>
+                  <span>({t('nav_open_lessons', 'فتح الدروس')})</span>
                 </button>
               </div>
 
               {/* Lesson Metadata Badge: الموضوع | الفئة | عدد الدروس في الموضوع */}
               <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs">
                 <span className="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-900 font-bold border border-emerald-200/80 flex items-center gap-1">
-                  <span className="text-emerald-700 font-normal">الموضوع:</span>
+                  <span className="text-emerald-700 font-normal">
+                    {currentLang === 'ar' ? 'الموضوع:' : currentLang === 'th' ? 'หัวข้อ:' : 'Subject:'}
+                  </span>
                   <span>{selectedItem.lessonSubject || studentSubject}</span>
                 </span>
                 {selectedItem.category && (
                   <span className="px-2.5 py-1 rounded-xl bg-sky-50 text-sky-900 font-bold border border-sky-200/80 flex items-center gap-1">
-                    <span className="text-sky-700 font-normal">الفئة:</span>
-                    <span>{selectedItem.category}</span>
+                    <span className="text-sky-700 font-normal">
+                      {currentLang === 'ar' ? 'الفئة:' : currentLang === 'th' ? 'หมวดหมู่:' : 'Category:'}
+                    </span>
+                    <span>
+                      {selectedItem.category === 'الحرف'
+                        ? t('category_letter', 'الحرف')
+                        : selectedItem.category === 'الكلمة'
+                        ? t('category_word', 'الكلمة')
+                        : selectedItem.category === 'الجملة'
+                        ? t('category_sentence', 'الجملة')
+                        : selectedItem.category}
+                    </span>
                   </span>
                 )}
                 <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-800 font-bold border border-slate-200 flex items-center gap-1">
-                  <span>التمرين {currentIndex + 1} من {activeSubjectWords.length}</span>
+                  <span>
+                    {currentLang === 'ar'
+                      ? `التمرين ${currentIndex + 1} من ${activeSubjectWords.length}`
+                      : currentLang === 'th'
+                      ? `แบบฝึกหัดที่ ${currentIndex + 1} จาก ${activeSubjectWords.length}`
+                      : `Exercise ${currentIndex + 1} of ${activeSubjectWords.length}`}
+                  </span>
                 </span>
               </div>
             </div>
@@ -1071,6 +1162,7 @@ export default function App() {
                   setEvaluation(null);
                   setRecordedAudioUrl(null);
                 }}
+                t={t}
               />
 
               {/* Evaluation Results Card */}
@@ -1095,6 +1187,7 @@ export default function App() {
                   wordIndex={currentIndex}
                   onRequestLogin={() => setIsLoginModalOpen(true)}
                   onSubmissionSuccess={() => setIsCurrentAnswerSubmitted(true)}
+                  t={t}
                 />
               )}
             </div>
@@ -1184,6 +1277,7 @@ export default function App() {
         selectedSubject={studentSubject}
         onSelectSubject={setStudentSubject}
         scoresMap={scoresMap}
+        t={t}
       />
 
       {/* Student Login & Registration Verification Modal */}
@@ -1192,6 +1286,7 @@ export default function App() {
         onClose={() => setIsLoginModalOpen(false)}
         onLoginSuccess={handleLoginSuccess}
         webhookUrl={sheetsConfig.webhookUrl}
+        t={t}
       />
 
       {/* Admin Login Verification Modal */}

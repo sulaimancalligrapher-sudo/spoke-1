@@ -513,6 +513,103 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
 });
 
 /**
+ * API: Translate Arabic UI strings to Thai and English using Gemini
+ */
+app.post('/api/translate', async (req, res) => {
+  try {
+    const { text, items } = req.body;
+    const effectiveApiKey =
+      (req.headers['x-gemini-key'] as string) ||
+      process.env.GEMINI_API_KEY;
+
+    if (!effectiveApiKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'مفتاح Gemini غير مهيأ.',
+      });
+    }
+
+    const aiInstance = new GoogleGenAI({
+      apiKey: effectiveApiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    if (items && Array.isArray(items)) {
+      const prompt = `You are an expert educational translator for an Arabic pronunciation platform named "فَصِيح" (Faseeh).
+Translate the following list of Arabic UI strings into both Thai (ภาษาไทย) and English.
+Make translations polite, concise, natural, and standard for modern education and language learning websites.
+Return JSON with key "translations":
+[
+  { "id": "...", "th": "Thai translation", "en": "English translation" }
+]
+Input:
+${JSON.stringify(items)}`;
+
+      const response = await aiInstance.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              translations: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    id: { type: Type.STRING },
+                    th: { type: Type.STRING },
+                    en: { type: Type.STRING },
+                  },
+                  required: ['id', 'th', 'en'],
+                },
+              },
+            },
+            required: ['translations'],
+          },
+        },
+      });
+
+      const parsed = JSON.parse(response.text || '{}');
+      return res.json({ success: true, translations: parsed.translations || [] });
+    } else if (text) {
+      const prompt = `Translate this Arabic educational UI string into both Thai (ภาษาไทย) and English.
+Text: "${text}"
+Return JSON: { "th": "...", "en": "..." }`;
+
+      const response = await aiInstance.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              th: { type: Type.STRING },
+              en: { type: Type.STRING },
+            },
+            required: ['th', 'en'],
+          },
+        },
+      });
+
+      const parsed = JSON.parse(response.text || '{}');
+      return res.json({ success: true, th: parsed.th || '', en: parsed.en || '' });
+    } else {
+      return res.status(400).json({ success: false, error: 'No text or items provided' });
+    }
+  } catch (err: any) {
+    console.error('Error in /api/translate:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Translation failed' });
+  }
+});
+
+/**
  * API: Diagnostic AI Status check
  */
 app.get('/api/ai-status', async (_req, res) => {
