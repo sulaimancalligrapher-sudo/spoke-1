@@ -44,7 +44,7 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
     const map = new Map<string, TranslationItem>();
     baseList.forEach((item) => map.set(item.id, item));
 
-    // Dynamic items for each word in curriculum
+    // Dynamic items for each word in curriculum (Columns 6 & 7)
     if (words && words.length > 0) {
       words.forEach((w) => {
         if (!w.word) return;
@@ -52,7 +52,8 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
         const makhrajKey = `lesson_${w.word}_makhraj`;
 
         // Column 6: المعنى
-        if (!map.has(meaningKey)) {
+        const existingMeaning = map.get(meaningKey);
+        if (!existingMeaning) {
           map.set(meaningKey, {
             id: meaningKey,
             category: 'lessons',
@@ -63,10 +64,20 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
             isSheetLinked: true,
             sheetSourceNote: `[${w.lessonSubject || 'الدرس'}] تمرين: ${w.word} - المعنى (عامود 6)`,
           });
+        } else {
+          map.set(meaningKey, {
+            ...existingMeaning,
+            category: 'lessons',
+            categoryLabel: 'تمارين الدروس - المعنى (عامود 6)',
+            isSheetLinked: true,
+            sheetSourceNote: `[${w.lessonSubject || 'الدرس'}] تمرين: ${w.word} - المعنى (عامود 6)`,
+            ar: existingMeaning.ar !== undefined && existingMeaning.ar !== '' ? existingMeaning.ar : (w.meaning || ''),
+          });
         }
 
         // Column 7: المخرج
-        if (!map.has(makhrajKey)) {
+        const existingMakhraj = map.get(makhrajKey);
+        if (!existingMakhraj) {
           map.set(makhrajKey, {
             id: makhrajKey,
             category: 'lessons',
@@ -76,6 +87,15 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
             en: '',
             isSheetLinked: true,
             sheetSourceNote: `[${w.lessonSubject || 'الدرس'}] تمرين: ${w.word} - المخرج (عامود 7)`,
+          });
+        } else {
+          map.set(makhrajKey, {
+            ...existingMakhraj,
+            category: 'lessons',
+            categoryLabel: 'تمارين الدروس - المخرج (عامود 7)',
+            isSheetLinked: true,
+            sheetSourceNote: `[${w.lessonSubject || 'الدرس'}] تمرين: ${w.word} - المخرج (عامود 7)`,
+            ar: existingMakhraj.ar !== undefined && existingMakhraj.ar !== '' ? existingMakhraj.ar : (w.makhrajTip || ''),
           });
         }
       });
@@ -89,6 +109,11 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
   );
   const [activeTab, setActiveTab] = useState<'home' | 'lessons' | 'practice'>('home');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedSubjectFilter, setSelectedSubjectFilter] = useState<string>('all');
+
+  const availableSubjects = React.useMemo(() => {
+    return Array.from(new Set(curriculum.map((w) => w.lessonSubject).filter(Boolean)));
+  }, [curriculum]);
   const [translatingId, setTranslatingId] = useState<string | null>(null);
   const [isBatchTranslating, setIsBatchTranslating] = useState(false);
   const [isInitializingSheet, setIsInitializingSheet] = useState(false);
@@ -157,13 +182,19 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
 
   const filteredItems = items.filter((item) => {
     if (item.category !== activeTab) return false;
+    if (activeTab === 'lessons' && selectedSubjectFilter !== 'all') {
+      if (item.sheetSourceNote && !item.sheetSourceNote.includes(`[${selectedSubjectFilter}]`)) {
+        return false;
+      }
+    }
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase().trim();
     return (
       item.id.toLowerCase().includes(q) ||
       item.ar.toLowerCase().includes(q) ||
       item.th.toLowerCase().includes(q) ||
-      item.en.toLowerCase().includes(q)
+      item.en.toLowerCase().includes(q) ||
+      (item.sheetSourceNote && item.sheetSourceNote.toLowerCase().includes(q))
     );
   });
 
@@ -395,16 +426,42 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
           </button>
         </div>
 
-        {/* Search */}
-        <div className="relative w-full sm:w-64">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="بحث في نصوص هذا القسم..."
-            className="w-full pr-8 pl-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-hidden focus:border-indigo-500"
-          />
+        {/* Subject Filter (shown on lessons tab) + Search */}
+        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+          {activeTab === 'lessons' && availableSubjects.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-600 whitespace-nowrap">
+                📚 تصفية بالدرس:
+              </span>
+              <select
+                value={selectedSubjectFilter}
+                onChange={(e) => setSelectedSubjectFilter(e.target.value)}
+                className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
+              >
+                <option value="all">كل موضوعات ورقة الدروس ({curriculum.length} تمرين)</option>
+                {availableSubjects.map((sub) => {
+                  const count = curriculum.filter((w) => w.lessonSubject === sub).length;
+                  return (
+                    <option key={sub} value={sub}>
+                      {sub} ({count} تمرين)
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
+
+          {/* Search */}
+          <div className="relative w-full sm:w-56">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="بحث في نصوص هذا القسم..."
+              className="w-full pr-8 pl-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-hidden focus:border-indigo-500"
+            />
+          </div>
         </div>
       </div>
 
@@ -437,6 +494,16 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
                     {item.isSheetLinked && (
                       <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-md text-[9px] font-bold">
                         🔗 {item.sheetSourceNote || 'متصل بالشيت'}
+                      </span>
+                    )}
+                    {item.id.endsWith('_meaning') && (
+                      <span className="px-1.5 py-0.5 bg-sky-100 text-sky-800 rounded-md text-[9px] font-bold">
+                        🏷️ عامود 6: المعنى
+                      </span>
+                    )}
+                    {item.id.endsWith('_makhraj') && (
+                      <span className="px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded-md text-[9px] font-bold">
+                        🎙️ عامود 7: المخرج
                       </span>
                     )}
                   </div>

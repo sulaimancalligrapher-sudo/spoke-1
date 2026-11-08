@@ -531,25 +531,25 @@ export default function App() {
                     // Sync sheet "الرئيسية" Arabic source texts into translations dictionary
                     setTranslations((prev) => {
                       return prev.map((item) => {
-                        if (item.id === 'nav_platform_title' && cfg.title) {
+                        if (item.id === 'nav_platform_title' && cfg.title !== undefined) {
                           return { ...item, ar: cfg.title };
                         }
-                        if (item.id === 'nav_platform_subtitle' && cfg.subtitle) {
+                        if (item.id === 'nav_platform_subtitle' && cfg.subtitle !== undefined) {
                           return { ...item, ar: cfg.subtitle };
                         }
-                        if (item.id === 'home_card_title' && (cfg.card?.cardTitle || cfg.title)) {
-                          return { ...item, ar: cfg.card?.cardTitle || cfg.title || item.ar };
+                        if (item.id === 'home_card_title' && cfg.card?.cardTitle !== undefined) {
+                          return { ...item, ar: cfg.card.cardTitle };
                         }
-                        if (item.id === 'home_card_subtitle' && (cfg.card?.cardSubtitle || cfg.subtitle)) {
-                          return { ...item, ar: cfg.card?.cardSubtitle || cfg.subtitle || item.ar };
+                        if (item.id === 'home_card_subtitle' && cfg.card?.cardSubtitle !== undefined) {
+                          return { ...item, ar: cfg.card.cardSubtitle };
                         }
-                        if (item.id === 'home_card_extra1' && cfg.card?.extraText1) {
+                        if (item.id === 'home_card_extra1' && cfg.card?.extraText1 !== undefined) {
                           return { ...item, ar: cfg.card.extraText1 };
                         }
-                        if (item.id === 'home_card_extra2' && cfg.card?.extraText2) {
+                        if (item.id === 'home_card_extra2' && cfg.card?.extraText2 !== undefined) {
                           return { ...item, ar: cfg.card.extraText2 };
                         }
-                        if (item.id === 'home_card_extra3' && cfg.card?.extraText3) {
+                        if (item.id === 'home_card_extra3' && cfg.card?.extraText3 !== undefined) {
                           return { ...item, ar: cfg.card.extraText3 };
                         }
                         return item;
@@ -592,9 +592,21 @@ export default function App() {
                 fetched.forEach((t: any) => {
                   const ex = map.get(t.id);
                   if (ex) {
-                    map.set(t.id, { ...ex, th: t.th || ex.th, en: t.en || ex.en });
-                  } else if (t.id && t.ar) {
-                    map.set(t.id, t as TranslationItem);
+                    map.set(t.id, {
+                      ...ex,
+                      ar: t.ar !== undefined ? t.ar : ex.ar,
+                      th: t.th !== undefined ? t.th : ex.th,
+                      en: t.en !== undefined ? t.en : ex.en,
+                    });
+                  } else if (t.id) {
+                    map.set(t.id, {
+                      id: t.id,
+                      category: t.category || 'home',
+                      categoryLabel: t.categoryLabel || '',
+                      ar: t.ar !== undefined ? t.ar : '',
+                      th: t.th !== undefined ? t.th : '',
+                      en: t.en !== undefined ? t.en : '',
+                    });
                   }
                 });
                 const merged = Array.from(map.values());
