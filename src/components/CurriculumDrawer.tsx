@@ -18,6 +18,7 @@ interface CurriculumDrawerProps {
   selectedSubject: string;
   onSelectSubject: (subject: string) => void;
   subjectsList: string[];
+  t?: (id: string, fallback?: string) => string;
 }
 
 export const CurriculumDrawer: React.FC<CurriculumDrawerProps> = ({
@@ -28,7 +29,9 @@ export const CurriculumDrawer: React.FC<CurriculumDrawerProps> = ({
   selectedSubject,
   onSelectSubject,
   subjectsList,
+  t,
 }) => {
+  const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
   const [activeCategory, setActiveCategory] = useState<string>('الكل');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -185,9 +188,14 @@ export const CurriculumDrawer: React.FC<CurriculumDrawerProps> = ({
                         </span>
                       )}
                     </div>
-                    <div className="text-[11px] text-slate-500 truncate max-w-[150px]">
-                      {item.meaning}
-                    </div>
+                    {(() => {
+                      const displayMeaning = tr(`lesson_${item.word}_meaning`, item.meaning || '');
+                      return displayMeaning ? (
+                        <div className="text-[11px] text-slate-500 truncate max-w-[150px]">
+                          {displayMeaning}
+                        </div>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
 

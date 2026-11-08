@@ -1042,43 +1042,50 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           </p>
         )}
 
-        {wordItem.meaning && (
-          <p className="text-sm text-slate-600 max-w-md mx-auto">
-            {wordItem.meaning}
-          </p>
-        )}
+        {(() => {
+          const displayMeaning = tr(`lesson_${wordItem.word}_meaning`, wordItem.meaning || '');
+          return displayMeaning ? (
+            <p className="text-sm text-slate-600 max-w-md mx-auto">
+              {displayMeaning}
+            </p>
+          ) : null;
+        })()}
 
         {/* Makhraj tip toggle */}
-        {wordItem.makhrajTip && (
-          <div className="mt-4">
-            <button
-              onClick={() => setShowMakhrajDetails(!showMakhrajDetails)}
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-full transition-colors cursor-pointer"
-            >
-              <HelpCircle className="w-3.5 h-3.5" />
-              <span>{tr('practice_makhraj_tip_title', 'مخرج الحرف وكيفية نطقه:')}</span>
-              {showMakhrajDetails ? (
-                <ChevronUp className="w-3.5 h-3.5" />
-              ) : (
-                <ChevronDown className="w-3.5 h-3.5" />
-              )}
-            </button>
-
-            {showMakhrajDetails && (
-              <div className="mt-3 p-4 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs text-slate-700 leading-relaxed max-w-lg mx-auto text-right animate-in fade-in duration-300">
-                <div className="font-bold text-emerald-800 mb-1 flex items-center gap-1">
-                  <span>{tr('practice_makhraj_how_to', '💡 كيف تنطق هذا الحرف؟')}</span>
-                </div>
-                {wordItem.makhrajTip}
-                {wordItem.harakat && (
-                  <div className="mt-2 text-slate-500 font-semibold border-t border-slate-200 pt-1.5">
-                    {tr('practice_harakat_label', 'الحركات:')} {wordItem.harakat}
-                  </div>
+        {(() => {
+          const displayMakhraj = tr(`lesson_${wordItem.word}_makhraj`, wordItem.makhrajTip || '');
+          if (!displayMakhraj) return null;
+          return (
+            <div className="mt-4">
+              <button
+                onClick={() => setShowMakhrajDetails(!showMakhrajDetails)}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-full transition-colors cursor-pointer"
+              >
+                <HelpCircle className="w-3.5 h-3.5" />
+                <span>{tr('practice_makhraj_tip_title', 'مخرج الحرف وكيفية نطقه:')}</span>
+                {showMakhrajDetails ? (
+                  <ChevronUp className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5" />
                 )}
-              </div>
-            )}
-          </div>
-        )}
+              </button>
+
+              {showMakhrajDetails && (
+                <div className="mt-3 p-4 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs text-slate-700 leading-relaxed max-w-lg mx-auto text-right animate-in fade-in duration-300">
+                  <div className="font-bold text-emerald-800 mb-1 flex items-center gap-1">
+                    <span>{tr('practice_makhraj_how_to', '💡 كيف تنطق هذا الحرف؟')}</span>
+                  </div>
+                  {displayMakhraj}
+                  {wordItem.harakat && (
+                    <div className="mt-2 text-slate-500 font-semibold border-t border-slate-200 pt-1.5">
+                      {tr('practice_harakat_label', 'الحركات:')} {wordItem.harakat}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Interactive Step Controls */}

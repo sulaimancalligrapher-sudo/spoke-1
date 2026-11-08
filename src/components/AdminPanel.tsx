@@ -120,6 +120,7 @@ interface AdminPanelProps {
   translations?: TranslationItem[];
   onUpdateTranslations?: (items: TranslationItem[]) => void;
   geminiApiKey?: string;
+  onRefreshFromSheets?: () => Promise<void>;
 }
 
 const TASHKEEL_BUTTONS = [
@@ -162,6 +163,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   translations,
   onUpdateTranslations,
   geminiApiKey,
+  onRefreshFromSheets,
 }) => {
   const [activeTab, setActiveTab] = useState<'lessons' | 'submissions' | 'sheets' | 'translations'>('lessons');
   const [searchQuery, setSearchQuery] = useState('');
@@ -974,6 +976,25 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
               >
                 <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
                 <span>الدليل</span>
+              </button>
+            )}
+
+            {/* Refresh from sheets button */}
+            {onRefreshFromSheets && (
+              <button
+                onClick={async () => {
+                  try {
+                    await onRefreshFromSheets();
+                    alert('✨ تم جلب وتحديث كافة الدروس والبيانات والترجمات بنجاح من ورقة Google Sheets!');
+                  } catch (e: any) {
+                    alert('تعذر التحديث من الشيت: ' + (e?.message || 'خطأ في الاتصال'));
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                title="تحديث وجلب كافة التعديلات والبيانات مباشرة من ورقة Google Sheets"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">تحديث من الشيت 🔄</span>
               </button>
             )}
 
@@ -2417,6 +2438,8 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             onSaveTranslations={onUpdateTranslations || (() => {})}
             geminiApiKey={geminiApiKey}
             webhookUrl={sheetsConfig.webhookUrl}
+            curriculum={curriculum}
+            onRefreshFromSheets={onRefreshFromSheets}
           />
         )}
 

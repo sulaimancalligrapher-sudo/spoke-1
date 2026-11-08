@@ -94,16 +94,22 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-1.5 sm:gap-2">
-                <h1 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight font-cairo">
-                  {customTitle || tr('nav_platform_title', 'فَصِيح')}
-                </h1>
-                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-[10px] font-bold">
-                  {tr('nav_smart_eval_badge', 'تقييم النطق الذكي')}
-                </span>
+                {Boolean(customTitle !== undefined && customTitle !== null ? customTitle : tr('nav_platform_title', 'فَصِيح')) && (
+                  <h1 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight font-cairo">
+                    {customTitle !== undefined && customTitle !== null ? customTitle : tr('nav_platform_title', 'فَصِيح')}
+                  </h1>
+                )}
+                {Boolean(tr('nav_smart_eval_badge', 'تقييم النطق الذكي')) && (
+                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-[10px] font-bold">
+                    {tr('nav_smart_eval_badge', 'تقييم النطق الذكي')}
+                  </span>
+                )}
               </div>
-              <p className="text-[10px] sm:text-[11px] text-slate-500 hidden sm:block">
-                {tr('nav_platform_subtitle', 'تعليم النطق والاستماع وتقييم مخارج الحروف العربية')}
-              </p>
+              {Boolean(tr('nav_platform_subtitle', 'تعليم النطق والاستماع وتقييم مخارج الحروف العربية')) && (
+                <p className="text-[10px] sm:text-[11px] text-slate-500 hidden sm:block">
+                  {tr('nav_platform_subtitle', 'تعليم النطق والاستماع وتقييم مخارج الحروف العربية')}
+                </p>
+              )}
             </div>
           </div>
 

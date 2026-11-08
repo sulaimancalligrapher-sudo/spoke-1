@@ -174,7 +174,7 @@ export default function App() {
     setTranslations(items);
     saveStoredTranslations(items);
 
-    // Sync any sheet "الرئيسية" Arabic edits into homeConfig immediately
+    // Sync any sheet "الرئيسية" Arabic edits into homeConfig immediately (allowing clean empty strings)
     const titleItem = items.find((i) => i.id === 'nav_platform_title');
     const subtitleItem = items.find((i) => i.id === 'nav_platform_subtitle');
     const cardTitleItem = items.find((i) => i.id === 'home_card_title');
@@ -185,17 +185,17 @@ export default function App() {
 
     setHomeConfig((prev) => {
       const updated: HomeBrandConfig = {
-        title: titleItem?.ar || prev?.title || '',
-        subtitle: subtitleItem?.ar || prev?.subtitle || '',
+        title: titleItem !== undefined ? titleItem.ar : (prev?.title || ''),
+        subtitle: subtitleItem !== undefined ? subtitleItem.ar : (prev?.subtitle || ''),
         logoUrl: prev?.logoUrl || '',
         card: {
           cardLogoUrl: prev?.card?.cardLogoUrl || '',
           cardBgUrl: prev?.card?.cardBgUrl || '',
-          cardTitle: cardTitleItem?.ar || prev?.card?.cardTitle || '',
-          cardSubtitle: cardSubtitleItem?.ar || prev?.card?.cardSubtitle || '',
-          extraText1: extra1Item?.ar ?? prev?.card?.extraText1,
-          extraText2: extra2Item?.ar ?? prev?.card?.extraText2,
-          extraText3: extra3Item?.ar ?? prev?.card?.extraText3,
+          cardTitle: cardTitleItem !== undefined ? cardTitleItem.ar : (prev?.card?.cardTitle || ''),
+          cardSubtitle: cardSubtitleItem !== undefined ? cardSubtitleItem.ar : (prev?.card?.cardSubtitle || ''),
+          extraText1: extra1Item !== undefined ? extra1Item.ar : prev?.card?.extraText1,
+          extraText2: extra2Item !== undefined ? extra2Item.ar : prev?.card?.extraText2,
+          extraText3: extra3Item !== undefined ? extra3Item.ar : prev?.card?.extraText3,
         },
         socialLinks: prev?.socialLinks || [],
         adminUsers: prev?.adminUsers || [],
@@ -206,12 +206,93 @@ export default function App() {
       return updated;
     });
 
+    // Sync any curriculum meaning/makhraj updates (Columns 6 & 7)
+    setCurriculum((prev) => {
+      let changed = false;
+      const next = prev.map((w) => {
+        const meaningItem = items.find((i) => i.id === `lesson_${w.word}_meaning`);
+        const makhrajItem = items.find((i) => i.id === `lesson_${w.word}_makhraj`);
+        const newMeaning = meaningItem && meaningItem.ar !== undefined ? meaningItem.ar : w.meaning;
+        const newMakhraj = makhrajItem && makhrajItem.ar !== undefined ? makhrajItem.ar : w.makhrajTip;
+        if (newMeaning !== w.meaning || newMakhraj !== w.makhrajTip) {
+          changed = true;
+          return { ...w, meaning: newMeaning, makhrajTip: newMakhraj };
+        }
+        return w;
+      });
+      if (changed) {
+        try {
+          localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(next));
+        } catch {}
+      }
+      return changed ? next : prev;
+    });
+
     if (sheetsConfig.webhookUrl) {
       try {
         await saveTranslationsToSheets(sheetsConfig.webhookUrl, items);
       } catch (err) {
         console.warn('Error saving translations to Google Sheets:', err);
       }
+    }
+  };
+
+  // Full Refresh / Pull all latest data from Google Sheets into the Platform
+  const handleRefreshAllFromSheets = async (): Promise<void> => {
+    const url = sheetsConfig.webhookUrl;
+    if (!url) {
+      alert('يرجى التأكد من إدخال رابط Google Sheets Webhook أولاً في الإعدادات.');
+      return;
+    }
+
+    const [currRes, homeCfg, transRes] = await Promise.all([
+      fetchCurriculumFromSheets(url),
+      fetchHomeConfigFromSheets(url),
+      fetchTranslationsFromSheets(url),
+    ]);
+
+    // 1. Update curriculum from sheet "الدروس"
+    if (currRes.success && currRes.curriculum && currRes.curriculum.length > 0) {
+      setCurriculum(currRes.curriculum);
+      if (currRes.subjects && currRes.subjects.length > 0) {
+        setSubjects(currRes.subjects);
+        localStorage.setItem(STORAGE_KEY_SUBJECTS, JSON.stringify(currRes.subjects));
+      }
+      if (currRes.categories && currRes.categories.length > 0) {
+        setCategories(currRes.categories);
+        localStorage.setItem(STORAGE_KEY_CATEGORIES, JSON.stringify(currRes.categories));
+      }
+      localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(currRes.curriculum));
+    }
+
+    // 2. Update homeConfig from sheet "الرئيسية"
+    if (homeCfg) {
+      setHomeConfig(homeCfg);
+      localStorage.setItem('faseeh_cached_home_config', JSON.stringify(homeCfg));
+    }
+
+    // 3. Update translations from sheet "الترجمة"
+    if (transRes && Array.isArray(transRes) && transRes.length > 0) {
+      setTranslations((prev) => {
+        const map = new Map<string, TranslationItem>();
+        prev.forEach((p) => map.set(p.id, p));
+        transRes.forEach((t: any) => {
+          const ex = map.get(t.id);
+          if (ex) {
+            map.set(t.id, {
+              ...ex,
+              ar: t.ar !== undefined ? t.ar : ex.ar,
+              th: t.th !== undefined ? t.th : ex.th,
+              en: t.en !== undefined ? t.en : ex.en,
+            });
+          } else if (t.id) {
+            map.set(t.id, t as TranslationItem);
+          }
+        });
+        const merged = Array.from(map.values());
+        saveStoredTranslations(merged);
+        return merged;
+      });
     }
   };
 
@@ -988,6 +1069,7 @@ export default function App() {
           translations={translations}
           onUpdateTranslations={handleUpdateTranslations}
           geminiApiKey={settings.geminiApiKey}
+          onRefreshFromSheets={handleRefreshAllFromSheets}
         />
 
         <SettingsModal
@@ -1093,41 +1175,53 @@ export default function App() {
                 )}
 
                 {/* 2. B23: Card Main Title */}
-                <h1 className="text-2xl sm:text-4xl md:text-5xl font-extrabold tracking-tight font-amiri leading-tight sm:leading-snug mb-4 text-white">
-                  {currentLang === 'ar'
-                    ? (homeConfig?.card?.cardTitle || homeConfig?.title || 'فَصِيح — منصة تدريب وتقييم النطق ومخارج الحروف العربية')
-                    : t('home_card_title', homeConfig?.card?.cardTitle || homeConfig?.title || 'فَصِيح — منصة تدريب وتقييم النطق ومخارج الحروف العربية')}
-                </h1>
+                {(() => {
+                  const rawFallback = homeConfig?.card?.cardTitle !== undefined ? homeConfig.card.cardTitle : (homeConfig?.title !== undefined ? homeConfig.title : '');
+                  const cardTitleVal = t('home_card_title', rawFallback);
+                  return cardTitleVal ? (
+                    <h1 className="text-2xl sm:text-4xl md:text-5xl font-extrabold tracking-tight font-amiri leading-tight sm:leading-snug mb-4 text-white">
+                      {cardTitleVal}
+                    </h1>
+                  ) : null;
+                })()}
 
                 {/* 3. B24: Card Subtitle / Description */}
-                <p className="text-sm sm:text-base text-slate-200 leading-relaxed max-w-2xl mx-auto mb-6">
-                  {currentLang === 'ar'
-                    ? (homeConfig?.card?.cardSubtitle ||
-                      homeConfig?.subtitle ||
-                      'برنامج تعليمي متكامل لضبط وتجويد نطق الحروف والكلمات العربية، يجمع بين دقة التفريغ الصوتي المحلي بالذكاء الاصطناعي، والمقارنة الطيفية الفيزيائية مع تسجيل صوت المعلم.')
-                    : t('home_card_subtitle', homeConfig?.card?.cardSubtitle || homeConfig?.subtitle || 'برنامج تعليمي متكامل لضبط وتجويد نطق الحروف والكلمات العربية، يجمع بين دقة التفريغ الصوتي المحلي بالذكاء الاصطناعي، والمقارنة الطيفية الفيزيائية مع تسجيل صوت المعلم.')}
-                </p>
+                {(() => {
+                  const rawSubFallback = homeConfig?.card?.cardSubtitle !== undefined ? homeConfig.card.cardSubtitle : (homeConfig?.subtitle !== undefined ? homeConfig.subtitle : '');
+                  const cardSubVal = t('home_card_subtitle', rawSubFallback);
+                  return cardSubVal ? (
+                    <p className="text-sm sm:text-base text-slate-200 leading-relaxed max-w-2xl mx-auto mb-6">
+                      {cardSubVal}
+                    </p>
+                  ) : null;
+                })()}
 
                 {/* 4. B25:B27: Optional Extra Texts */}
-                {(homeConfig?.card?.extraText1 || homeConfig?.card?.extraText2 || homeConfig?.card?.extraText3) && (
-                  <div className="flex flex-wrap items-center justify-center gap-2.5 max-w-2xl mx-auto mb-8">
-                    {homeConfig?.card?.extraText1 && (
-                      <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 backdrop-blur-xs">
-                        {currentLang === 'ar' ? homeConfig.card.extraText1 : t('home_card_extra1', homeConfig.card.extraText1)}
-                      </span>
-                    )}
-                    {homeConfig?.card?.extraText2 && (
-                      <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-sky-500/20 text-sky-200 border border-sky-400/30 backdrop-blur-xs">
-                        {currentLang === 'ar' ? homeConfig.card.extraText2 : t('home_card_extra2', homeConfig.card.extraText2)}
-                      </span>
-                    )}
-                    {homeConfig?.card?.extraText3 && (
-                      <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-indigo-500/20 text-indigo-200 border border-indigo-400/30 backdrop-blur-xs">
-                        {currentLang === 'ar' ? homeConfig.card.extraText3 : t('home_card_extra3', homeConfig.card.extraText3)}
-                      </span>
-                    )}
-                  </div>
-                )}
+                {(() => {
+                  const ex1 = t('home_card_extra1', homeConfig?.card?.extraText1 || '');
+                  const ex2 = t('home_card_extra2', homeConfig?.card?.extraText2 || '');
+                  const ex3 = t('home_card_extra3', homeConfig?.card?.extraText3 || '');
+                  if (!ex1 && !ex2 && !ex3) return null;
+                  return (
+                    <div className="flex flex-wrap items-center justify-center gap-2.5 max-w-2xl mx-auto mb-8">
+                      {Boolean(ex1) && (
+                        <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 backdrop-blur-xs">
+                          {ex1}
+                        </span>
+                      )}
+                      {Boolean(ex2) && (
+                        <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-sky-500/20 text-sky-200 border border-sky-400/30 backdrop-blur-xs">
+                          {ex2}
+                        </span>
+                      )}
+                      {Boolean(ex3) && (
+                        <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-indigo-500/20 text-indigo-200 border border-indigo-400/30 backdrop-blur-xs">
+                          {ex3}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* 5. ONLY ONE ACTION BUTTON: [ فتح الدروس والتمارين 📚 ] */}
                 <div className="flex justify-center pt-2">

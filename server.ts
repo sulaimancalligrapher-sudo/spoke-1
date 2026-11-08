@@ -513,7 +513,47 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
 });
 
 /**
- * API: Translate Arabic UI strings to Thai and English using Gemini
+ * Helper: Free Google Translate fallback for Arabic -> Thai and English
+ */
+async function translateWithGoogleFallback(text: string): Promise<{ th: string; en: string }> {
+  const clean = (text || '').trim();
+  if (!clean) return { th: '', en: '' };
+
+  let th = '';
+  let en = '';
+
+  try {
+    const [thRes, enRes] = await Promise.all([
+      fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=ar&tl=th&dt=t&q=${encodeURIComponent(clean)}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      }).catch(() => null),
+      fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=ar&tl=en&dt=t&q=${encodeURIComponent(clean)}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      }).catch(() => null),
+    ]);
+
+    if (thRes && thRes.ok) {
+      const thJson = await thRes.json().catch(() => null);
+      if (Array.isArray(thJson?.[0])) {
+        th = thJson[0].map((p: any) => p[0] || '').join('').trim();
+      }
+    }
+
+    if (enRes && enRes.ok) {
+      const enJson = await enRes.json().catch(() => null);
+      if (Array.isArray(enJson?.[0])) {
+        en = enJson[0].map((p: any) => p[0] || '').join('').trim();
+      }
+    }
+  } catch (e) {
+    console.warn('Google Translate fallback notice:', e);
+  }
+
+  return { th, en };
+}
+
+/**
+ * API: Translate Arabic UI strings to Thai and English using Gemini with Google fallback
  */
 app.post('/api/translate', async (req, res) => {
   try {
@@ -522,24 +562,20 @@ app.post('/api/translate', async (req, res) => {
       (req.headers['x-gemini-key'] as string) ||
       process.env.GEMINI_API_KEY;
 
-    if (!effectiveApiKey) {
-      return res.status(400).json({
-        success: false,
-        error: 'مفتاح Gemini غير مهيأ.',
-      });
-    }
-
-    const aiInstance = new GoogleGenAI({
-      apiKey: effectiveApiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
-    });
-
+    // 1. If multiple items
     if (items && Array.isArray(items)) {
-      const prompt = `You are an expert educational translator for an Arabic pronunciation platform named "فَصِيح" (Faseeh).
+      if (effectiveApiKey) {
+        try {
+          const aiInstance = new GoogleGenAI({
+            apiKey: effectiveApiKey,
+            httpOptions: {
+              headers: {
+                'User-Agent': 'aistudio-build',
+              },
+            },
+          });
+
+          const prompt = `You are an expert educational translator for an Arabic pronunciation platform named "فَصِيح" (Faseeh).
 Translate the following list of Arabic UI strings into both Thai (ภาษาไทย) and English.
 Make translations polite, concise, natural, and standard for modern education and language learning websites.
 Return JSON with key "translations":
@@ -549,63 +585,110 @@ Return JSON with key "translations":
 Input:
 ${JSON.stringify(items)}`;
 
-      const response = await aiInstance.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              translations: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    th: { type: Type.STRING },
-                    en: { type: Type.STRING },
+          const response = await aiInstance.models.generateContent({
+            model: 'gemini-3.8-flash',
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  translations: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        id: { type: Type.STRING },
+                        th: { type: Type.STRING },
+                        en: { type: Type.STRING },
+                      },
+                      required: ['id', 'th', 'en'],
+                    },
                   },
-                  required: ['id', 'th', 'en'],
                 },
+                required: ['translations'],
               },
             },
-            required: ['translations'],
-          },
-        },
-      });
+          });
 
-      const parsed = JSON.parse(response.text || '{}');
-      return res.json({ success: true, translations: parsed.translations || [] });
-    } else if (text) {
-      const prompt = `Translate this Arabic educational UI string into both Thai (ภาษาไทย) and English.
-Text: "${text}"
+          const parsed = JSON.parse(response.text || '{}');
+          if (Array.isArray(parsed.translations) && parsed.translations.length > 0) {
+            return res.json({ success: true, translations: parsed.translations });
+          }
+        } catch (geminiErr: any) {
+          console.warn('Gemini batch translation failed, falling back to Google Translate:', geminiErr?.message || geminiErr);
+        }
+      }
+
+      // Fallback for batch items
+      const fallbackList: { id: string; th: string; en: string }[] = [];
+      for (const item of items) {
+        const trans = await translateWithGoogleFallback(item.text || item.ar || '');
+        fallbackList.push({
+          id: item.id,
+          th: trans.th,
+          en: trans.en,
+        });
+      }
+      return res.json({ success: true, translations: fallbackList });
+    }
+
+    // 2. Single text translation
+    if (text !== undefined && text !== null) {
+      const cleanText = String(text).trim();
+      if (!cleanText) {
+        return res.json({ success: true, th: '', en: '' });
+      }
+
+      if (effectiveApiKey) {
+        try {
+          const aiInstance = new GoogleGenAI({
+            apiKey: effectiveApiKey,
+            httpOptions: {
+              headers: {
+                'User-Agent': 'aistudio-build',
+              },
+            },
+          });
+
+          const prompt = `Translate this Arabic educational UI string into both Thai (ภาษาไทย) and English.
+Text: "${cleanText}"
 Return JSON: { "th": "...", "en": "..." }`;
 
-      const response = await aiInstance.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              th: { type: Type.STRING },
-              en: { type: Type.STRING },
+          const response = await aiInstance.models.generateContent({
+            model: 'gemini-3.8-flash',
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  th: { type: Type.STRING },
+                  en: { type: Type.STRING },
+                },
+                required: ['th', 'en'],
+              },
             },
-            required: ['th', 'en'],
-          },
-        },
-      });
+          });
 
-      const parsed = JSON.parse(response.text || '{}');
-      return res.json({ success: true, th: parsed.th || '', en: parsed.en || '' });
-    } else {
-      return res.status(400).json({ success: false, error: 'No text or items provided' });
+          const parsed = JSON.parse(response.text || '{}');
+          if (parsed && (parsed.th || parsed.en)) {
+            return res.json({ success: true, th: parsed.th || '', en: parsed.en || '' });
+          }
+        } catch (geminiErr: any) {
+          console.warn('Gemini single translation failed, falling back to Google Translate:', geminiErr?.message || geminiErr);
+        }
+      }
+
+      // Fallback for single text
+      const fallback = await translateWithGoogleFallback(cleanText);
+      return res.json({ success: true, th: fallback.th || '', en: fallback.en || '' });
     }
+
+    return res.status(400).json({ success: false, error: 'لم يتم توفير أي نص للترجمة.' });
   } catch (err: any) {
     console.error('Error in /api/translate:', err);
-    return res.status(500).json({ success: false, error: err.message || 'Translation failed' });
+    return res.status(500).json({ success: false, error: err.message || 'فشلت الترجمة' });
   }
 });
 

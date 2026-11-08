@@ -216,9 +216,14 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] text-slate-500 truncate">
-                          {item.meaning || item.category}
-                        </p>
+                        {(() => {
+                          const displayMeaning = tr(`lesson_${item.word}_meaning`, item.meaning || '');
+                          return (
+                            <p className="text-[11px] text-slate-500 truncate">
+                              {displayMeaning || item.category}
+                            </p>
+                          );
+                        })()}
                       </div>
                     </div>
 

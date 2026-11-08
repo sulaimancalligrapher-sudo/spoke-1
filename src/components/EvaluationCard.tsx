@@ -406,9 +406,12 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
               {targetWordItem.word}
             </div>
           </div>
-          {targetWordItem.meaning && (
-            <p className="text-xs text-slate-500 mt-1">{targetWordItem.meaning}</p>
-          )}
+          {(() => {
+            const displayMeaning = tr(`lesson_${targetWordItem.word}_meaning`, targetWordItem.meaning || '');
+            return displayMeaning ? (
+              <p className="text-xs text-slate-500 mt-1">{displayMeaning}</p>
+            ) : null;
+          })()}
         </div>
 
         <div className="bg-slate-50/90 rounded-2xl p-3.5 border border-slate-200/80 flex flex-col justify-between">
@@ -626,22 +629,30 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
             )}
 
             {/* Makhraj tip */}
-            <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-2xl p-3 flex items-start gap-2.5">
-              <Info className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
-              <div>
-                <span className="text-xs font-bold text-emerald-950 block mb-0.5">
-                  {tr('eval_articulation_guide', 'إرشاد المخرج الصوتي:')}
-                </span>
-                <p className="text-xs text-emerald-900 leading-relaxed">
-                  {evaluation.makhrajAdvice || targetWordItem.makhrajTip}
-                </p>
-                {evaluation.vowelAccuracy && (
-                  <p className="text-[11px] text-emerald-800 font-semibold mt-1">
-                    {tr('eval_vowel_accuracy', 'دقة الحركات والمدود:')} {evaluation.vowelAccuracy}
-                  </p>
-                )}
-              </div>
-            </div>
+            {(() => {
+              const tip = evaluation.makhrajAdvice || tr(`lesson_${targetWordItem.word}_makhraj`, targetWordItem.makhrajTip || '');
+              if (!tip && !evaluation.vowelAccuracy) return null;
+              return (
+                <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-2xl p-3 flex items-start gap-2.5">
+                  <Info className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="text-xs font-bold text-emerald-950 block mb-0.5">
+                      {tr('eval_articulation_guide', 'إرشاد المخرج الصوتي:')}
+                    </span>
+                    {tip ? (
+                      <p className="text-xs text-emerald-900 leading-relaxed">
+                        {tip}
+                      </p>
+                    ) : null}
+                    {evaluation.vowelAccuracy && (
+                      <p className="text-[11px] text-emerald-800 font-semibold mt-1">
+                        {tr('eval_vowel_accuracy', 'دقة الحركات والمدود:')} {evaluation.vowelAccuracy}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 

@@ -16,13 +16,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   onLoginSuccess,
   adminUsers = [],
 }) => {
-  const [adminName, setAdminName] = useState(() => {
-    try {
-      return sessionStorage.getItem('faseeh_admin_name') || '';
-    } catch {
-      return '';
-    }
-  });
+  const [adminName, setAdminName] = useState('');
   const [adminPin, setAdminPin] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -158,27 +152,22 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
               type="text"
               value={adminName}
               onChange={(e) => setAdminName(e.target.value)}
-              placeholder="مثال: عزام"
+              placeholder="أدخل اسم المشرف الإداري"
               className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-hidden focus:border-emerald-500 focus:bg-white transition-all text-right"
               autoFocus
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
-                <Lock className="w-3.5 h-3.5 text-slate-500" />
-                <span>رقم المعرف الإداري أو الرمز السري:</span>
-              </span>
-              <span className="text-[10px] text-emerald-700 font-mono font-bold bg-emerald-50 px-1.5 py-0.5 rounded">
-                الافتراضي: 2026115
-              </span>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-slate-500" />
+              <span>رقم المعرف الإداري أو الرمز السري:</span>
             </label>
             <input
               type="password"
               value={adminPin}
               onChange={(e) => setAdminPin(e.target.value)}
-              placeholder="أدخل الرمز الإداري (2026115)"
+              placeholder="أدخل رمز الدخول السري"
               className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-hidden focus:border-emerald-500 focus:bg-white transition-all text-right"
             />
           </div>

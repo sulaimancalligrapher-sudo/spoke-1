@@ -782,9 +782,9 @@ export function getStoredTranslations(): TranslationItem[] {
           if (existing) {
             map.set(p.id, {
               ...existing,
-              ar: p.ar || existing.ar,
-              th: p.th || existing.th,
-              en: p.en || existing.en,
+              ar: p.ar !== undefined ? p.ar : existing.ar,
+              th: p.th !== undefined ? p.th : existing.th,
+              en: p.en !== undefined ? p.en : existing.en,
             });
           } else {
             map.set(p.id, p);
@@ -805,6 +805,7 @@ export function saveStoredTranslations(items: TranslationItem[]): void {
 
 /**
  * Translate a UI key into the active language
+ * If text was intentionally cleared (empty string), it returns empty string without falling back to defaults.
  */
 export function getTranslatedString(
   key: string,
@@ -812,64 +813,180 @@ export function getTranslatedString(
   items: TranslationItem[] = DEFAULT_TRANSLATIONS,
   fallbackAr?: string
 ): string {
-  if (lang === 'ar') {
-    return fallbackAr || items.find((i) => i.id === key)?.ar || key;
-  }
   const item = items.find((i) => i.id === key);
-  if (!item) return fallbackAr || key;
-  if (lang === 'th') return item.th || item.ar || fallbackAr || key;
-  if (lang === 'en') return item.en || item.ar || fallbackAr || key;
-  return item.ar || fallbackAr || key;
+  if (item) {
+    const arVal = typeof item.ar === 'string' ? item.ar : '';
+    const thVal = typeof item.th === 'string' ? item.th : '';
+    const enVal = typeof item.en === 'string' ? item.en : '';
+
+    // If all three languages were cleared by the admin, the text was intentionally removed!
+    if (arVal.trim() === '' && thVal.trim() === '' && enVal.trim() === '') {
+      return '';
+    }
+
+    if (lang === 'ar') {
+      if (typeof item.ar === 'string') return item.ar;
+      return fallbackAr ?? '';
+    }
+
+    if (lang === 'th') {
+      if (typeof item.th === 'string') {
+        if (item.th.trim() === '') {
+          // If Thai was cleared, do not fallback to anything!
+          return '';
+        }
+        return item.th;
+      }
+      return arVal.trim() ? item.ar : '';
+    }
+
+    if (lang === 'en') {
+      if (typeof item.en === 'string') {
+        if (item.en.trim() === '') {
+          // If English was cleared, do not fallback to anything!
+          return '';
+        }
+        return item.en;
+      }
+      return arVal.trim() ? item.ar : '';
+    }
+  }
+
+  // If item not found:
+  return fallbackAr !== undefined ? fallbackAr : '';
 }
 
 /**
- * Call Gemini translation API for a single text
+ * Direct client-side translation via Google Translate (CORS friendly) & MyMemory API
+ * Used whenever /api/translate is unavailable or returns an error.
+ */
+export async function translateClientSideDirect(text: string): Promise<{ th: string; en: string }> {
+  const clean = (text || '').trim();
+  if (!clean) return { th: '', en: '' };
+
+  let th = '';
+  let en = '';
+
+  // 1. Google Translate GTX (Free, fast, CORS open)
+  try {
+    const [thRes, enRes] = await Promise.all([
+      fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=ar&tl=th&dt=t&q=${encodeURIComponent(clean)}`),
+      fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=ar&tl=en&dt=t&q=${encodeURIComponent(clean)}`),
+    ]);
+    if (thRes.ok) {
+      const thJson = await thRes.json().catch(() => null);
+      if (Array.isArray(thJson?.[0])) {
+        th = thJson[0].map((p: any) => p[0] || '').join('').trim();
+      }
+    }
+    if (enRes.ok) {
+      const enJson = await enRes.json().catch(() => null);
+      if (Array.isArray(enJson?.[0])) {
+        en = enJson[0].map((p: any) => p[0] || '').join('').trim();
+      }
+    }
+    if (th || en) {
+      return { th, en };
+    }
+  } catch (err) {
+    console.warn('Direct Google Translate notice:', err);
+  }
+
+  // 2. MyMemory API fallback (Free, open)
+  try {
+    const [thRes2, enRes2] = await Promise.all([
+      fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(clean)}&langpair=ar|th`),
+      fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(clean)}&langpair=ar|en`),
+    ]);
+    if (thRes2.ok) {
+      const d = await thRes2.json().catch(() => null);
+      if (d?.responseData?.translatedText) th = d.responseData.translatedText;
+    }
+    if (enRes2.ok) {
+      const d = await enRes2.json().catch(() => null);
+      if (d?.responseData?.translatedText) en = d.responseData.translatedText;
+    }
+  } catch (err2) {
+    console.warn('Direct MyMemory notice:', err2);
+  }
+
+  return { th: th || clean, en: en || clean };
+}
+
+/**
+ * Call Gemini translation API for a single text with zero-fail fallback
  */
 export async function translateSingleWithAI(
   text: string,
   apiKey?: string
 ): Promise<{ th: string; en: string }> {
+  const clean = (text || '').trim();
+  if (!clean) return { th: '', en: '' };
+
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (apiKey) headers['x-gemini-key'] = apiKey;
 
-  const res = await fetch('/api/translate', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ text }),
-  });
-  if (!res.ok) {
-    throw new Error('Failed to translate with AI');
+  // 1. Try backend /api/translate
+  try {
+    const res = await fetch('/api/translate', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ text: clean }),
+    });
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data && data.success !== false && (data.th || data.en)) {
+        return { th: data.th || '', en: data.en || '' };
+      }
+    }
+  } catch (err) {
+    console.warn('Backend /api/translate not reachable, switching to direct client translator:', err);
   }
-  const data = await res.json();
-  return { th: data.th || '', en: data.en || '' };
+
+  // 2. Direct client-side translation fallback
+  return await translateClientSideDirect(clean);
 }
 
 /**
- * Call Gemini translation API for multiple items at once
+ * Call Gemini translation API for multiple items at once with zero-fail fallback
  */
 export async function translateBatchWithAI(
   items: { id: string; text: string }[],
   apiKey?: string
 ): Promise<Record<string, { th: string; en: string }>> {
+  if (!items || items.length === 0) return {};
+
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (apiKey) headers['x-gemini-key'] = apiKey;
 
-  const res = await fetch('/api/translate', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ items }),
-  });
-  if (!res.ok) {
-    throw new Error('Failed to batch translate with AI');
-  }
-  const data = await res.json();
-  const result: Record<string, { th: string; en: string }> = {};
-  if (Array.isArray(data.translations)) {
-    data.translations.forEach((t: any) => {
-      if (t.id) {
-        result[t.id] = { th: t.th || '', en: t.en || '' };
-      }
+  // 1. Try backend /api/translate
+  try {
+    const res = await fetch('/api/translate', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ items }),
     });
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data && data.success !== false && Array.isArray(data.translations)) {
+        const result: Record<string, { th: string; en: string }> = {};
+        data.translations.forEach((t: any) => {
+          if (t.id) result[t.id] = { th: t.th || '', en: t.en || '' };
+        });
+        return result;
+      }
+    }
+  } catch (err) {
+    console.warn('Backend /api/translate batch error, using client-side translator:', err);
   }
+
+  // 2. Direct client-side batch translation
+  const result: Record<string, { th: string; en: string }> = {};
+  await Promise.all(
+    items.map(async (item) => {
+      const trans = await translateClientSideDirect(item.text);
+      result[item.id] = trans;
+    })
+  );
   return result;
 }

@@ -5,6 +5,7 @@ import {
   translateSingleWithAI,
   translateBatchWithAI,
 } from '../utils/translations';
+import { WordItem } from '../types';
 import {
   Languages,
   Sparkles,
@@ -26,6 +27,8 @@ interface TranslationManagerProps {
   onSaveTranslations: (updated: TranslationItem[]) => void;
   geminiApiKey?: string;
   webhookUrl?: string;
+  curriculum?: WordItem[];
+  onRefreshFromSheets?: () => Promise<void>;
 }
 
 export const TranslationManager: React.FC<TranslationManagerProps> = ({
@@ -33,15 +36,87 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
   onSaveTranslations,
   geminiApiKey,
   webhookUrl,
+  curriculum = [],
+  onRefreshFromSheets,
 }) => {
-  const [items, setItems] = useState<TranslationItem[]>(translations);
+  // Build initial items merging translations with curriculum exercises (Columns 6 & 7)
+  const buildMergedItems = (baseList: TranslationItem[], words: WordItem[]) => {
+    const map = new Map<string, TranslationItem>();
+    baseList.forEach((item) => map.set(item.id, item));
+
+    // Dynamic items for each word in curriculum
+    if (words && words.length > 0) {
+      words.forEach((w) => {
+        if (!w.word) return;
+        const meaningKey = `lesson_${w.word}_meaning`;
+        const makhrajKey = `lesson_${w.word}_makhraj`;
+
+        // Column 6: المعنى
+        if (!map.has(meaningKey)) {
+          map.set(meaningKey, {
+            id: meaningKey,
+            category: 'lessons',
+            categoryLabel: 'تمارين الدروس - المعنى (عامود 6)',
+            ar: w.meaning || '',
+            th: '',
+            en: '',
+            isSheetLinked: true,
+            sheetSourceNote: `[${w.lessonSubject || 'الدرس'}] تمرين: ${w.word} - المعنى (عامود 6)`,
+          });
+        }
+
+        // Column 7: المخرج
+        if (!map.has(makhrajKey)) {
+          map.set(makhrajKey, {
+            id: makhrajKey,
+            category: 'lessons',
+            categoryLabel: 'تمارين الدروس - المخرج (عامود 7)',
+            ar: w.makhrajTip || '',
+            th: '',
+            en: '',
+            isSheetLinked: true,
+            sheetSourceNote: `[${w.lessonSubject || 'الدرس'}] تمرين: ${w.word} - المخرج (عامود 7)`,
+          });
+        }
+      });
+    }
+
+    return Array.from(map.values());
+  };
+
+  const [items, setItems] = useState<TranslationItem[]>(() =>
+    buildMergedItems(translations, curriculum)
+  );
   const [activeTab, setActiveTab] = useState<'home' | 'lessons' | 'practice'>('home');
   const [searchQuery, setSearchQuery] = useState('');
   const [translatingId, setTranslatingId] = useState<string | null>(null);
   const [isBatchTranslating, setIsBatchTranslating] = useState(false);
   const [isInitializingSheet, setIsInitializingSheet] = useState(false);
+  const [isRefreshingFromSheets, setIsRefreshingFromSheets] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  // Sync state if external translations or curriculum changes
+  React.useEffect(() => {
+    setItems((prev) => {
+      const merged = buildMergedItems(translations, curriculum);
+      const prevMap = new Map<string, TranslationItem>();
+      prev.forEach((p) => prevMap.set(p.id, p));
+
+      return merged.map((m) => {
+        const existing = prevMap.get(m.id);
+        if (existing) {
+          return {
+            ...m,
+            ar: existing.ar !== undefined ? existing.ar : m.ar,
+            th: existing.th !== undefined ? existing.th : m.th,
+            en: existing.en !== undefined ? existing.en : m.en,
+          };
+        }
+        return m;
+      });
+    });
+  }, [translations, curriculum]);
 
   const handleInitTranslationsSheet = async () => {
     if (!webhookUrl) {
@@ -65,6 +140,21 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
     }
   };
 
+  const handleRefreshFromSheets = async () => {
+    if (!onRefreshFromSheets) return;
+    setIsRefreshingFromSheets(true);
+    setStatusMessage('جاري جلب وتحديث كافة البيانات والنصوص والترجمات من ورقة Google Sheets...');
+    try {
+      await onRefreshFromSheets();
+      setStatusMessage('✨ تم تحديث ومزامنة كافة البيانات والترجمات بنجاح من ورقة الشيت!');
+      setTimeout(() => setStatusMessage(null), 5000);
+    } catch (e: any) {
+      alert('تعذر التحديث من الشيت: ' + (e?.message || 'تأكد من الاتصال بالشيت'));
+    } finally {
+      setIsRefreshingFromSheets(false);
+    }
+  };
+
   const filteredItems = items.filter((item) => {
     if (item.category !== activeTab) return false;
     if (!searchQuery.trim()) return true;
@@ -84,18 +174,22 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
   };
 
   const handleTranslateSingle = async (item: TranslationItem) => {
+    if (!item.ar || !item.ar.trim()) {
+      alert('يرجى إدخال النص العربي أولاً ليتم ترجمته بالذكاء الاصطناعي.');
+      return;
+    }
     setTranslatingId(item.id);
-    setStatusMessage(null);
+    setStatusMessage('جاري استدعاء نموذج الذكاء الاصطناعي للترجمة...');
     try {
       const result = await translateSingleWithAI(item.ar, geminiApiKey);
       handleUpdateItem(item.id, {
-        th: result.th || item.th,
-        en: result.en || item.en,
+        th: result.th !== undefined ? result.th : item.th,
+        en: result.en !== undefined ? result.en : item.en,
       });
-      setStatusMessage(`✨ تم ترجمة "${item.ar}" بالذكاء الاصطناعي بنجاح`);
-      setTimeout(() => setStatusMessage(null), 3000);
+      setStatusMessage(`✨ تم ترجمة "${item.ar.slice(0, 25)}" بالذكاء الاصطناعي بنجاح`);
+      setTimeout(() => setStatusMessage(null), 3500);
     } catch (e: any) {
-      alert('تعذر الترجمة بالذكاء الاصطناعي: ' + (e?.message || 'تأكد من الاتصال'));
+      alert('تعذر الترجمة: ' + (e?.message || 'تأكد من الاتصال'));
     } finally {
       setTranslatingId(null);
     }
@@ -119,8 +213,8 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
           if (item.category === activeTab && results[item.id]) {
             return {
               ...item,
-              th: results[item.id].th || item.th,
-              en: results[item.id].en || item.en,
+              th: results[item.id].th !== undefined ? results[item.id].th : item.th,
+              en: results[item.id].en !== undefined ? results[item.id].en : item.en,
             };
           }
           return item;
@@ -168,6 +262,19 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
+          {onRefreshFromSheets && (
+            <button
+              type="button"
+              onClick={handleRefreshFromSheets}
+              disabled={isRefreshingFromSheets}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+              title="جلب وتحديث كافة البيانات والنصوص والترجمات من Google Sheets وتطبيقها فوراً في الموقع"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-sky-600 ${isRefreshingFromSheets ? 'animate-spin' : ''}`} />
+              <span>تحديث من الشيت 🔄</span>
+            </button>
+          )}
+
           {webhookUrl && (
             <button
               type="button"

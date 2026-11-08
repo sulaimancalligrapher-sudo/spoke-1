@@ -13,7 +13,7 @@ import { removeTashkeel } from './arabicMatcher';
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwMymou4u3eKAnzL3PKdVLxz9XRBpzFudQX23xj8CUbNSnQIW9GMIcDUYiNrnBb1D4rKQ/exec';
+  'https://script.google.com/macros/s/AKfycbw-5EiMccWfcYt3wDKdPVZUkLqn7fYelU1SSubsSSLYWpezyTstJD5J5DKtI8RiCceROw/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -208,13 +208,13 @@ export async function fetchCurriculumFromSheets(webhookUrl: string): Promise<{
       id: item.id || `sheet-${idx + 1}-${Date.now()}`,
       word: String(item.word || '').trim(),
       plainWord: removeTashkeel(String(item.word || '').trim()),
-      meaning: String(item.meaning || '').trim() || 'كلمة تعليمية',
+      meaning: item.meaning !== undefined && item.meaning !== null ? String(item.meaning).trim() : '',
       category: String(item.category || '').trim() || 'الكلمة',
       lessonSubject: String(item.lessonSubject || '').trim() || 'الدرس الأول',
       imageUrl: item.imageUrl ? String(item.imageUrl).trim() : undefined,
       audioUrl: item.audioUrl ? String(item.audioUrl).trim() : undefined,
       autoReadText: item.autoReadText ? String(item.autoReadText).trim() : undefined,
-      makhrajTip: String(item.makhrajTip || '').trim() || 'انطق الكلمة بوضوح ومخارج سليمة.',
+      makhrajTip: item.makhrajTip !== undefined && item.makhrajTip !== null ? String(item.makhrajTip).trim() : '',
       letterFocus: String(item.word || '').trim()[0],
       repeatCount: (() => {
         const raw = String(item.repeatCount || '1').trim();
@@ -1574,8 +1574,8 @@ function doGet(e) {
           audioUrl: audioUrl || undefined,
           autoReadText: autoReadText || undefined,
           word: wordText,
-          meaning: meaning || "تمرين قرائي",
-          makhrajTip: makhrajTip || "انطق الكلمة بوضوح ومخارج سليمة.",
+          meaning: meaning || "",
+          makhrajTip: makhrajTip || "",
           repeatCount: repeatCount,
           difficultyLevel: difficultyLevel,
           recordingDuration: recordingDuration
@@ -1660,18 +1660,37 @@ function doPost(e) {
         });
         tSheet.getRange(2, 1, tRows.length, 5).setValues(tRows);
 
-        // مزامنة النصوص العربية المرتبطة بورقة "الرئيسية" (B3, B4, B23:B27) تلقائياً لمنع أي تعارض
+        // مزامنة النصوص مع ورقة "الرئيسية" وورقة "الدروس" (العامود 6 المعنى، والعامود 7 المخرج)
         var hSheet = ss.getSheetByName("الرئيسية");
-        if (hSheet) {
-          for (var k = 0; k < tItems.length; k++) {
-            var itm = tItems[k];
-            if (itm.id === "nav_platform_title" && itm.ar) hSheet.getRange(3, 2).setValue(itm.ar);
-            if (itm.id === "nav_platform_subtitle" && itm.ar) hSheet.getRange(4, 2).setValue(itm.ar);
-            if (itm.id === "home_card_title" && itm.ar) hSheet.getRange(23, 2).setValue(itm.ar);
-            if (itm.id === "home_card_subtitle" && itm.ar) hSheet.getRange(24, 2).setValue(itm.ar);
-            if (itm.id === "home_card_extra1" && itm.ar) hSheet.getRange(25, 2).setValue(itm.ar);
-            if (itm.id === "home_card_extra2" && itm.ar) hSheet.getRange(26, 2).setValue(itm.ar);
-            if (itm.id === "home_card_extra3" && itm.ar) hSheet.getRange(27, 2).setValue(itm.ar);
+        var lSheet = ss.getSheetByName("الدروس");
+        for (var k = 0; k < tItems.length; k++) {
+          var itm = tItems[k];
+          if (hSheet) {
+            if (itm.id === "nav_platform_title") hSheet.getRange(3, 2).setValue(itm.ar || "");
+            if (itm.id === "nav_platform_subtitle") hSheet.getRange(4, 2).setValue(itm.ar || "");
+            if (itm.id === "home_card_title") hSheet.getRange(23, 2).setValue(itm.ar || "");
+            if (itm.id === "home_card_subtitle") hSheet.getRange(24, 2).setValue(itm.ar || "");
+            if (itm.id === "home_card_extra1") hSheet.getRange(25, 2).setValue(itm.ar || "");
+            if (itm.id === "home_card_extra2") hSheet.getRange(26, 2).setValue(itm.ar || "");
+            if (itm.id === "home_card_extra3") hSheet.getRange(27, 2).setValue(itm.ar || "");
+          }
+          if (lSheet && itm.id && itm.id.indexOf("lesson_") === 0) {
+            var isMeaning = itm.id.indexOf("_meaning") !== -1;
+            var isMakhraj = itm.id.indexOf("_makhraj") !== -1;
+            var targetWord = itm.id.replace("lesson_", "").replace("_meaning", "").replace("_makhraj", "");
+            if (targetWord && (isMeaning || isMakhraj)) {
+              var lData = lSheet.getDataRange().getValues();
+              for (var lr = 1; lr < lData.length; lr++) {
+                var lRow = lData[lr];
+                for (var lc = 1; lc < lRow.length; lc += 8) {
+                  var wVal = String(lRow[lc + 4] || "").trim();
+                  if (wVal && (wVal === targetWord || wVal.replace(/[\u064B-\u065F\u0670]/g, '') === targetWord.replace(/[\u064B-\u065F\u0670]/g, ''))) {
+                    if (isMeaning) lSheet.getRange(lr + 1, lc + 5 + 1).setValue(itm.ar || "");
+                    if (isMakhraj) lSheet.getRange(lr + 1, lc + 6 + 1).setValue(itm.ar || "");
+                  }
+                }
+              }
+            }
           }
         }
       }
