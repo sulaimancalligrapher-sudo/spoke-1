@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PronunciationEvaluation, WordItem } from '../types';
 import { Activity, Check } from 'lucide-react';
+import { SupportedLang } from '../utils/translations';
 
 interface FrequencySpectrumComparisonProps {
   evaluation: PronunciationEvaluation;
   targetWordItem: WordItem;
   recordedAudioUrl?: string | null;
+  currentLang?: SupportedLang;
+  t?: (id: string, fallback?: string) => string;
 }
 
 interface SpectralPoint {
@@ -25,7 +28,10 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
   evaluation,
   targetWordItem,
   recordedAudioUrl,
+  currentLang = 'ar',
+  t,
 }) => {
+  const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
   const [realStudentF0, setRealStudentF0] = useState<number | null>(null);
   const [realStudentDb, setRealStudentDb] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -131,12 +137,12 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
     const studentDb = realStudentDb ?? Math.round(-12 - (1 - scoreRatio) * 6);
     const studentPeaks = score >= 80 ? 5 : 6;
 
-    let matchText = 'جيد';
-    if (score >= 90) matchText = 'ممتاز جداً';
-    else if (score >= 80) matchText = 'ممتاز';
-    else if (score >= 65) matchText = 'جيد';
-    else if (score >= 50) matchText = 'متوسط';
-    else matchText = 'يحتاج تكرار';
+    let matchText = tr('eval_spectrum_match_good', 'جيد');
+    if (score >= 90) matchText = tr('eval_spectrum_match_very_excellent', 'ممتاز جداً');
+    else if (score >= 80) matchText = tr('eval_spectrum_match_excellent', 'ممتاز');
+    else if (score >= 65) matchText = tr('eval_spectrum_match_good', 'جيد');
+    else if (score >= 50) matchText = tr('eval_spectrum_match_medium', 'متوسط');
+    else matchText = tr('eval_spectrum_match_repeat', 'يحتاج تكرار');
 
     return {
       teacher: {
@@ -154,7 +160,7 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
       matchText,
       similarityPercent: score,
     };
-  }, [evaluation.score, realStudentF0, realStudentDb]);
+  }, [evaluation.score, realStudentF0, realStudentDb, currentLang]);
 
   // Stable inspection frequency (defaults to student's peak and stays smooth)
   const [inspectedFreq, setInspectedFreq] = useState<number>(metrics.student.topPeakFreq);
@@ -369,14 +375,14 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
         {/* Center Title */}
         <div className="text-center flex-1 pr-2">
           <h3 className="text-base sm:text-lg font-bold tracking-tight text-white font-cairo">
-            مقارنة البصرية والسمعية
+            {tr('eval_spectrum_banner_title', 'مقارنة البصرية والسمعية')}
           </h3>
         </div>
 
         {/* Right Status Badge */}
         <div className="hidden sm:flex items-center gap-1.5 bg-blue-900/60 border border-blue-400/30 px-3 py-1 rounded-full text-[11px] text-blue-200">
           <Activity className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-          <span>تحديث تلقائي</span>
+          <span>{tr('eval_spectrum_auto_update', 'تحديث تلقائي')}</span>
         </div>
       </div>
 
@@ -388,13 +394,15 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
           <div className="flex items-center justify-between pb-1.5 border-b border-slate-700/80">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
-              <span className="font-bold text-slate-200 text-xs sm:text-sm">مؤشر الفحص:</span>
+              <span className="font-bold text-slate-200 text-xs sm:text-sm">
+                {tr('eval_spectrum_inspect_point', 'مؤشر الفحص:')}
+              </span>
               <span className="font-mono text-amber-300 font-extrabold text-sm sm:text-base" dir="ltr">
                 {activePoint.freq} Hz
               </span>
             </div>
             <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
-              نطاق التردد (0 – 3,000 Hz)
+              {tr('eval_spectrum_freq_range', 'نطاق التردد (0 – 3,000 Hz)')}
             </span>
           </div>
 
@@ -402,7 +410,9 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
           <div className="flex items-center justify-between pt-0.5 text-xs">
             <div className="flex items-center gap-1.5 text-blue-300">
               <span className="w-2.5 h-2.5 rounded-full bg-[#0066ff] shrink-0"></span>
-              <span className="font-bold text-[11px] sm:text-xs text-blue-200">الصوت الأصلي:</span>
+              <span className="font-bold text-[11px] sm:text-xs text-blue-200">
+                {tr('eval_spectrum_original_sound', 'الصوت الأصلي:')}
+              </span>
               <strong className="font-mono text-white text-xs sm:text-sm font-bold" dir="ltr">
                 {activePoint.teacherDb} dB
               </strong>
@@ -410,14 +420,18 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
 
             <div className="flex items-center gap-1.5 text-emerald-300">
               <span className="w-2.5 h-2.5 rounded-full bg-[#00bb2d] shrink-0"></span>
-              <span className="font-bold text-[11px] sm:text-xs text-emerald-200">صوت المستخدم:</span>
+              <span className="font-bold text-[11px] sm:text-xs text-emerald-200">
+                {tr('eval_spectrum_user_sound', 'صوت المستخدم:')}
+              </span>
               <strong className="font-mono text-white text-xs sm:text-sm font-bold" dir="ltr">
                 {activePoint.studentDb} dB
               </strong>
             </div>
 
             <div className="flex items-center gap-1 text-slate-300">
-              <span className="text-[10px] sm:text-[11px] text-slate-400">الفرق:</span>
+              <span className="text-[10px] sm:text-[11px] text-slate-400">
+                {tr('eval_spectrum_diff', 'الفرق:')}
+              </span>
               <strong className="font-mono text-amber-300 text-xs sm:text-sm font-bold" dir="ltr">
                 {(activePoint.studentDb - activePoint.teacherDb).toFixed(1)} dB
               </strong>
@@ -430,14 +444,14 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
           <div className="flex items-center gap-2">
             <span className="w-5 h-2 rounded-full bg-[#0066ff] shrink-0 shadow-xs"></span>
             <span className="font-extrabold text-[#0055d4] text-[11px] sm:text-xs">
-              الصوت الأصلي (المعلم)
+              {tr('eval_spectrum_teacher_legend', 'الصوت الأصلي (المعلم)')}
             </span>
           </div>
           <div className="hidden sm:block w-px h-3.5 bg-slate-300"></div>
           <div className="flex items-center gap-2">
             <span className="w-5 h-2 rounded-full bg-[#00bb2d] shrink-0 shadow-xs"></span>
             <span className="font-extrabold text-[#008a20] text-[11px] sm:text-xs">
-              صوت المستخدم (المسجل)
+              {tr('eval_spectrum_user_legend', 'صوت المستخدم (المسجل)')}
             </span>
           </div>
         </div>
@@ -554,7 +568,7 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
               className="text-[11px] font-bold fill-slate-900 font-cairo select-none"
               pointerEvents="none"
             >
-              الشدة
+              {tr('eval_spectrum_intensity', 'الشدة')}
             </text>
             <text
               x={padLeft - 6}
@@ -718,10 +732,11 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
               <div>
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                   <span className="text-[11px] sm:text-xs font-bold text-amber-900 bg-amber-100/90 px-2 py-0.5 rounded-md">
-                    نتيجة المقارنة
+                    {tr('eval_spectrum_result_badge', 'نتيجة المقارنة')}
                   </span>
                   <span className="text-xs sm:text-sm font-bold text-slate-800">
-                    التشابه في النغمة: <strong className="text-emerald-700 font-black">{metrics.matchText}</strong>
+                    {tr('eval_spectrum_tone_match', 'التشابه في النغمة:')}{' '}
+                    <strong className="text-emerald-700 font-black">{metrics.matchText}</strong>
                   </span>
                 </div>
               </div>
@@ -730,7 +745,7 @@ export const FrequencySpectrumComparison: React.FC<FrequencySpectrumComparisonPr
             {/* Left side: Similarity Score */}
             <div className="flex items-center gap-1.5 sm:gap-2 border-r border-amber-200 pr-2.5 sm:pr-4">
               <span className="text-xs sm:text-sm font-bold text-slate-700 hidden sm:inline">
-                نسبة التطابق:
+                {tr('eval_spectrum_match_ratio', 'نسبة التطابق:')}
               </span>
               <span className="text-xl sm:text-2xl font-black font-sans text-[#15803d]">
                 {metrics.similarityPercent}%

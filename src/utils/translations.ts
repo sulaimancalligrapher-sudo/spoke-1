@@ -747,6 +747,242 @@ export const DEFAULT_TRANSLATIONS: TranslationItem[] = [
     th: 'รอสักครู่ ผลลัพธ์กำลังจะแสดง...',
     en: 'A few moments and results will appear...',
   },
+
+  // ==========================================
+  // الموضع الرابع: المقارنة المرئية وسجل الإنجازات والتقييمات المتغيرة
+  // ==========================================
+  {
+    id: 'eval_theme_excellent_full',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'نطق ممتاز ومتقن!',
+    th: 'การออกเสียงยอดเยี่ยมและแม่นยำ!',
+    en: 'Excellent and accurate pronunciation!',
+  },
+  {
+    id: 'eval_theme_wonderful',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'ممتاز ورائع!',
+    th: 'ยอดเยี่ยมและน่าประทับใจ!',
+    en: 'Excellent and wonderful!',
+  },
+  {
+    id: 'eval_spectrum_banner_title',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'مقارنة البصرية والسمعية',
+    th: 'เปรียบเทียบคลื่นเสียงและการได้ยิน',
+    en: 'Visual & Audio Spectrum Comparison',
+  },
+  {
+    id: 'eval_spectrum_auto_update',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'تحديث تلقائي',
+    th: 'อัปเดตอัตโนมัติ',
+    en: 'Auto-updating',
+  },
+  {
+    id: 'eval_spectrum_inspect_point',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'مؤشر الفحص:',
+    th: 'ตำแหน่งตรวจสอบ:',
+    en: 'Inspection Point:',
+  },
+  {
+    id: 'eval_spectrum_freq_range',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'نطاق التردد (0 – 3,000 Hz)',
+    th: 'ช่วงความถี่ (0 – 3,000 Hz)',
+    en: 'Frequency Range (0 – 3,000 Hz)',
+  },
+  {
+    id: 'eval_spectrum_original_sound',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'الصوت الأصلي:',
+    th: 'เสียงต้นแบบ:',
+    en: 'Original Voice:',
+  },
+  {
+    id: 'eval_spectrum_user_sound',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'صوت المستخدم:',
+    th: 'เสียงผู้เรียน:',
+    en: 'User Voice:',
+  },
+  {
+    id: 'eval_spectrum_diff',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'الفرق:',
+    th: 'ความต่าง:',
+    en: 'Difference:',
+  },
+  {
+    id: 'eval_spectrum_teacher_legend',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'الصوت الأصلي (المعلم)',
+    th: 'เสียงต้นแบบ (ครู)',
+    en: 'Original Voice (Teacher)',
+  },
+  {
+    id: 'eval_spectrum_user_legend',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'صوت المستخدم (المسجل)',
+    th: 'เสียงผู้เรียน (บันทึกไว้)',
+    en: 'User Voice (Recorded)',
+  },
+  {
+    id: 'eval_spectrum_intensity',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'الشدة',
+    th: 'ความดัง',
+    en: 'Intensity',
+  },
+  {
+    id: 'eval_spectrum_result_badge',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'نتيجة المقارنة',
+    th: 'ผลการเปรียบเทียบ',
+    en: 'Comparison Result',
+  },
+  {
+    id: 'eval_spectrum_tone_match',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'التشابه في النغمة:',
+    th: 'ความสอดคล้องของน้ำเสียง:',
+    en: 'Tone Similarity:',
+  },
+  {
+    id: 'eval_spectrum_match_ratio',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'نسبة التطابق:',
+    th: 'อัตราความตรงกัน:',
+    en: 'Match Ratio:',
+  },
+  {
+    id: 'eval_spectrum_match_very_excellent',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'ممتاز جداً',
+    th: 'ยอดเยี่ยมมาก',
+    en: 'Very Excellent',
+  },
+  {
+    id: 'eval_spectrum_match_excellent',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'ممتاز',
+    th: 'ยอดเยี่ยม',
+    en: 'Excellent',
+  },
+  {
+    id: 'eval_spectrum_match_good',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'جيد',
+    th: 'ดี',
+    en: 'Good',
+  },
+  {
+    id: 'eval_spectrum_match_medium',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'متوسط',
+    th: 'ปานกลาง',
+    en: 'Medium',
+  },
+  {
+    id: 'eval_spectrum_match_repeat',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'يحتاج تكرار',
+    th: 'ต้องทำซ้ำ',
+    en: 'Needs Repetition',
+  },
+  {
+    id: 'stats_syncing_answers1',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'جاري مزامنة الإنجازات مباشرة من ورقة answers 1...',
+    th: 'กำลังซิงค์บันทึกความสำเร็จจากชีต answers 1...',
+    en: 'Syncing achievements directly from sheet answers 1...',
+  },
+  {
+    id: 'stats_total_practices',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'إجمالي التدريبات',
+    th: 'การฝึกทั้งหมด',
+    en: 'Total Practices',
+  },
+  {
+    id: 'stats_accuracy_rate',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'معدل الدقة',
+    th: 'ความแม่นยำเฉลี่ย',
+    en: 'Accuracy Rate',
+  },
+  {
+    id: 'stats_mastered_words',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'كلمات متقنة (ممتاز)',
+    th: 'คำศัพท์ที่เชี่ยวชาญ (ยอดเยี่ยม)',
+    en: 'Mastered Words (Excellent)',
+  },
+  {
+    id: 'stats_recent_attempts',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'آخر المحاولات الصوتية:',
+    th: 'การฝึกออกเสียงล่าสุด:',
+    en: 'Recent Voice Attempts:',
+  },
+  {
+    id: 'stats_clear_btn',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'مسح السجل',
+    th: 'ล้างประวัติ',
+    en: 'Clear History',
+  },
+  {
+    id: 'stats_empty_note',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'لم تقم بأي تسجيل صوتي بعد. ابدأ بنطق الكلمات لترى تقييماتك هنا!',
+    th: 'ยังไม่มีประวัติการบันทึกเสียง เริ่มฝึกออกเสียงคำศัพท์เพื่อดูผลการประเมินที่นี่!',
+    en: 'No voice recordings yet. Start practicing words to view evaluations here!',
+  },
+  {
+    id: 'stats_verified_in_sheet',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: '(موثق في ورقة answers 1)',
+    th: '(บันทึกในชีต answers 1 แล้ว)',
+    en: '(Recorded in answers 1 sheet)',
+  },
+  {
+    id: 'stats_detected_label',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'سُمع:',
+    th: 'ตรวจพบ:',
+    en: 'Detected:',
+  },
 ];
 
 const STORAGE_KEY_LANG = 'faseeh_active_lang';
@@ -989,4 +1225,355 @@ export async function translateBatchWithAI(
     })
   );
   return result;
+}
+
+/**
+ * Reverse Template Resolver for Dynamic Evaluation Feedback:
+ * Translates deterministic evaluation summaries, acoustic comparisons,
+ * letter phoneme breakdowns, and answers 1 records instantly without latency.
+ */
+const EXACT_EVAL_MAP: Record<string, { th: string; en: string }> = {
+  // Grades & Themes
+  'ممتاز': { th: 'ยอดเยี่ยม', en: 'Excellent' },
+  'ممتاز ومتقن': { th: 'ยอดเยี่ยมและแม่นยำ', en: 'Excellent and proficient' },
+  'ممتاز جداً': { th: 'ยอดเยี่ยมมาก', en: 'Very Excellent' },
+  'ممتاز جداً! نطق فصيح ومتقن': { th: 'ยอดเยี่ยมมาก! การออกเสียงถูกต้องและแม่นยำ', en: 'Excellent! Accurate and fluent articulation' },
+  'نطق ممتاز ومتقن!': { th: 'การออกเสียงยอดเยี่ยมและแม่นยำ!', en: 'Excellent and accurate pronunciation!' },
+  'ممتاز ورائع!': { th: 'ยอดเยี่ยมและน่าประทับใจ!', en: 'Excellent and wonderful!' },
+  'رائع وممتاز': { th: 'ยอดเยี่ยมและน่าประทับใจ', en: 'Wonderful & Excellent' },
+  'رائع ومتقن تماماً': { th: 'ยอดเยี่ยมและแม่นยำสมบูรณ์แบบ', en: 'Wonderful and fully accurate' },
+  'رائع': { th: 'ยอดเยี่ยม', en: 'Wonderful' },
+  'جيد جداً': { th: 'ดีมาก', en: 'Very Good' },
+  'نطق جيد جداً!': { th: 'การออกเสียงดีมาก!', en: 'Very Good Pronunciation!' },
+  'جيد جداً - مشجع': { th: 'ดีมาก - น่าชื่นชม', en: 'Very Good - Encouraging' },
+  'جيد': { th: 'ดี', en: 'Good' },
+  'جيد - خطوة ممتازة': { th: 'ดี - ก้าวหน้าที่ยอดเยี่ยม', en: 'Good - Excellent step' },
+  'جيد - يحتاج تدريباً': { th: 'ดี - ต้องฝึกฝนเพิ่มเติม', en: 'Good - Needs practice' },
+  'جيد - نقص في التكرار': { th: 'ดี - จำนวนครั้งไม่ครบ', en: 'Good - Incomplete repetitions' },
+  'متوسط': { th: 'ปานกลาง', en: 'Medium' },
+  'نطق مقبول مع ملاحظات': { th: 'การออกเสียงพอใช้ มีข้อควรปรับปรุง', en: 'Acceptable pronunciation with notes' },
+  'يحتاج تدريب': { th: 'ต้องฝึกฝน', en: 'Needs practice' },
+  'يحتاج تدريباً': { th: 'ต้องฝึกฝน', en: 'Needs practice' },
+  'يحتاج تدريباً مكثفاً': { th: 'ต้องฝึกฝนอย่างเข้มข้น', en: 'Needs intensive practice' },
+  'يحتاج إلى مزيد من التمرين': { th: 'ต้องฝึกฝนเพิ่มเติม', en: 'Needs more practice' },
+  'يحتاج تكرار': { th: 'ต้องทำซ้ำ', en: 'Needs repetition' },
+  'لم يكتمل التكرار': { th: 'ทำซ้ำไม่ครบ', en: 'Incomplete repetition' },
+  'غير مكتمل التكرار': { th: 'ทำซ้ำไม่ครบตามกำหนด', en: 'Incomplete repetition count' },
+  'غير مطابق': { th: 'ไม่ตรงกับคำเป้าหมาย', en: 'Not matched' },
+  'معتمد': { th: 'ผ่านการรับรอง', en: 'Approved' },
+  'صحيح': { th: 'ถูกต้อง', en: 'Correct' },
+  'يحتاج تحسين': { th: 'ต้องปรับปรุง', en: 'Needs improvement' },
+  'مفقود': { th: 'ไม่ปรากฏ', en: 'Missing' },
+
+  // Long Feedback Messages
+  'إتقان تام وتجويد فصيح لكافة الحركات والمخارج!': {
+    th: 'ยอดเยี่ยมสมบูรณ์แบบ ทั้งสระและฐานเกิดเสียงอย่างถูกต้อง!',
+    en: 'Complete mastery and eloquent articulation of all vowels and phonemes!',
+  },
+  'نطق ممتاز جداً! مخارج الحروف نقية وواضحة.': {
+    th: 'การออกเสียงยอดเยี่ยมมาก! ฐานเกิดเสียงของพยัญชนะชัดเจนและบริสุทธิ์',
+    en: 'Very excellent pronunciation! Articulation points are clear and pure.',
+  },
+  'أحسنت صنعاً! نطقك للكلمة فصيح ومتقن وواضح المخارج.': {
+    th: 'ทำได้ดีมาก! การออกเสียงคำศัพท์ชัดเจน ถูกต้อง และแม่นยำ',
+    en: 'Well done! Your pronunciation is eloquent, accurate, and clear.',
+  },
+  'أحسنت! نطق ممتاز ومشجع، بداية موفقة جداً!': {
+    th: 'ยอดเยี่ยม! การออกเสียงดีเยี่ยมและน่าประทับใจ เริ่มต้นได้ดีมาก!',
+    en: 'Well done! Excellent and encouraging pronunciation, great start!',
+  },
+  'ما شاء الله! نطق متقن ورائع من حيث وضوح الصوت وزمن الحروف والمدود.': {
+    th: 'ยอดเยี่ยมมาก! การออกเสียงชัดเจน ทั้งจังหวะพยัญชนะและสระเสียงยาว',
+    en: 'Wonderful! Accurate pronunciation with clear voice and balanced vowel timing.',
+  },
+  'أحسنت جداً! أداء صوتي ممتاز وإيقاع نطق واضح ومتوازن.': {
+    th: 'ทำได้ดีมาก! น้ำเสียงยอดเยี่ยม จังหวะการออกเสียงชัดเจนและสมดุล',
+    en: 'Very well done! Excellent vocal performance and balanced speech rhythm.',
+  },
+  'أداء جيد جداً! صوتك واضح ومسموع، استمر في التدريب للوصول لدرجة الإتقان الكامل.': {
+    th: 'ผลงานดีมาก! เสียงชัดเจน ได้ยินชัด ฝึกฝนต่อไปเพื่อความสมบูรณ์แบบ',
+    en: 'Very good performance! Clear voice, keep practicing for complete perfection.',
+  },
+  'أداء جيد جداً، هناك بعض الحروف أو الحركات تحتاج تركيزاً طفيفاً.': {
+    th: 'ผลงานดีมาก มีบางพยัญชนะหรือสระที่ต้องเน้นย้ำอีกเล็กน้อย',
+    en: 'Very good performance, a few letters or vowels need slight focus.',
+  },
+  'أداء جيد جداً، مع ملاحظة تدقيق إضافي على الحركات الدقيقة.': {
+    th: 'ผลงานดีมาก ควรระวังการออกเสียงสระละเอียดเพิ่มเติม',
+    en: 'Very good performance, pay extra attention to subtle diacritics.',
+  },
+  'نطق جيد جداً ومقبول، واصل التدريب!': {
+    th: 'การออกเสียงดีมากและผ่านเกณฑ์ ฝึกฝนต่อไป!',
+    en: 'Very good and acceptable pronunciation, keep training!',
+  },
+  'محاولة جيدة! حاول ضبط إيقاع الكلمة والتأني في نطق الحركات والمدود.': {
+    th: 'ความพยายามที่ดี! พยายามรักษาจังหวะและไม่รีบในสระเสียงยาว',
+    en: 'Good attempt! Try to balance word rhythm and take time on long vowels.',
+  },
+  'محاولة جيدة، استمع للصوت النموذجي وكرر.': {
+    th: 'ความพยายามที่ดี ลองฟังเสียงต้นแบบแล้วพูดตามอีกครั้ง',
+    en: 'Good attempt, listen to the model audio and repeat.',
+  },
+  'بداية طيبة، استمع مجدداً للنموذج الصوتي وحاول تقليد مخرج الحرف بدقة.': {
+    th: 'การเริ่มต้นที่ดี ฟังเสียงต้นแบบอีกครั้งและฝึกเลียนแบบฐานเกิดเสียงให้ตรง',
+    en: 'Good start, listen to the model audio again and try to mimic the articulation.',
+  },
+  'أحسنت! نطق صحيح، مع ملاحظة عدم إشباع الحركة القصيرة لحرف مد.': {
+    th: 'เก่งมาก! ออกเสียงถูกต้อง ระวังอย่ายืดสระเสียงสั้นให้กลายเป็นสระเสียงยาว',
+    en: 'Well done! Correct pronunciation, note not to prolong short vowels into long ones.',
+  },
+  'الكلمة المنطوقة تختلف عن الكلمة المستهدفة، استمع للنطق النموذجي وأعد المحاولة.': {
+    th: 'คำที่ออกเสียงต่างจากคำเป้าหมาย โปรดฟังเสียงต้นแบบแล้วลองใหม่อีกครั้ง',
+    en: 'Spoken word differs from target word, listen to model audio and retry.',
+  },
+  'في المستوى المتقدم يلزم نطق كل حركة بدقة تامة دون تساهل.': {
+    th: 'ในระดับขั้นสูง จำเป็นต้องออกเสียงทุกสระอย่างแม่นยำที่สุด',
+    en: 'At advanced level, every single diacritic must be pronounced accurately.',
+  },
+  'لم نتمكن من سماع نطق واضح في التسجيل، يرجى التحدث بالقرب من الميكروفون.': {
+    th: 'ไม่ได้ยินเสียงที่ชัดเจน โปรดเข้าใกล้ไมโครโฟนแล้วออกเสียงอีกครั้ง',
+    en: 'Could not detect clear speech, please speak closer to the microphone.',
+  },
+  'تعذر على محرك Whisper الداخلي تحليل الصوت. لم يتم التبديل لأي نظام آخر بناءً على الإعدادات. يرجى إعادة المحاولة والتحدث بوضوح.': {
+    th: 'ไม่สามารถวิเคราะห์เสียงได้ โปรดลองอีกครั้งและออกเสียงให้ชัดเจน',
+    en: 'Could not analyze audio. Please retry and speak clearly.',
+  },
+
+  // Acoustic Duration Comparisons
+  'نطقك أسرع من صوت المعلم؛ أعطِ حروف المد والحركات القصيرة حقها الزمني دون تعجل.': {
+    th: 'การออกเสียงของคุณเร็วกว่าครู ให้เวลากับสระเสียงยาวและสระสั้นอย่างพอดี ไม่ควรรีบ',
+    en: 'Your speech is faster than teacher; give vowels and diacritics proper duration without rushing.',
+  },
+  'نطقك أطول من المعتاد؛ تجنّب إطالة الحركات القصيرة لتصبح حروف مد.': {
+    th: 'การออกเสียงยาวเกินไป ระวังอย่ายืดสระเสียงสั้นจนกลายเป็นสระเสียงยาว',
+    en: 'Your speech is longer than usual; avoid prolonging short vowels into long ones.',
+  },
+  'تناسق صوتي ونغمي ممتاز مع مخارج حروف المعلم وسرعة النطق النموذجية.': {
+    th: 'ความสอดคล้องของน้ำเสียง จังหวะ และฐานเสียงยอดเยี่ยม ตรงกับครูผู้สอน',
+    en: 'Excellent acoustic and tone harmony matching teacher articulation and rhythm.',
+  },
+
+  // Letter Comments & Breakdown
+  'نطق سليم ومتقن لصوت أو اسم الحرف': {
+    th: 'ออกเสียงฐานเสียงหรือชื่อพยัญชนะได้ถูกต้องแม่นยำ',
+    en: 'Sound and accurate articulation of letter phoneme or name',
+  },
+  'تم نطقه بدقة ووضوح': {
+    th: 'ออกเสียงได้อย่างชัดเจนและแม่นยำ',
+    en: 'Pronounced with precision and clarity',
+  },
+  'نطق سليم وواضح': {
+    th: 'การออกเสียงถูกต้องและชัดเจน',
+    en: 'Sound and clear pronunciation',
+  },
+  'تم نطقه بدقة وفي موضعه': {
+    th: 'ออกเสียงได้ตรงตำแหน่งและแม่นยำ',
+    en: 'Pronounced accurately in its correct position',
+  },
+  'نطق سليم ومتوازن': {
+    th: 'การออกเสียงถูกต้องและสมดุล',
+    en: 'Sound and balanced pronunciation',
+  },
+  'أعطِ الحرف حقه في نهاية النطق': {
+    th: 'ให้ความสำคัญกับพยัญชนะตัวสุดท้ายของคำ',
+    en: 'Give the letter full articulation at the end',
+  },
+  'الحرف وُجد لكن بترتيب أو موضع غير مضبوط': {
+    th: 'พบพยัญชนะแต่ตำแหน่งหรือลำดับยังไม่ถูกต้อง',
+    en: 'Letter found but order or position needs adjustment',
+  },
+  'الحرف لم يظهر في الصوت المنطوق': {
+    th: 'ไม่พบพยัญชนะนี้ในเสียงที่พูด',
+    en: 'Letter was not detected in spoken audio',
+  },
+
+  // Articulation Guidance & Vowels
+  'أحسنت! مخارج الحروف نقية وصحيحة.': {
+    th: 'ยอดเยี่ยม! ฐานเกิดเสียงของพยัญชนะถูกต้องและบริสุทธิ์',
+    en: 'Well done! Phoneme articulation is pure and accurate.',
+  },
+  'أداء صوتي فصيح وسليم.': {
+    th: 'การออกเสียงไพเราะและถูกต้อง',
+    en: 'Eloquent and sound vocal performance.',
+  },
+  'متطابقة مع التشكيل': {
+    th: 'ถูกต้องตรงตามเครื่องหมายสระ',
+    en: 'Matches diacritics accurately',
+  },
+  'استمر على هذا المستوى الرائع في تفخيم المفخم وترقيق المرقق.': {
+    th: 'รักษามาตรฐานที่ยอดเยี่ยมในการแยกเสียงหนาและเสียงบางต่อไป',
+    en: 'Keep up this excellent level of heavy and light letter distinction.',
+  },
+  'تم رصد امتداد زمني جيد للمدود والحركات': {
+    th: 'ตรวจพบการยืดจังหวะสระเสียงยาวอย่างเหมาะสม',
+    en: 'Good duration observed for long vowels and diacritics',
+  },
+  'وضوح متناسق في الحركات القصيرة وإيقاع النطق': {
+    th: 'สระเสียงสั้นชัดเจนและจังหวะการออกเสียงสม่ำเสมอ',
+    en: 'Consistent clarity in short vowels and rhythm',
+  },
+  'احرص على إخراج الحروف من مخارجها الصحيحة وضبط حركات الفم مع كل حركة (فتح، ضم، كسر).': {
+    th: 'โปรดระวังการออกเสียงจากฐานเกิดเสียงที่ถูกต้องและรูปปากในแต่ละสระ (ฟัตฮะฮ์, ด็อมมะฮ์, กัสเราะฮ์)',
+    en: 'Ensure articulating letters from their proper points and adjust mouth shape for each vowel.',
+  },
+  'رصد الذبذبات الصوتية': {
+    th: 'การตรวจจับคลื่นความถี่เสียง',
+    en: 'Acoustic wave detection',
+  },
+  'تسجيل صوتي': {
+    th: 'บันทึกเสียง',
+    en: 'Voice recording',
+  },
+};
+
+/**
+ * Single evaluation phrase translator (used internally by compound resolver)
+ */
+function resolveSingleEvaluationPhrase(
+  rawText: string,
+  lang: SupportedLang,
+  items?: TranslationItem[]
+): string {
+  const text = (rawText || '').trim();
+  if (!text) return '';
+  if (lang === 'ar') return text;
+
+  // 1. Direct dictionary lookup
+  if (EXACT_EVAL_MAP[text]) {
+    return EXACT_EVAL_MAP[text][lang] || text;
+  }
+
+  // 2. Custom translations lookup (if admin configured it)
+  if (items && items.length > 0) {
+    const matchItem = items.find((i) => (i.ar || '').trim() === text);
+    if (matchItem) {
+      if (lang === 'th' && matchItem.th?.trim()) return matchItem.th.trim();
+      if (lang === 'en' && matchItem.en?.trim()) return matchItem.en.trim();
+    }
+  }
+
+  // 3. Dynamic Regex Patterns (Parameterized Templates)
+
+  // Pattern: نطق رائع ومتقن لمخرج وصوت حرف (س)!
+  const singleLetterMatch = text.match(/نطق رائع ومتقن لمخرج وصوت حرف \((.+?)\)!?/);
+  if (singleLetterMatch) {
+    const letter = singleLetterMatch[1];
+    return lang === 'th'
+      ? `การออกเสียงยอดเยี่ยมและถูกต้องสำหรับฐานเสียงพยัญชนะ (${letter})!`
+      : `Wonderful and accurate articulation for letter (${letter})!`;
+  }
+
+  // Pattern: أحسنت صنعاً! تم نطق وتكرار حرف (ب) بنجاح (3 مرات) بمخارج سليمة.
+  const letterRepeatMatch = text.match(/أحسنت صنعاً! تم نطق وتكرار حرف \((.+?)\) بنجاح \((\d+) مرات\) بمخارج سليمة\.?/);
+  if (letterRepeatMatch) {
+    const [, letter, count] = letterRepeatMatch;
+    return lang === 'th'
+      ? `ทำได้ดีมาก! ออกเสียงและทำซ้ำพยัญชนะ (${letter}) สำเร็จ (${count} ครั้ง) ด้วยฐานเสียงที่ถูกต้อง`
+      : `Well done! Successfully articulated and repeated letter (${letter}) (${count} times) accurately.`;
+  }
+
+  // Pattern: أحسنت صنعاً! تم نطق وتكرار المقطع (قُمْ) بنجاح (3 مرات).
+  const syllableRepeatMatch = text.match(/أحسنت صنعاً! تم نطق وتكرار المقطع \((.+?)\) بنجاح \((\d+) مرات\)\.?/);
+  if (syllableRepeatMatch) {
+    const [, syl, count] = syllableRepeatMatch;
+    return lang === 'th'
+      ? `ทำได้ดีมาก! ออกเสียงและทำซ้ำพยางค์ (${syl}) สำเร็จ (${count} ครั้ง)`
+      : `Well done! Successfully repeated syllable (${syl}) (${count} times).`;
+  }
+
+  // Pattern: أحسنت صنعاً! نطق صحيح ومتقن للمقطع (قُمْ).
+  const syllableSingleMatch = text.match(/أحسنت صنعاً! نطق صحيح ومتقن للمقطع \((.+?)\)\.?/);
+  if (syllableSingleMatch) {
+    const syl = syllableSingleMatch[1];
+    return lang === 'th'
+      ? `ทำได้ดีมาก! ออกเสียงพยางค์ (${syl}) ถูกต้องและแม่นยำ`
+      : `Well done! Accurate pronunciation of syllable (${syl}).`;
+  }
+
+  // Pattern: رائع جداً! تم التحقق من تكرار الكلمة (3 مرات متتالية) بنجاح عبر التحليل الصوتي لنبضات الطاقة...
+  const energyRepeatMatch = text.match(/رائع جداً! تم التحقق من تكرار الكلمة \((\d+) مرات متتالية\) بنجاح/);
+  if (energyRepeatMatch) {
+    const count = energyRepeatMatch[1];
+    return lang === 'th'
+      ? `ยอดเยี่ยมมาก! ยืนยันการทำซ้ำคำศัพท์ (${count} ครั้งต่อเนื่อง) สำเร็จ ฐานเกิดเสียงถูกต้องชัดเจน`
+      : `Awesome! Successfully verified word repetition (${count} consecutive times) with clear articulation.`;
+  }
+
+  // Pattern: رائع جداً! أكملت تكرار الكلمة بنجاح (3 مرات من 3 مطلوبة) بنطق واضح ومخارج سليمة.
+  const wordCompleteMatch = text.match(/رائع جداً! أكملت تكرار الكلمة بنجاح \((\d+) مرات من (\d+) مطلوبة\)/);
+  if (wordCompleteMatch) {
+    const [, detected, required] = wordCompleteMatch;
+    return lang === 'th'
+      ? `ยอดเยี่ยมมาก! ทำซ้ำคำศัพท์สำเร็จ (${detected} ครั้ง จากที่กำหนด ${required} ครั้ง) ด้วยการออกเสียงที่ชัดเจน`
+      : `Awesome! Successfully completed word repetitions (${detected} of ${required} required) with clear articulation.`;
+  }
+
+  // Pattern: أحسنت! كررت الكلمة 2 من 3 مرات بنطق جيد في المستوى السهل.
+  const easyPartialMatch = text.match(/أحسنت! كررت الكلمة (\d+) من (\d+) مرات/);
+  if (easyPartialMatch) {
+    const [, detected, required] = easyPartialMatch;
+    return lang === 'th'
+      ? `เก่งมาก! ทำซ้ำคำศัพท์ ${detected} จาก ${required} ครั้ง ด้วยการออกเสียงที่ดีในระดับง่าย`
+      : `Well done! Repeated the word ${detected} of ${required} times with good pronunciation in easy mode.`;
+  }
+
+  // Pattern: نطقك صحيح ولكنك كررت الكلمة... من أصل...
+  const partialRepNotice = text.match(/نطقك صحيح ولكنك كررت الكلمة (\d+).*من أصل (\d+) مرات مطلوبة/);
+  if (partialRepNotice) {
+    const [, detected, required] = partialRepNotice;
+    return lang === 'th'
+      ? `ออกเสียงถูกต้อง แต่ทำซ้ำเพียง ${detected} จาก ${required} ครั้งที่กำหนด กรุณาทำให้ครบตามจำนวน`
+      : `Correct pronunciation, but you only repeated ${detected} of ${required} required times. Please complete repetitions.`;
+  }
+
+  // Pattern: المطلوب تكرار الكلمة (3 مرات)...
+  const requiredRepNotice = text.match(/المطلوب تكرار الكلمة \((\d+) مرات\)/);
+  if (requiredRepNotice) {
+    const count = requiredRepNotice[1];
+    return lang === 'th'
+      ? `ต้องทำซ้ำคำศัพท์ (${count} ครั้ง) ตรวจไม่พบคำเป้าหมายชัดเจน โปรดลองใหม่อีกครั้ง`
+      : `Required to repeat the word (${count} times). Target word not detected clearly, please retry.`;
+  }
+
+  // Pattern: سُمع بدلاً منه: س
+  const heardInsteadMatch = text.match(/سُمع بدلاً منه:\s*(.+)/);
+  if (heardInsteadMatch) {
+    const char = heardInsteadMatch[1];
+    return lang === 'th' ? `ได้ยินเป็นเสียง: ${char} แทน` : `Heard instead: ${char}`;
+  }
+
+  // Pattern: نطق قريب ومقبول في المستوى السهل (س ≈ ص)
+  const phoneticCousinMatch = text.match(/نطق قريب ومقبول في المستوى السهل \((.+?)\s*≈\s*(.+?)\)/);
+  if (phoneticCousinMatch) {
+    const [, c1, c2] = phoneticCousinMatch;
+    return lang === 'th'
+      ? `การออกเสียงใกล้เคียงและยอมรับได้ในระดับง่าย (${c1} ≈ ${c2})`
+      : `Close and acceptable articulation in easy mode (${c1} ≈ ${c2})`;
+  }
+
+  return text;
+}
+
+/**
+ * Translate any evaluation feedback string (compound or single) into the active language.
+ * Preserves Arabic in sheet "answers 1" while presenting crystal-clear native translations to the student.
+ */
+export function translateEvaluationFeedback(
+  arabicFeedback: string | undefined | null,
+  lang: SupportedLang,
+  items?: TranslationItem[]
+): string {
+  if (!arabicFeedback || !arabicFeedback.trim()) return '';
+  if (lang === 'ar') return arabicFeedback;
+
+  const raw = arabicFeedback.trim();
+
+  // If compound format (e.g. "نطق ممتاز ومتقن! - إتقان تام وتجويد فصيح...")
+  if (raw.includes(' - ')) {
+    const parts = raw.split(' - ');
+    const translatedParts = parts.map((part) => resolveSingleEvaluationPhrase(part, lang, items));
+    return translatedParts.join(' - ');
+  }
+
+  return resolveSingleEvaluationPhrase(raw, lang, items);
 }

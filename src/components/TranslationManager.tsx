@@ -164,8 +164,15 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
   const filteredItems = items.filter((item) => {
     if (item.category !== activeTab) return false;
     if (activeTab === 'lessons' && selectedSubjectFilter !== 'all') {
-      if (item.sheetSourceNote && !item.sheetSourceNote.includes(`[${selectedSubjectFilter}]`)) {
-        return false;
+      if (selectedSubjectFilter === 'general_ui') {
+        if (item.sheetSourceNote && item.sheetSourceNote.includes('[')) {
+          return false;
+        }
+      } else {
+        const matchesSubject = item.sheetSourceNote && item.sheetSourceNote.includes(`[${selectedSubjectFilter}]`);
+        if (!matchesSubject) {
+          return false;
+        }
       }
     }
     if (!searchQuery.trim()) return true;
@@ -434,98 +441,106 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
       </div>
 
       {/* Sub-Tabs: 4 user-specified categories */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-2">
-        <div className="flex items-center gap-2 overflow-x-auto pb-1">
-          <button
-            type="button"
-            onClick={() => setActiveTab('home')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'home'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            ١- نافذة التسجيل والصفحة الرئيسية ({items.filter((i) => i.category === 'home').length})
-          </button>
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-200">
+        <button
+          type="button"
+          onClick={() => setActiveTab('home')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'home'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+          }`}
+        >
+          التسجيل / الرئيسية ({items.filter((i) => i.category === 'home').length})
+        </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('lessons')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'lessons'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            ٢- نصوص صفحة الدروس العامة ({items.filter((i) => i.category === 'lessons').length})
-          </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('lessons')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'lessons'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+          }`}
+        >
+          نصوص في النظام ({items.filter((i) => i.category === 'lessons').length})
+        </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('practice')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'practice'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            ٣- صفحة تسجيل الصوت والنتائج ({items.filter((i) => i.category === 'practice').length})
-          </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('practice')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'practice'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+          }`}
+        >
+          تسجيل الصوت ({items.filter((i) => i.category === 'practice').length})
+        </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('curriculum_sheet')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'curriculum_sheet'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>٤- ترجمة ورقة الدروس (العامود 6 و 7) ({curriculum.length})</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setActiveTab('curriculum_sheet')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'curriculum_sheet'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+          }`}
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          <span>ورقة الدرس ({curriculum.length})</span>
+        </button>
+      </div>
 
-        {/* Subject Filter (shown on lessons tab) + Search */}
-        {activeTab !== 'curriculum_sheet' && (
-          <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
-            {activeTab === 'lessons' && availableSubjects.length > 0 && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-bold text-slate-600 whitespace-nowrap">
+      {/* Filter & Search Bar - Positioned under the sub-tabs */}
+      {activeTab !== 'curriculum_sheet' && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-slate-50/80 rounded-2xl border border-slate-200/80">
+          {/* Lesson Filter (shown for lessons tab) */}
+          <div className="flex flex-wrap items-center gap-2">
+            {activeTab === 'lessons' ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-600 whitespace-nowrap">
                   📚 تصفية بالدرس:
                 </span>
                 <select
                   value={selectedSubjectFilter}
                   onChange={(e) => setSelectedSubjectFilter(e.target.value)}
-                  className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
+                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-hidden focus:border-indigo-500 cursor-pointer shadow-2xs"
                 >
-                  <option value="all">كل موضوعات ورقة الدروس ({curriculum.length} تمرين)</option>
+                  <option value="all">كل نصوص القسم ({items.filter((i) => i.category === 'lessons').length})</option>
+                  <option value="general_ui">نصوص النظام العامة فقط (أزرار، عناوين، تنبيهات)</option>
                   {availableSubjects.map((sub) => {
-                    const count = curriculum.filter((w) => w.lessonSubject === sub).length;
+                    const count = items.filter(
+                      (i) => i.category === 'lessons' && i.sheetSourceNote && i.sheetSourceNote.includes(`[${sub}]`)
+                    ).length;
                     return (
                       <option key={sub} value={sub}>
-                        {sub} ({count} تمرين)
+                        درس: {sub} ({count} نصوص)
                       </option>
                     );
                   })}
                 </select>
               </div>
+            ) : (
+              <span className="text-xs font-semibold text-slate-500">
+                {activeTab === 'home' ? 'نصوص شاشة تسجيل الدخول والصفحة الرئيسية' : 'نصوص صفحة الميكروفون والتقييم الصوتي'}
+              </span>
             )}
-
-            {/* Search */}
-            <div className="relative w-full sm:w-56">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="بحث في نصوص هذا القسم..."
-                className="w-full pr-8 pl-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-hidden focus:border-indigo-500"
-              />
-            </div>
           </div>
-        )}
-      </div>
+
+          {/* Search Input */}
+          <div className="relative w-full sm:w-64">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="بحث في نصوص هذا القسم..."
+              className="w-full pr-8 pl-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-hidden focus:border-indigo-500 shadow-2xs"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Tab 4: Curriculum Translation (Columns 6 & 7) */}
       {activeTab === 'curriculum_sheet' ? (

@@ -13,7 +13,7 @@ import { removeTashkeel } from './arabicMatcher';
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbw-5EiMccWfcYt3wDKdPVZUkLqn7fYelU1SSubsSSLYWpezyTstJD5J5DKtI8RiCceROw/exec';
+  'https://script.google.com/macros/s/AKfycbwVIaKX2ycipTQ5pUyWl5j-bYqv1lY3M6yz-UfiqSe5Ug6pCsv3ZXosSRrj2w6AchGRIQ/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -623,6 +623,7 @@ export interface StudentAnswerSubmissionPayload {
   detectedWord: string;
   score: number;
   grade: string;
+  feedback?: string;
   audioBlobUrl?: string | null;
   audioBase64?: string | null;
   driveFolderId?: string;
@@ -657,6 +658,8 @@ export async function submitStudentAnswerToSheet(
       ? payload.driveFolderId
       : STUDENT_AUDIO_DRIVE_FOLDER_ID);
 
+  const finalGradeFeedback = (payload.feedback || payload.grade || '').trim();
+
   const postPayload = {
     action: 'submit_student_answer',
     studentId: payload.studentId || '',
@@ -665,7 +668,8 @@ export async function submitStudentAnswerToSheet(
     targetWord: payload.targetWord,
     detectedWord: payload.detectedWord || '',
     score: payload.score,
-    grade: payload.grade || '',
+    grade: finalGradeFeedback,
+    feedback: finalGradeFeedback,
     audioBase64: finalBase64,
     studentDriveFolderId: resolvedStudentFolderId,
     driveFolderId: resolvedStudentFolderId,
@@ -1738,7 +1742,7 @@ function doPost(e) {
       var targetWord = String(data.targetWord || "").trim();
       var detectedWord = String(data.detectedWord || "").trim();
       var scoreVal = data.score !== undefined ? data.score : 0;
-      var grade = String(data.grade || "").trim();
+      var grade = String(data.feedback || data.grade || "").trim();
       
       // 1. رفع صوت الطالب إلى مجلد صوتيات الطلاب المخصص في Google Drive
       var directAudioUrl = "";

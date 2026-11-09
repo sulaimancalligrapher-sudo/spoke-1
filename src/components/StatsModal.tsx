@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { PracticeHistoryItem, StudentRegistrant } from '../types';
-import { X, Award, Play, Pause, Trash2, Calendar, Target, CheckCircle2, User } from 'lucide-react';
+import { X, Award, Play, Pause, Trash2, User, Loader2 } from 'lucide-react';
+import { SupportedLang, TranslationItem, translateEvaluationFeedback } from '../utils/translations';
 
 interface StatsModalProps {
   isOpen: boolean;
@@ -8,6 +9,10 @@ interface StatsModalProps {
   history: PracticeHistoryItem[];
   onClearHistory: () => void;
   currentStudent?: StudentRegistrant | null;
+  isSyncingFromSheets?: boolean;
+  currentLang?: SupportedLang;
+  translations?: TranslationItem[];
+  t?: (id: string, fallback?: string) => string;
 }
 
 export const StatsModal: React.FC<StatsModalProps> = ({
@@ -16,7 +21,12 @@ export const StatsModal: React.FC<StatsModalProps> = ({
   history,
   onClearHistory,
   currentStudent,
+  isSyncingFromSheets = false,
+  currentLang = 'ar',
+  translations,
+  t,
 }) => {
+  const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
   const [activeAudioUrl, setActiveAudioUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -67,7 +77,9 @@ export const StatsModal: React.FC<StatsModalProps> = ({
             <Award className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-slate-900">سجل التقييمات والإنجاز</h3>
+            <h3 className="text-base font-bold text-slate-900">
+              {tr('stats_modal_title', 'سجل التقييمات والإنجاز')}
+            </h3>
             {currentStudent ? (
               <div className="flex items-center gap-2 text-xs text-slate-600 font-bold mt-0.5">
                 <span className="text-emerald-700 font-extrabold flex items-center gap-1">
@@ -78,20 +90,30 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                   ID: {currentStudent.id}
                 </span>
                 <span className="text-[10px] text-emerald-600 font-normal">
-                  (موثق في ورقة answers 1)
+                  {tr('stats_verified_in_sheet', '(موثق في ورقة answers 1)')}
                 </span>
               </div>
             ) : (
-              <p className="text-xs text-slate-500">متابعة إتقان مخارج الحروف والكلمات</p>
+              <p className="text-xs text-slate-500">
+                {tr('nav_platform_subtitle', 'متابعة إتقان مخارج الحروف والكلمات')}
+              </p>
             )}
           </div>
         </div>
+
+        {/* Live Sync Banner if syncing answers 1 */}
+        {isSyncingFromSheets && (
+          <div className="mb-4 py-2 px-3 bg-amber-50/90 border border-amber-200 rounded-xl flex items-center justify-center gap-2 text-xs font-bold text-amber-900 animate-pulse">
+            <Loader2 className="w-4 h-4 text-amber-600 animate-spin shrink-0" />
+            <span>{tr('stats_syncing_answers1', 'جاري مزامنة الإنجازات مباشرة من ورقة answers 1...')}</span>
+          </div>
+        )}
 
         {/* KPI Cards */}
         <div className="grid grid-cols-3 gap-3 mb-6">
           <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3 text-center">
             <span className="text-[11px] text-slate-400 font-medium block mb-1">
-              إجمالي التدريبات
+              {tr('stats_total_practices', 'إجمالي التدريبات')}
             </span>
             <span className="text-2xl font-bold font-cairo text-slate-800">
               {totalPractices}
@@ -100,7 +122,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
 
           <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-3 text-center">
             <span className="text-[11px] text-emerald-700 font-medium block mb-1">
-              معدل الدقة
+              {tr('stats_accuracy_rate', 'معدل الدقة')}
             </span>
             <span className="text-2xl font-bold font-cairo text-emerald-800">
               {avgScore}%
@@ -109,7 +131,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
 
           <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-2xl p-3 text-center">
             <span className="text-[11px] text-indigo-700 font-medium block mb-1">
-              كلمات متقنة (ممتاز)
+              {tr('stats_mastered_words', 'كلمات متقنة (ممتاز)')}
             </span>
             <span className="text-2xl font-bold font-cairo text-indigo-800">
               {masteredCount}
@@ -119,78 +141,95 @@ export const StatsModal: React.FC<StatsModalProps> = ({
 
         {/* History list */}
         <div className="flex items-center justify-between mb-2">
-          <h4 className="text-xs font-bold text-slate-700">آخر المحاولات الصوتية:</h4>
+          <h4 className="text-xs font-bold text-slate-700">
+            {tr('stats_recent_attempts', 'آخر المحاولات الصوتية:')}
+          </h4>
           {history.length > 0 && (
             <button
               onClick={onClearHistory}
               className="text-[11px] text-rose-500 hover:text-rose-700 flex items-center gap-1 cursor-pointer"
             >
               <Trash2 className="w-3 h-3" />
-              <span>مسح السجل</span>
+              <span>{tr('stats_clear_btn', 'مسح السجل')}</span>
             </button>
           )}
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-2 pr-0.5">
           {history.length === 0 ? (
-            <div className="text-center py-12 text-slate-400 text-xs">
-              لم تقم بأي تسجيل صوتي بعد. ابدأ بنطق الكلمات لترى تقييماتك هنا!
-            </div>
-          ) : (
-            history.map((item) => (
-              <div
-                key={item.id}
-                className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between gap-3 text-xs"
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs ${
-                      item.score >= 85
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : item.score >= 70
-                        ? 'bg-sky-100 text-sky-800'
-                        : 'bg-amber-100 text-amber-800'
-                    }`}
-                  >
-                    {item.score}%
-                  </div>
-                  <div>
-                    <div className="font-amiri text-base font-bold text-slate-900">
-                      {item.word}
-                    </div>
-                    <div className="text-[11px] text-slate-400">
-                      سُمع: {item.spokenText || 'تسجيل صوتي'}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-slate-400">
-                    {new Date(item.timestamp).toLocaleTimeString('ar-SA', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
-                  {item.recordedAudioUrl && (
-                    <button
-                      onClick={() => handlePlayVoice(item.recordedAudioUrl!)}
-                      className={`p-1.5 rounded-lg border transition-all ${
-                        activeAudioUrl === item.recordedAudioUrl && isPlaying
-                          ? 'bg-emerald-600 text-white border-emerald-600'
-                          : 'bg-white hover:bg-emerald-50 text-emerald-700 border-slate-200'
-                      }`}
-                      title="استمع لصوتك"
-                    >
-                      {activeAudioUrl === item.recordedAudioUrl && isPlaying ? (
-                        <Pause className="w-3.5 h-3.5" />
-                      ) : (
-                        <Play className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                  )}
-                </div>
+            isSyncingFromSheets ? (
+              <div className="text-center py-12 text-slate-500 text-xs flex flex-col items-center justify-center gap-2">
+                <Loader2 className="w-6 h-6 text-amber-500 animate-spin" />
+                <span>{tr('stats_syncing_answers1', 'جاري مزامنة الإنجازات مباشرة من ورقة answers 1...')}</span>
               </div>
-            ))
+            ) : (
+              <div className="text-center py-12 text-slate-400 text-xs">
+                {tr('stats_empty_note', 'لم تقم بأي تسجيل صوتي بعد. ابدأ بنطق الكلمات لترى تقييماتك هنا!')}
+              </div>
+            )
+          ) : (
+            history.map((item) => {
+              const translatedGrade = translateEvaluationFeedback(item.grade, currentLang, translations);
+              return (
+                <div
+                  key={item.id}
+                  className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between gap-3 text-xs"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                        item.score >= 85
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : item.score >= 70
+                          ? 'bg-sky-100 text-sky-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {item.score}%
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-amiri text-base font-bold text-slate-900 leading-tight">
+                        {item.word}
+                      </div>
+                      {translatedGrade && (
+                        <div className="text-[11px] font-semibold text-emerald-700 mt-0.5 leading-snug truncate" title={translatedGrade}>
+                          {translatedGrade}
+                        </div>
+                      )}
+                      <div className="text-[10px] text-slate-400">
+                        {tr('stats_detected_label', 'سُمع:')} {item.spokenText || tr('practice_recording_active', 'تسجيل صوتي')}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[10px] text-slate-400">
+                      {new Date(item.timestamp).toLocaleTimeString('ar-SA', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                    {item.recordedAudioUrl && (
+                      <button
+                        onClick={() => handlePlayVoice(item.recordedAudioUrl!)}
+                        className={`p-1.5 rounded-lg border transition-all ${
+                          activeAudioUrl === item.recordedAudioUrl && isPlaying
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-white hover:bg-emerald-50 text-emerald-700 border-slate-200'
+                        }`}
+                        title="استمع لصوتك"
+                      >
+                        {activeAudioUrl === item.recordedAudioUrl && isPlaying ? (
+                          <Pause className="w-3.5 h-3.5" />
+                        ) : (
+                          <Play className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
       </div>

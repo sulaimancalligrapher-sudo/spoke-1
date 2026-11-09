@@ -134,6 +134,7 @@ export default function App() {
 
   // Dedicated Student Evaluation History (from sheet "answers 1")
   const [studentHistory, setStudentHistory] = useState<PracticeHistoryItem[]>([]);
+  const [isSyncingAnswers1, setIsSyncingAnswers1] = useState(false);
 
   // Scores map: wordId -> score
   const [scoresMap, setScoresMap] = useState<Record<string, number>>({});
@@ -680,10 +681,20 @@ export default function App() {
       localStorage.setItem(STORAGE_KEY_STUDENT, JSON.stringify(student));
     } catch (e) {}
     setSettings((prev) => ({ ...prev, studentName: student.name }));
+    if (student?.id && student?.name && sheetsConfig.webhookUrl) {
+      setIsSyncingAnswers1(true);
+      fetchStudentSubmissionsFromSheet(sheetsConfig.webhookUrl, student.id, student.name)
+        .then((sh) => {
+          if (sh && sh.length > 0) setStudentHistory(sh);
+        })
+        .catch(() => {})
+        .finally(() => setIsSyncingAnswers1(false));
+    }
   };
 
   const handleLogout = () => {
     setCurrentStudent(null);
+    setStudentHistory([]);
     try {
       localStorage.removeItem(STORAGE_KEY_STUDENT);
     } catch (e) {}
@@ -1120,11 +1131,13 @@ export default function App() {
         totalPracticed={currentStudent ? (studentHistory.length || history.length) : history.length}
         onOpenStats={() => {
           if (currentStudent && sheetsConfig.webhookUrl) {
+            setIsSyncingAnswers1(true);
             fetchStudentSubmissionsFromSheet(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
               .then((sh) => {
                 if (sh && sh.length > 0) setStudentHistory(sh);
               })
-              .catch(() => {});
+              .catch(() => {})
+              .finally(() => setIsSyncingAnswers1(false));
           }
           setIsStatsOpen(true);
         }}
@@ -1355,6 +1368,8 @@ export default function App() {
                   wordIndex={currentIndex}
                   onRequestLogin={() => setIsLoginModalOpen(true)}
                   onSubmissionSuccess={() => setIsCurrentAnswerSubmitted(true)}
+                  currentLang={currentLang}
+                  translations={translations}
                   t={t}
                 />
               )}
@@ -1413,9 +1428,13 @@ export default function App() {
       <StatsModal
         isOpen={isStatsOpen}
         onClose={() => setIsStatsOpen(false)}
-        history={currentStudent && studentHistory.length > 0 ? studentHistory : history}
+        history={currentStudent ? studentHistory : history}
         onClearHistory={handleClearHistory}
         currentStudent={currentStudent}
+        isSyncingFromSheets={isSyncingAnswers1}
+        currentLang={currentLang}
+        translations={translations}
+        t={t}
       />
 
       <SettingsModal

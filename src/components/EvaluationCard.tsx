@@ -33,6 +33,7 @@ import {
 } from '../utils/arabicAudio';
 import { submitStudentAnswerToSheet, STUDENT_AUDIO_DRIVE_FOLDER_ID } from '../utils/googleSheets';
 import { FrequencySpectrumComparison } from './FrequencySpectrumComparison';
+import { translateEvaluationFeedback, SupportedLang, TranslationItem } from '../utils/translations';
 
 interface EvaluationCardProps {
   evaluation: PronunciationEvaluation;
@@ -50,6 +51,8 @@ interface EvaluationCardProps {
   wordIndex?: number;
   onRequestLogin?: () => void;
   onSubmissionSuccess?: () => void;
+  currentLang?: SupportedLang;
+  translations?: TranslationItem[];
   t?: (id: string, fallback?: string) => string;
 }
 
@@ -76,6 +79,8 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
   wordIndex = 0,
   onRequestLogin,
   onSubmissionSuccess,
+  currentLang = 'ar',
+  translations,
   t,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
@@ -118,6 +123,16 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
     setSubmissionError(null);
 
     try {
+      const rawShortTitle =
+        evaluation.score >= 85
+          ? 'نطق ممتاز ومتقن!'
+          : evaluation.score >= 70
+          ? 'نطق جيد جداً!'
+          : evaluation.score >= 50
+          ? 'نطق مقبول مع ملاحظات'
+          : 'يحتاج إلى مزيد من التمرين';
+      const arabicCombinedFeedback = `${rawShortTitle} - ${evaluation.feedback || evaluation.grade || ''}`;
+
       const res = await submitStudentAnswerToSheet(webhookUrl, {
         studentId: currentStudent.id,
         studentName: currentStudent.name,
@@ -125,7 +140,8 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
         targetWord: targetWordItem.word,
         detectedWord: evaluation.detectedWord || '',
         score: evaluation.score,
-        grade: evaluation.grade,
+        grade: arabicCombinedFeedback,
+        feedback: arabicCombinedFeedback,
         audioBlobUrl: recordedAudioUrl,
         driveFolderId: studentDriveFolderId || driveFolderId || STUDENT_AUDIO_DRIVE_FOLDER_ID,
         studentDriveFolderId: studentDriveFolderId || STUDENT_AUDIO_DRIVE_FOLDER_ID,
@@ -148,7 +164,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
           const subKey = `faseeh_sub_${studentId}_${subject}_${word}`;
           const subData = {
             score: evaluation.score,
-            grade: evaluation.grade,
+            grade: arabicCombinedFeedback,
             detectedWord: evaluation.detectedWord || '',
             targetWord: targetWordItem.word,
             audioUrl: res.audioUrl || recordedAudioUrl || '',
@@ -250,41 +266,41 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
   const getScoreTheme = (score: number) => {
     if (score >= 85) {
       return {
+        key: 'eval_theme_excellent_full',
+        rawTitle: 'نطق ممتاز ومتقن!',
+        title: tr('eval_theme_excellent_full', 'نطق ممتاز ومتقن!'),
         stroke: '#10B981',
         bg: 'bg-emerald-50 text-emerald-800 border-emerald-200',
         badge: 'bg-emerald-100 text-emerald-800 border-emerald-300',
-        title: 'نطق ممتاز ومتقن!',
       };
     }
     if (score >= 70) {
       return {
-        stroke: '#10b981',
-        bg: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-        badge: 'bg-emerald-100 text-emerald-800 border-emerald-300',
-        title: tr('eval_theme_excellent', 'ممتاز جداً! نطق فصيح ومتقن'),
-      };
-    }
-    if (score >= 75) {
-      return {
+        key: 'eval_theme_very_good',
+        rawTitle: 'نطق جيد جداً!',
+        title: tr('eval_theme_very_good', 'نطق جيد جداً!'),
         stroke: '#0ea5e9',
         bg: 'bg-sky-50 text-sky-800 border-sky-200',
         badge: 'bg-sky-100 text-sky-800 border-sky-300',
-        title: tr('eval_theme_very_good', 'نطق جيد جداً!'),
       };
     }
     if (score >= 50) {
       return {
+        key: 'eval_theme_acceptable',
+        rawTitle: 'نطق مقبول مع ملاحظات',
+        title: tr('eval_theme_acceptable', 'نطق مقبول مع ملاحظات'),
         stroke: '#f59e0b',
         bg: 'bg-amber-50 text-amber-800 border-amber-200',
         badge: 'bg-amber-100 text-amber-800 border-amber-300',
-        title: tr('eval_theme_acceptable', 'نطق مقبول مع ملاحظات'),
       };
     }
     return {
+      key: 'eval_theme_needs_practice',
+      rawTitle: 'يحتاج إلى مزيد من التمرين',
+      title: tr('eval_theme_needs_practice', 'يحتاج إلى مزيد من التمرين'),
       stroke: '#ef4444',
       bg: 'bg-rose-50 text-rose-800 border-rose-200',
       badge: 'bg-rose-100 text-rose-800 border-rose-300',
-      title: tr('eval_theme_needs_practice', 'يحتاج إلى مزيد من التمرين'),
     };
   };
 
@@ -368,7 +384,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
 
             <h3 className="text-lg sm:text-xl font-bold text-slate-900">{theme.title}</h3>
             <p className="text-xs sm:text-sm text-slate-600 mt-0.5 leading-relaxed">
-              {evaluation.feedback}
+              {translateEvaluationFeedback(evaluation.feedback, currentLang, translations)}
             </p>
 
             {/* Repetition notice if required */}
@@ -553,7 +569,9 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
 
                 <div className="bg-white/80 p-2.5 rounded-xl border border-indigo-100 text-xs text-indigo-950 flex items-start gap-2">
                   <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-                  <span>{evaluation.acousticComparison.feedback}</span>
+                  <span>
+                    {translateEvaluationFeedback(evaluation.acousticComparison.feedback, currentLang, translations)}
+                  </span>
                 </div>
               </div>
             ) : (
@@ -616,7 +634,7 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
                     </span>
                     {item.comment && (
                       <span className="text-[10px] text-slate-500 hidden sm:inline">
-                        ({item.comment})
+                        ({translateEvaluationFeedback(item.comment, currentLang, translations)})
                       </span>
                     )}
                   </div>
@@ -630,7 +648,8 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
 
             {/* Makhraj tip */}
             {(() => {
-              const tip = evaluation.makhrajAdvice || tr(`lesson_${targetWordItem.word}_makhraj`, targetWordItem.makhrajTip || '');
+              const rawTip = evaluation.makhrajAdvice || tr(`lesson_${targetWordItem.word}_makhraj`, targetWordItem.makhrajTip || '');
+              const tip = translateEvaluationFeedback(rawTip, currentLang, translations);
               if (!tip && !evaluation.vowelAccuracy) return null;
               return (
                 <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-2xl p-3 flex items-start gap-2.5">
@@ -646,7 +665,8 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
                     ) : null}
                     {evaluation.vowelAccuracy && (
                       <p className="text-[11px] text-emerald-800 font-semibold mt-1">
-                        {tr('eval_vowel_accuracy', 'دقة الحركات والمدود:')} {evaluation.vowelAccuracy}
+                        {tr('eval_vowel_accuracy', 'دقة الحركات والمدود:')}{' '}
+                        {translateEvaluationFeedback(evaluation.vowelAccuracy, currentLang, translations)}
                       </p>
                     )}
                   </div>
@@ -663,6 +683,8 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
               evaluation={evaluation}
               targetWordItem={targetWordItem}
               recordedAudioUrl={recordedAudioUrl}
+              currentLang={currentLang}
+              t={t}
             />
           </div>
         )}
