@@ -19,12 +19,15 @@ import {
   FileSpreadsheet,
   AlertCircle,
   CheckCircle2,
+  BookOpen,
 } from 'lucide-react';
 import { ensureTranslationsSheet } from '../utils/googleSheets';
+import { CurriculumTranslationManager } from './CurriculumTranslationManager';
 
 interface TranslationManagerProps {
   translations: TranslationItem[];
   onSaveTranslations: (updated: TranslationItem[]) => void;
+  onUpdateWord?: (word: WordItem) => void;
   geminiApiKey?: string;
   webhookUrl?: string;
   curriculum?: WordItem[];
@@ -34,6 +37,7 @@ interface TranslationManagerProps {
 export const TranslationManager: React.FC<TranslationManagerProps> = ({
   translations,
   onSaveTranslations,
+  onUpdateWord,
   geminiApiKey,
   webhookUrl,
   curriculum = [],
@@ -107,7 +111,7 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
   const [items, setItems] = useState<TranslationItem[]>(() =>
     buildMergedItems(translations, curriculum)
   );
-  const [activeTab, setActiveTab] = useState<'home' | 'lessons' | 'practice'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'lessons' | 'practice' | 'curriculum_sheet'>('home');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSubjectFilter, setSelectedSubjectFilter] = useState<string>('all');
 
@@ -116,7 +120,6 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
   }, [curriculum]);
   const [translatingId, setTranslatingId] = useState<string | null>(null);
   const [isBatchTranslating, setIsBatchTranslating] = useState(false);
-  const [isInitializingSheet, setIsInitializingSheet] = useState(false);
   const [isRefreshingFromSheets, setIsRefreshingFromSheets] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -142,28 +145,6 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
       });
     });
   }, [translations, curriculum]);
-
-  const handleInitTranslationsSheet = async () => {
-    if (!webhookUrl) {
-      alert('يرجى التأكد من ربط رابط Google Sheets أولاً في تبويب الإعدادات.');
-      return;
-    }
-    setIsInitializingSheet(true);
-    setStatusMessage('جاري إنشاء وتجهيز ورقة "الترجمة" تلقائياً في ملف الشيت...');
-    try {
-      const res = await ensureTranslationsSheet(webhookUrl, items);
-      if (res.success) {
-        setStatusMessage('🎉 ' + res.message);
-      } else {
-        alert(res.message);
-      }
-    } catch (e: any) {
-      alert('حدث خطأ أثناء تجهيز ورقة الترجمة: ' + (e?.message || 'خطأ في الاتصال'));
-    } finally {
-      setIsInitializingSheet(false);
-      setTimeout(() => setStatusMessage(null), 6000);
-    }
-  };
 
   const handleRefreshFromSheets = async () => {
     if (!onRefreshFromSheets) return;
@@ -227,6 +208,65 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
   };
 
   const handleTranslateAllInTab = async () => {
+    if (activeTab === 'curriculum_sheet') {
+      const batchPayload: { id: string; text: string }[] = [];
+      curriculum.forEach((w) => {
+        if (!w.word) return;
+        const meaningKey = `lesson_${w.word}_meaning`;
+        const makhrajKey = `lesson_${w.word}_makhraj`;
+        const mItem = items.find((i) => i.id === meaningKey);
+        const kItem = items.find((i) => i.id === makhrajKey);
+
+        const mAr = (mItem?.ar !== undefined ? mItem.ar : w.meaning) || '';
+        const kAr = (kItem?.ar !== undefined ? kItem.ar : w.makhrajTip) || '';
+
+        if (mAr && (!mItem?.th || !mItem?.en)) {
+          batchPayload.push({ id: meaningKey, text: mAr });
+        }
+        if (kAr && (!kItem?.th || !kItem?.en)) {
+          batchPayload.push({ id: makhrajKey, text: kAr });
+        }
+      });
+
+      if (batchPayload.length === 0) {
+        alert('جميع معاني ومخارج تمارين الدروس مكتملة الترجمة!');
+        return;
+      }
+
+      if (!confirm(`سيتم استدعاء الذكاء الاصطناعي لترجمة (${batchPayload.length}) حقلاً غير مكتمل في تمارين الدروس. هل تريد المتابعة؟`)) {
+        return;
+      }
+
+      setIsBatchTranslating(true);
+      setStatusMessage(`جاري ترجمة ${batchPayload.length} حقلاً بواسطة الذكاء الاصطناعي...`);
+      try {
+        const results = await translateBatchWithAI(batchPayload, geminiApiKey);
+        setItems((prev) => {
+          const map = new Map<string, TranslationItem>();
+          prev.forEach((p) => map.set(p.id, p));
+
+          Object.entries(results).forEach(([id, trans]) => {
+            const ex = map.get(id);
+            if (ex) {
+              map.set(id, {
+                ...ex,
+                th: trans.th || ex.th,
+                en: trans.en || ex.en,
+              });
+            }
+          });
+          return Array.from(map.values());
+        });
+        setStatusMessage(`🎉 اكتملت الترجمة الجماعية بنجاح! اضغط "حفظ" لتثبيت التعديلات.`);
+        setTimeout(() => setStatusMessage(null), 5000);
+      } catch (e: any) {
+        alert('تعذر إكمال الترجمة الجماعية: ' + (e?.message || 'خطأ في الاتصال'));
+      } finally {
+        setIsBatchTranslating(false);
+      }
+      return;
+    }
+
     const tabItems = items.filter((i) => i.category === activeTab);
     if (tabItems.length === 0) return;
 
@@ -251,7 +291,7 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
           return item;
         })
       );
-      setStatusMessage(`🎉 تم ترجمة جميع نصوص قسم (${activeTab}) بالذكاء الاصطناعي بنجاح! لا تنسَ حفظ التعديلات.`);
+      setStatusMessage(`🎉 تم ترجمة جميع نصوص القسم بالذكاء الاصطناعي بنجاح! لا تنسَ الضغط على "حفظ".`);
       setTimeout(() => setStatusMessage(null), 5000);
     } catch (e: any) {
       alert('تعذر إكمال الترجمة الجماعية: ' + (e?.message || 'خطأ في الاتصال'));
@@ -262,6 +302,35 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
 
   const handleSaveAll = () => {
     onSaveTranslations(items);
+
+    // If teacher updated Arabic text directly, sync to curriculum
+    if (onUpdateWord && curriculum.length > 0) {
+      curriculum.forEach((w) => {
+        const meaningItem = items.find((i) => i.id === `lesson_${w.word}_meaning`);
+        const makhrajItem = items.find((i) => i.id === `lesson_${w.word}_makhraj`);
+        let hasWordChange = false;
+        let newMeaning = w.meaning;
+        let newMakhraj = w.makhrajTip;
+
+        if (meaningItem && meaningItem.ar !== undefined && meaningItem.ar !== w.meaning) {
+          newMeaning = meaningItem.ar;
+          hasWordChange = true;
+        }
+        if (makhrajItem && makhrajItem.ar !== undefined && makhrajItem.ar !== (w.makhrajTip || '')) {
+          newMakhraj = makhrajItem.ar;
+          hasWordChange = true;
+        }
+
+        if (hasWordChange) {
+          onUpdateWord({
+            ...w,
+            meaning: newMeaning,
+            makhrajTip: newMakhraj,
+          });
+        }
+      });
+    }
+
     setSaveSuccess(true);
     setStatusMessage('✅ تم حفظ كافة الترجمات بنجاح وتفعيلها في واجهة الطلاب!');
     setTimeout(() => {
@@ -299,32 +368,10 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
               onClick={handleRefreshFromSheets}
               disabled={isRefreshingFromSheets}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
-              title="جلب وتحديث كافة البيانات والنصوص والترجمات من Google Sheets وتطبيقها فوراً في الموقع"
+              title="جلب وتحديث كافة البيانات والنصوص والترجمات من Google Sheets"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-sky-600 ${isRefreshingFromSheets ? 'animate-spin' : ''}`} />
-              <span>تحديث من الشيت 🔄</span>
-            </button>
-          )}
-
-          {webhookUrl && (
-            <button
-              type="button"
-              onClick={handleInitTranslationsSheet}
-              disabled={isInitializingSheet}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
-              title="إنشاء ورقة الترجمة في ملف Google Sheets تلقائياً وتصدير كافة النصوص إليها"
-            >
-              {isInitializingSheet ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
-                  <span>جاري إنشاء الورقة...</span>
-                </>
-              ) : (
-                <>
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>تجهيز ورقة "الترجمة" بالشيت 📑</span>
-                </>
-              )}
+              <span>{isRefreshingFromSheets ? 'جاري التحديث...' : 'تحديث من الشيت'}</span>
             </button>
           )}
 
@@ -333,17 +380,17 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
             onClick={handleTranslateAllInTab}
             disabled={isBatchTranslating}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-linear-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
-            title="ترجمة جماعية لجميع نصوص هذا التبويب بالذكاء الاصطناعي"
+            title="ترجمة جماعية بالذكاء الاصطناعي"
           >
             {isBatchTranslating ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>جاري الترجمة الجماعية...</span>
+                <span>جاري الترجمة...</span>
               </>
             ) : (
               <>
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>ترجمة جماعية للقسم بالذكاء الاصطناعي ✨</span>
+                <span>ترجمة جماعية AI</span>
               </>
             )}
           </button>
@@ -358,12 +405,12 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
             {saveSuccess ? (
               <>
                 <Check className="w-3.5 h-3.5 text-white" />
-                <span>تم الحفظ بنجاح!</span>
+                <span>تم الحفظ</span>
               </>
             ) : (
               <>
                 <Save className="w-3.5 h-3.5" />
-                <span>حفظ التعديلات</span>
+                <span>حفظ</span>
               </>
             )}
           </button>
@@ -386,7 +433,7 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
         </div>
       </div>
 
-      {/* Category Tabs: The 3 user-specified locations */}
+      {/* Sub-Tabs: 4 user-specified categories */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-2">
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
           <button
@@ -410,7 +457,7 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            ٢- صفحة الدروس ({items.filter((i) => i.category === 'lessons').length})
+            ٢- نصوص صفحة الدروس العامة ({items.filter((i) => i.category === 'lessons').length})
           </button>
 
           <button
@@ -424,147 +471,181 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
           >
             ٣- صفحة تسجيل الصوت والنتائج ({items.filter((i) => i.category === 'practice').length})
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('curriculum_sheet')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'curriculum_sheet'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>٤- ترجمة ورقة الدروس (العامود 6 و 7) ({curriculum.length})</span>
+          </button>
         </div>
 
         {/* Subject Filter (shown on lessons tab) + Search */}
-        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
-          {activeTab === 'lessons' && availableSubjects.length > 0 && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-bold text-slate-600 whitespace-nowrap">
-                📚 تصفية بالدرس:
-              </span>
-              <select
-                value={selectedSubjectFilter}
-                onChange={(e) => setSelectedSubjectFilter(e.target.value)}
-                className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
-              >
-                <option value="all">كل موضوعات ورقة الدروس ({curriculum.length} تمرين)</option>
-                {availableSubjects.map((sub) => {
-                  const count = curriculum.filter((w) => w.lessonSubject === sub).length;
-                  return (
-                    <option key={sub} value={sub}>
-                      {sub} ({count} تمرين)
-                    </option>
-                  );
-                })}
-              </select>
+        {activeTab !== 'curriculum_sheet' && (
+          <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+            {activeTab === 'lessons' && availableSubjects.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-bold text-slate-600 whitespace-nowrap">
+                  📚 تصفية بالدرس:
+                </span>
+                <select
+                  value={selectedSubjectFilter}
+                  onChange={(e) => setSelectedSubjectFilter(e.target.value)}
+                  className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="all">كل موضوعات ورقة الدروس ({curriculum.length} تمرين)</option>
+                  {availableSubjects.map((sub) => {
+                    const count = curriculum.filter((w) => w.lessonSubject === sub).length;
+                    return (
+                      <option key={sub} value={sub}>
+                        {sub} ({count} تمرين)
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
+
+            {/* Search */}
+            <div className="relative w-full sm:w-56">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="بحث في نصوص هذا القسم..."
+                className="w-full pr-8 pl-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-hidden focus:border-indigo-500"
+              />
             </div>
-          )}
-
-          {/* Search */}
-          <div className="relative w-full sm:w-56">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="بحث في نصوص هذا القسم..."
-              className="w-full pr-8 pl-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-hidden focus:border-indigo-500"
-            />
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Translations Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-right text-xs">
-          <thead>
-            <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
-              <th className="p-3 w-1/4">النص العربي الأصلي 🇸🇦</th>
-              <th className="p-3 w-1/3">الترجمة التايلاندية (ภาษาไทย) 🇹🇭</th>
-              <th className="p-3 w-1/3">الترجمة الإنجليزية (English) 🇬🇧</th>
-              <th className="p-3 text-center w-24">الذكاء الاصطناعي</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {filteredItems.map((item) => (
-              <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
-                {/* Arabic Column - Editable */}
-                <td className="p-3 align-top">
-                  <textarea
-                    rows={2}
-                    value={item.ar}
-                    onChange={(e) => handleUpdateItem(item.id, { ar: e.target.value })}
-                    placeholder="اكتب أو عدّل النص العربي..."
-                    className="w-full p-2 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl text-xs font-bold text-slate-900 transition-colors resize-y leading-relaxed font-cairo"
-                    dir="rtl"
-                  />
-                  <div className="flex flex-wrap items-center justify-between gap-1 mt-1">
-                    <span className="text-[10px] text-slate-400 font-mono">ID: {item.id}</span>
-                    {item.isSheetLinked && (
-                      <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-md text-[9px] font-bold">
-                        🔗 {item.sheetSourceNote || 'متصل بالشيت'}
-                      </span>
-                    )}
-                    {item.id.endsWith('_meaning') && (
-                      <span className="px-1.5 py-0.5 bg-sky-100 text-sky-800 rounded-md text-[9px] font-bold">
-                        🏷️ عامود 6: المعنى
-                      </span>
-                    )}
-                    {item.id.endsWith('_makhraj') && (
-                      <span className="px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded-md text-[9px] font-bold">
-                        🎙️ عامود 7: المخرج
-                      </span>
-                    )}
-                  </div>
-                </td>
+      {/* Tab 4: Curriculum Translation (Columns 6 & 7) */}
+      {activeTab === 'curriculum_sheet' ? (
+        <CurriculumTranslationManager
+          embedded={true}
+          curriculum={curriculum}
+          translations={items}
+          onSaveTranslations={(updated) => {
+            setItems(updated);
+            onSaveTranslations(updated);
+          }}
+          onUpdateWord={onUpdateWord}
+          geminiApiKey={geminiApiKey}
+          webhookUrl={webhookUrl}
+          onRefreshFromSheets={onRefreshFromSheets}
+        />
+      ) : (
+        <>
+          {/* Translations Table for Tabs 1, 2, 3 */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-right text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                  <th className="p-3 w-1/4">النص العربي الأصلي 🇸🇦</th>
+                  <th className="p-3 w-1/3">الترجمة التايلاندية (ภาษาไทย) 🇹🇭</th>
+                  <th className="p-3 w-1/3">الترجمة الإنجليزية (English) 🇬🇧</th>
+                  <th className="p-3 text-center w-24">الذكاء الاصطناعي</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredItems.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                    {/* Arabic Column - Editable */}
+                    <td className="p-3 align-top">
+                      <textarea
+                        rows={2}
+                        value={item.ar}
+                        onChange={(e) => handleUpdateItem(item.id, { ar: e.target.value })}
+                        placeholder="اكتب أو عدّل النص العربي..."
+                        className="w-full p-2 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl text-xs font-bold text-slate-900 transition-colors resize-y leading-relaxed font-cairo"
+                        dir="rtl"
+                      />
+                      <div className="flex flex-wrap items-center justify-between gap-1 mt-1">
+                        <span className="text-[10px] text-slate-400 font-mono">ID: {item.id}</span>
+                        {item.isSheetLinked && (
+                          <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-md text-[9px] font-bold">
+                            🔗 {item.sheetSourceNote || 'متصل بالشيت'}
+                          </span>
+                        )}
+                        {item.id.endsWith('_meaning') && (
+                          <span className="px-1.5 py-0.5 bg-sky-100 text-sky-800 rounded-md text-[9px] font-bold">
+                            🏷️ عامود 6: المعنى
+                          </span>
+                        )}
+                        {item.id.endsWith('_makhraj') && (
+                          <span className="px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded-md text-[9px] font-bold">
+                            🎙️ عامود 7: المخرج
+                          </span>
+                        )}
+                      </div>
+                    </td>
 
-                {/* Thai Column */}
-                <td className="p-3 align-top">
-                  <textarea
-                    rows={2}
-                    value={item.th}
-                    onChange={(e) => handleUpdateItem(item.id, { th: e.target.value })}
-                    placeholder="พิมพ์คำแปลภาษาไทย..."
-                    className="w-full p-2 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl text-xs text-slate-900 transition-colors resize-y leading-relaxed font-sans"
-                    dir="ltr"
-                  />
-                </td>
+                    {/* Thai Column */}
+                    <td className="p-3 align-top">
+                      <textarea
+                        rows={2}
+                        value={item.th}
+                        onChange={(e) => handleUpdateItem(item.id, { th: e.target.value })}
+                        placeholder="พิมพ์คำแปลภาษาไทย..."
+                        className="w-full p-2 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl text-xs text-slate-900 transition-colors resize-y leading-relaxed font-sans"
+                        dir="ltr"
+                      />
+                    </td>
 
-                {/* English Column */}
-                <td className="p-3 align-top">
-                  <textarea
-                    rows={2}
-                    value={item.en}
-                    onChange={(e) => handleUpdateItem(item.id, { en: e.target.value })}
-                    placeholder="Type English translation..."
-                    className="w-full p-2 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl text-xs text-slate-900 transition-colors resize-y leading-relaxed font-sans"
-                    dir="ltr"
-                  />
-                </td>
+                    {/* English Column */}
+                    <td className="p-3 align-top">
+                      <textarea
+                        rows={2}
+                        value={item.en}
+                        onChange={(e) => handleUpdateItem(item.id, { en: e.target.value })}
+                        placeholder="Type English translation..."
+                        className="w-full p-2 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl text-xs text-slate-900 transition-colors resize-y leading-relaxed font-sans"
+                        dir="ltr"
+                      />
+                    </td>
 
-                {/* Single AI Translate Button */}
-                <td className="p-3 text-center align-middle">
-                  <button
-                    type="button"
-                    onClick={() => handleTranslateSingle(item)}
-                    disabled={translatingId === item.id || isBatchTranslating}
-                    className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 disabled:opacity-50 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer inline-flex items-center justify-center gap-1"
-                    title="ترجمة هذا النص منفرداً بالذكاء الاصطناعي للتايلاندية والإنجليزية"
-                  >
-                    {translatingId === item.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
-                    ) : (
-                      <Sparkles className="w-4 h-4 text-indigo-600" />
-                    )}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                    {/* Single AI Translate Button */}
+                    <td className="p-3 text-center align-middle">
+                      <button
+                        type="button"
+                        onClick={() => handleTranslateSingle(item)}
+                        disabled={translatingId === item.id || isBatchTranslating}
+                        className="p-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 disabled:opacity-50 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer inline-flex items-center justify-center gap-1"
+                        title="ترجمة هذا النص منفرداً بالذكاء الاصطناعي للتايلاندية والإنجليزية"
+                      >
+                        {translatingId === item.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                        ) : (
+                          <Sparkles className="w-4 h-4 text-indigo-600" />
+                        )}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-      <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
-        <span>إجمالي النصوص المسجلة في هذا القسم: {filteredItems.length} نصوص</span>
-        <button
-          type="button"
-          onClick={handleSaveAll}
-          className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
-        >
-          حفظ وتفعيل في واجهة الطلاب
-        </button>
-      </div>
+          <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
+            <span>إجمالي النصوص المسجلة في هذا القسم: {filteredItems.length} نصوص</span>
+            <button
+              type="button"
+              onClick={handleSaveAll}
+              className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+            >
+              حفظ
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 };

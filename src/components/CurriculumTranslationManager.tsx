@@ -24,6 +24,7 @@ interface CurriculumTranslationManagerProps {
   geminiApiKey?: string;
   webhookUrl?: string;
   onRefreshFromSheets?: () => Promise<void>;
+  embedded?: boolean;
 }
 
 export const CurriculumTranslationManager: React.FC<CurriculumTranslationManagerProps> = ({
@@ -34,6 +35,7 @@ export const CurriculumTranslationManager: React.FC<CurriculumTranslationManager
   geminiApiKey,
   webhookUrl,
   onRefreshFromSheets,
+  embedded = false,
 }) => {
   // Build a lookup map of existing translations
   const translationsMap = useMemo(() => {
@@ -324,82 +326,84 @@ export const CurriculumTranslationManager: React.FC<CurriculumTranslationManager
   }, [curriculum, items]);
 
   return (
-    <div className="bg-white rounded-3xl p-5 sm:p-7 shadow-md border border-slate-100 flex flex-col space-y-6">
-      {/* 1. Header with Title & Stats */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-linear-to-tr from-indigo-600 to-indigo-800 text-white flex items-center justify-center font-bold shadow-md shadow-indigo-600/20">
-            <BookOpen className="w-6 h-6" />
+    <div className={embedded ? "space-y-5" : "bg-white rounded-3xl p-5 sm:p-7 shadow-md border border-slate-100 flex flex-col space-y-6"}>
+      {/* 1. Header with Title & Stats - Shown only if not embedded */}
+      {!embedded && (
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-linear-to-tr from-indigo-600 to-indigo-800 text-white flex items-center justify-center font-bold shadow-md shadow-indigo-600/20">
+              <BookOpen className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                <span>ترجمة ورقة الدروس والتمارين</span>
+                <span className="text-[11px] font-mono px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md font-bold border border-indigo-200">
+                  العامود 6 (المعنى) | العامود 7 (المخرج)
+                </span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                نظام مرن ومتصل مباشرة ببيانات ورقة "الدروس": يقبل أي إضافة أو حذف أو تعديل في الشيت، مع ترجمة فورية بالذكاء الاصطناعي
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
-              <span>ترجمة ورقة الدروس والتمارين</span>
-              <span className="text-[11px] font-mono px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md font-bold border border-indigo-200">
-                العامود 6 (المعنى) | العامود 7 (المخرج)
-              </span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              نظام مرن ومتصل مباشرة ببيانات ورقة "الدروس": يقبل أي إضافة أو حذف أو تعديل في الشيت، مع ترجمة فورية بالذكاء الاصطناعي
-            </p>
-          </div>
-        </div>
 
-        {/* Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
-          {onRefreshFromSheets && (
+          {/* Action Buttons */}
+          <div className="flex flex-wrap items-center gap-2">
+            {onRefreshFromSheets && (
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+                title="جلب أحدث التعديلات والتمارين من ملف Google Sheets"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-indigo-600' : ''}`} />
+                <span>{isRefreshing ? 'جاري التحديث...' : 'تحديث من الشيت'}</span>
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs disabled:opacity-50"
-              title="جلب أحدث التعديلات والتمارين من ملف Google Sheets"
+              onClick={handleBatchTranslatePending}
+              disabled={isBatchTranslating}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-linear-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+              title="ترجمة التمارين غير المكتملة دفعة واحدة بالذكاء الاصطناعي"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-indigo-600' : ''}`} />
-              <span>{isRefreshing ? 'جاري الجلب...' : 'تحديث من الشيت 🔄'}</span>
+              {isBatchTranslating ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>جاري الترجمة...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>ترجمة جماعية AI</span>
+                </>
+              )}
             </button>
-          )}
 
-          <button
-            type="button"
-            onClick={handleBatchTranslatePending}
-            disabled={isBatchTranslating}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-linear-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
-            title="ترجمة التمارين غير المكتملة دفعة واحدة بالذكاء الاصطناعي"
-          >
-            {isBatchTranslating ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>جاري الترجمة الجماعية...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>ترجمة غير المكتمل بالذكاء الاصطناعي ✨</span>
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={handleSaveAll}
-            className={`flex items-center gap-1.5 px-4 py-2 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
-              saveSuccess ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-900 hover:bg-slate-800'
-            }`}
-          >
-            {saveSuccess ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-white" />
-                <span>تم الحفظ والمزامنة!</span>
-              </>
-            ) : (
-              <>
-                <Save className="w-3.5 h-3.5" />
-                <span>حفظ ومزامنة الترجمات 💾</span>
-              </>
-            )}
-          </button>
+            <button
+              type="button"
+              onClick={handleSaveAll}
+              className={`flex items-center gap-1.5 px-4 py-2 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
+                saveSuccess ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-900 hover:bg-slate-800'
+              }`}
+            >
+              {saveSuccess ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-white" />
+                  <span>تم الحفظ</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5" />
+                  <span>حفظ</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 2. Status Message Alert */}
       {statusMessage && (

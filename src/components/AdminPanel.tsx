@@ -68,7 +68,6 @@ import {
 } from 'lucide-react';
 import { TranslationItem } from '../utils/translations';
 import { TranslationManager } from './TranslationManager';
-import { CurriculumTranslationManager } from './CurriculumTranslationManager';
 import {
   getDailyQuotaStatus,
   resetDailyQuota,
@@ -166,7 +165,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   geminiApiKey,
   onRefreshFromSheets,
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'curriculum_translation' | 'submissions' | 'sheets' | 'translations'>('lessons');
+  const [activeTab, setActiveTab] = useState<'lessons' | 'submissions' | 'sheets' | 'translations'>('lessons');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1095,18 +1094,6 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('curriculum_translation')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'curriculum_translation'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
-            }`}
-          >
-            <BookOpen className="w-4 h-4 text-indigo-500" />
-            <span>ترجمة ورقة الدروس (العامود 6 و 7)</span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('translations')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'translations'
@@ -1115,7 +1102,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             }`}
           >
             <Languages className="w-4 h-4 text-indigo-500" />
-            <span>ترجمة واجهة المنصة والرئيسية</span>
+            <span>إدارة وتخصيص الترجمة</span>
           </button>
         </div>
 
@@ -2458,24 +2445,12 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </div>
         )}
 
-        {/* TAB 4: CURRICULUM TRANSLATION (COLUMNS 6 & 7) */}
-        {activeTab === 'curriculum_translation' && (
-          <CurriculumTranslationManager
-            curriculum={curriculum}
-            translations={translations || []}
-            onSaveTranslations={onUpdateTranslations || (() => {})}
-            onUpdateWord={onUpdateWord}
-            geminiApiKey={geminiApiKey}
-            webhookUrl={sheetsConfig.webhookUrl}
-            onRefreshFromSheets={onRefreshFromSheets}
-          />
-        )}
-
-        {/* TAB 5: TRANSLATION MANAGEMENT */}
+        {/* TAB 4: TRANSLATION MANAGEMENT */}
         {activeTab === 'translations' && (
           <TranslationManager
             translations={translations || []}
             onSaveTranslations={onUpdateTranslations || (() => {})}
+            onUpdateWord={onUpdateWord}
             geminiApiKey={geminiApiKey}
             webhookUrl={sheetsConfig.webhookUrl}
             curriculum={curriculum}
