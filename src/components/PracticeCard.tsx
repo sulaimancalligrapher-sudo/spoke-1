@@ -56,6 +56,7 @@ import {
   WhisperProgress,
 } from '../utils/whisperEngine';
 import { AudioWaveform } from './AudioWaveform';
+import { SupportedLang, TranslationItem, translateEvaluationFeedback } from '../utils/translations';
 
 interface PracticeCardProps {
   wordItem: WordItem;
@@ -74,6 +75,8 @@ interface PracticeCardProps {
   onOpenLessons?: () => void;
   isSubmitted?: boolean;
   onReRecord?: () => void;
+  currentLang?: SupportedLang;
+  translations?: TranslationItem[];
   t?: (id: string, fallback?: string) => string;
 }
 
@@ -90,6 +93,8 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   onOpenLessons,
   isSubmitted = false,
   onReRecord,
+  currentLang = 'ar',
+  translations = [],
   t,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
@@ -948,7 +953,8 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
               {previousSubmission.score}%
             </div>
             <span className="inline-block px-3 py-1 bg-emerald-200/80 text-emerald-950 rounded-full text-xs font-black shadow-2xs">
-              {previousSubmission.grade || 'متقن'}
+              {translateEvaluationFeedback(previousSubmission.grade, currentLang, translations) ||
+                tr('eval_grade_mastered', 'متقن')}
             </span>
           </div>
         </div>

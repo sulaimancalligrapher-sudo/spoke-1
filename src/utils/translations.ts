@@ -287,10 +287,58 @@ export const DEFAULT_TRANSLATIONS: TranslationItem[] = [
     th: 'ประโยค',
     en: 'Sentence',
   },
+  {
+    id: 'lessons_subject_label',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'موضوع الدرس:',
+    th: 'หัวข้อบทเรียน:',
+    en: 'Lesson Subject:',
+  },
+  {
+    id: 'lessons_empty_search',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'لا توجد كلمات أو تمارين تطابق البحث في هذا الدرس.',
+    th: 'ไม่พบคำศัพท์หรือแบบฝึกหัดที่ตรงกับการค้นหาในบทเรียนนี้',
+    en: 'No words or exercises match your search in this lesson.',
+  },
+  {
+    id: 'lessons_total_exercises',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'إجمالي التدريبات: {count} كلمة وتمرين',
+    th: 'การฝึกทั้งหมด: {count} คำและแบบฝึกหัด',
+    en: 'Total practices: {count} words & exercises',
+  },
+  {
+    id: 'btn_close',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'إغلاق',
+    th: 'ปิด',
+    en: 'Close',
+  },
 
   // ==========================================
   // الموضع الثالث: صفحة تسجيل الصوت والنتائج (practice)
   // ==========================================
+  {
+    id: 'practice_retry_prompt',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'هل ترغب في إعادة المحاولة وتوثيق تسجيل ودرجة جديدة؟',
+    th: 'คุณต้องการบันทึกเสียงใหม่และบันทึกคะแนนใหม่หรือไม่?',
+    en: 'Would you like to try again and record a new score?',
+  },
+  {
+    id: 'eval_grade_mastered',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'متقن',
+    th: 'เชี่ยวชาญ',
+    en: 'Mastered',
+  },
   {
     id: 'practice_listen_btn',
     category: 'practice',
@@ -1424,6 +1472,102 @@ const EXACT_EVAL_MAP: Record<string, { th: string; en: string }> = {
     th: 'บันทึกเสียง',
     en: 'Voice recording',
   },
+
+  // 19 Makhraj Guides for Arabic Letters (MAKHRAJ_GUIDES from acousticEvaluator)
+  'حافة اللسان مع ما يوازيها من الأضراس العليا. احرص على صفة الاستطالة والرخاوة دون تحويلها إلى دال مفخمة.': {
+    th: 'ริมลิ้นกับฟันกรามบนที่ขนานกัน ระวังลักษณะการยืดเสียง (อิสติฏอละฮ์) และความนุ่มนวล โดยไม่เปลี่ยนเป็นเสียงดาลหนา',
+    en: 'The edge of the tongue with adjacent upper molars. Observe elongation (istitalah) and softness without turning it into a heavy Dal.',
+  },
+  'طرف اللسان مع ما بين الثنايا السفلية. راعِ صفة الصفير والاستعلاء والتفخيم.': {
+    th: 'ปลายลิ้นกับระหว่างฟันหน้าล่าง ระวังเสียงผิวปาก (ศอฟีร) การยกโคนลิ้น และการออกเสียงหนา',
+    en: 'Tip of the tongue between the lower front teeth. Mind the whistling sound (Safeer), elevation, and heavy pronunciation.',
+  },
+  'طرف اللسان مع أصول الثنايا العليا. أشد وأقوى الحروف المفخمة، راعِ حبس النفس والصوت (الجهر والشدة).': {
+    th: 'ปลายลิ้นกับโคนฟันหน้าบน เป็นอักษรเสียงหนาที่หนักแน่นที่สุด ระวังการกักลมและเสียง (ญะฮ์รและชิดดะฮ์)',
+    en: 'Tip of the tongue with roots of upper front teeth. Strongest emphatic letter; observe breath and sound confinement.',
+  },
+  'طرف اللسان مع أطراف الثنايا العليا. حرف رخو ومفخم ومستعلٍ، أخرج طرف اللسان بلطف.': {
+    th: 'ปลายลิ้นกับปลายฟันหน้าบน เป็นอักษรเสียงหนาและนุ่มนวล ยื่นปลายลิ้นออกมาเล็กน้อยอย่างนุ่มนวล',
+    en: 'Tip of the tongue with edges of upper front teeth. Emphatic and soft sound; gently extend the tip of the tongue.',
+  },
+  'أقصى اللسان مع ما يحاذيه من الحنك اللحمي (الرخو). انتبه للجهر والشدة والقلقلة عند السكون.': {
+    th: 'โคนลิ้นกับเพดานอ่อน ระวังการกักเสียงและความหนักแน่น รวมถึงเสียงสะท้อน (ก็อลเกาะละฮ์) เมื่อมีสุกูน',
+    en: 'Back of tongue with soft palate. Pay attention to loudness, strength, and Qalqalah when saakin.',
+  },
+  'وسط الحلق. حرف متوسط بين الشدة والرخاوة (بيني)، احرص على عدم كتم صوته أو ضغطه بشدة.': {
+    th: 'กลางลำคอ เป็นอักษรเสียงก้ำกึ่ง (บัยนียะฮ์) ระวังอย่ากักเสียงหรือเค้นเสียงแน่นเกินไป',
+    en: 'Middle of the throat. A midway letter between stop and flow; avoid choking or over-constricting.',
+  },
+  'وسط الحلق. يخرج بهواء نقي (همس ورخاوة)، احرص على جريان النفس بلطف.': {
+    th: 'กลางลำคอ เปล่งออกด้วยลมบริสุทธิ์ (ฮัมส์และเราะคอวะฮ์) ระวังให้ลมไหลผ่านอย่างนุ่มนวล',
+    en: 'Middle of the throat. Articulated with clear expelled breath (hams and rakhawah); allow breath to flow smoothly.',
+  },
+  'أدنى الحلق مع ما يقاربه من اللهاة. حرف رخو مفخم ومستعلٍ، دون مبالغة في الخشونة.': {
+    th: 'ส่วนบนสุดของลำคอใกล้ลิ้นไก่ เป็นอักษรเสียงหนาและนุ่ม โดยไม่ทำเสียงแหบหยาบจนเกินไป',
+    en: 'Upper throat near the uvula. Emphatic and friction sound; avoid excessive roughness.',
+  },
+  'أدنى الحلق. حرف مستعلٍ ورخو ومجهور، احرص على جريان الصوت فيه دون قلقلة.': {
+    th: 'ส่วนบนสุดของลำคอ อักษรเสียงหนา กักลมและเสียงไหลผ่าน ระวังให้เสียงไหลต่อเนื่องโดยไม่สะท้อน',
+    en: 'Upper throat. Elevated and soft voiced letter; maintain sound flow without qalqalah.',
+  },
+  'طرف اللسان مع أطراف الثنايا العليا. حرف رخو ومستفل ومرقق، أخرج طرف اللسان برفق.': {
+    th: 'ปลายลิ้นกับปลายฟันหน้าบน อักษรเสียงบางและนุ่ม ยื่นปลายลิ้นออกมาเล็กน้อยอย่างนุ่มนวล',
+    en: 'Tip of the tongue with edges of upper front teeth. Soft and light letter; gently project tongue tip.',
+  },
+  'طرف اللسان مع أطراف الثنايا العليا. حرف مهموس ورخو ومرقق، تدفق النفس فيه بلطف.': {
+    th: 'ปลายลิ้นกับปลายฟันหน้าบน อักษรเสียงพ่นลม เสียงบางและนุ่ม ปล่อยลมไหลผ่านเบาๆ',
+    en: 'Tip of the tongue with edges of upper front teeth. Whispered, soft, and light; let breath flow smoothly.',
+  },
+  'أقصى اللسان تحت مخرج القاف قليلاً. حرف شديد يتبعه همس خفيف يُميز وضوحه.': {
+    th: 'โคนลิ้นต่ำกว่าฐานเสียงก็อฟเล็กน้อย อักษรเสียงแน่นตามด้วยลมแผ่วเบาที่ทำให้เสียงชัดเจน',
+    en: 'Back of tongue slightly below Qaf. Plosive letter followed by a slight whisper for clarity.',
+  },
+  'طرف اللسان مع ما يحاذيه من الحنك الأعلى. راعِ التكرير المعتدل دون مبالغة.': {
+    th: 'ปลายลิ้นกับเพดานแข็งส่วนหน้า ระวังการสั่นรัวของลิ้นให้พอดี ไม่มากเกินไป',
+    en: 'Tip of the tongue with adjacent upper palate. Maintain moderate trill without exaggeration.',
+  },
+  'أدنى حافة اللسان إلى منتهى طرفه مع أصول الثنايا والرباعيات. راعِ توسط الصوت.': {
+    th: 'ขอบลิ้นส่วนหน้าจรดปลายลิ้นกับโคนฟันหน้าและฟันเขี้ยว ระวังเสียงให้ก้ำกึ่งปานกลาง',
+    en: 'Front edge of tongue to its tip with gums of front teeth. Maintain moderate sound continuity.',
+  },
+  'انطباق الشفتين مع غنة خفيفة من الخيشوم.': {
+    th: 'ริมฝีปากทั้งสองประกบกัน พร้อมเสียงขึ้นจมูก (ฆุนนะฮ์) เบาๆ',
+    en: 'Closing the two lips together with light nasal resonance (ghunnah).',
+  },
+  'طرف اللسان مع لثة الثنايا العليا مع خروج الغنة من الخيشوم.': {
+    th: 'ปลายลิ้นกับเหงือกฟันหน้าบน พร้อมเสียงขึ้นจมูกจากโพรงจมูก',
+    en: 'Tip of tongue with gums of upper front teeth, accompanied by nasal sound (ghunnah).',
+  },
+  'طرف اللسان مع فوق الثنايا السفلية. حرف مهموس صافٍ ذو صفير مميز.': {
+    th: 'ปลายลิ้นอยู่เหนือฟันหน้าล่าง อักษรพ่นลมเสียงใสพร้อมเสียงผิวปากที่เด่นชัด',
+    en: 'Tip of tongue above lower front teeth. Clear whispered letter with distinct whistling sound.',
+  },
+  'وسط اللسان مع الحنك الأعلى. صفة التفشي (انتشار الهواء في الفم).': {
+    th: 'กลางลิ้นกับเพดานแข็ง มีลักษณะการกระจายลมทั่วช่องปาก (ตะฟัชชีย์)',
+    en: 'Middle of tongue with upper palate. Characterized by air dissipation in the mouth (Tafash-shi).',
+  },
+  'وسط اللسان مع الحنك الأعلى. حرف شديد مجهور ينحبس الصوت فيه تماماً ثم ينفجر بلطف.': {
+    th: 'กลางลิ้นกับเพดานแข็ง อักษรเสียงแน่นที่กักเสียงสนิทแล้วปล่อยออกอย่างนุ่มนวล',
+    en: 'Middle of tongue with upper palate. Plosive letter where sound is fully confined then released smoothly.',
+  },
+
+  // Common Grade/Assessment Badges
+  'متقن': {
+    th: 'เชี่ยวชาญ',
+    en: 'Mastered',
+  },
+  'يحتاج تدريب وتكرار': {
+    th: 'ต้องฝึกฝนและทำซ้ำ',
+    en: 'Needs practice & repetition',
+  },
+  'يحتاج ممارسة وتكرار': {
+    th: 'ต้องฝึกฝนและทำซ้ำ',
+    en: 'Needs practice & repetition',
+  },
+  'تحسين مخارج الحروف': {
+    th: 'ปรับปรุงฐานเกิดเสียงพยัญชนะ',
+    en: 'Improve letter articulation',
+  },
 };
 
 /**
@@ -1452,7 +1596,14 @@ function resolveSingleEvaluationPhrase(
     }
   }
 
-  // 3. Dynamic Regex Patterns (Parameterized Templates)
+  // 3. Fallback: fuzzy/containment match in EXACT_EVAL_MAP
+  for (const [key, val] of Object.entries(EXACT_EVAL_MAP)) {
+    if (text.includes(key) || key.includes(text)) {
+      if (val[lang]) return val[lang];
+    }
+  }
+
+  // 4. Dynamic Regex Patterns (Parameterized Templates)
 
   // Pattern: نطق رائع ومتقن لمخرج وصوت حرف (س)!
   const singleLetterMatch = text.match(/نطق رائع ومتقن لمخرج وصوت حرف \((.+?)\)!?/);
@@ -1568,11 +1719,13 @@ export function translateEvaluationFeedback(
 
   const raw = arabicFeedback.trim();
 
-  // If compound format (e.g. "نطق ممتاز ومتقن! - إتقان تام وتجويد فصيح...")
-  if (raw.includes(' - ')) {
-    const parts = raw.split(' - ');
-    const translatedParts = parts.map((part) => resolveSingleEvaluationPhrase(part, lang, items));
-    return translatedParts.join(' - ');
+  // If compound format separated by hyphen, en-dash, or em-dash (e.g. "نطق ممتاز ومتقن! - إتقان تام وتجويد فصيح...")
+  if (/[-–—]/.test(raw)) {
+    const parts = raw.split(/\s*[-–—]\s*/);
+    if (parts.length > 1) {
+      const translatedParts = parts.map((part) => resolveSingleEvaluationPhrase(part, lang, items));
+      return translatedParts.join(' - ');
+    }
   }
 
   return resolveSingleEvaluationPhrase(raw, lang, items);

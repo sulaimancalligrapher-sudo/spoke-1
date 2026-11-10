@@ -1,13 +1,14 @@
 import React, { useRef, useState } from 'react';
 import { PracticeHistoryItem, StudentRegistrant } from '../types';
-import { X, Award, Play, Pause, Trash2, User, Loader2 } from 'lucide-react';
+import { X, Award, Play, Pause, User, Loader2 } from 'lucide-react';
 import { SupportedLang, TranslationItem, translateEvaluationFeedback } from '../utils/translations';
+import { getAlternativeAudioUrls } from '../utils/mediaUrl';
 
 interface StatsModalProps {
   isOpen: boolean;
   onClose: () => void;
   history: PracticeHistoryItem[];
-  onClearHistory: () => void;
+  onClearHistory?: () => void;
   currentStudent?: StudentRegistrant | null;
   isSyncingFromSheets?: boolean;
   currentLang?: SupportedLang;
@@ -51,14 +52,32 @@ export const StatsModal: React.FC<StatsModalProps> = ({
       audioRef.current.pause();
     }
 
-    const audio = new Audio(url);
-    audioRef.current = audio;
+    const candidateUrls = getAlternativeAudioUrls(url);
+    if (candidateUrls.length === 0) candidateUrls.push(url);
+
     setActiveAudioUrl(url);
     setIsPlaying(true);
 
-    audio.onended = () => setIsPlaying(false);
-    audio.onerror = () => setIsPlaying(false);
-    audio.play();
+    let candidateIndex = 0;
+    const tryPlayNext = () => {
+      if (candidateIndex >= candidateUrls.length) {
+        setIsPlaying(false);
+        return;
+      }
+      const targetSrc = candidateUrls[candidateIndex];
+      candidateIndex++;
+      const audio = new Audio(targetSrc);
+      audioRef.current = audio;
+      audio.onended = () => setIsPlaying(false);
+      audio.onerror = () => {
+        tryPlayNext();
+      };
+      audio.play().catch(() => {
+        tryPlayNext();
+      });
+    };
+
+    tryPlayNext();
   };
 
   return (
@@ -144,15 +163,6 @@ export const StatsModal: React.FC<StatsModalProps> = ({
           <h4 className="text-xs font-bold text-slate-700">
             {tr('stats_recent_attempts', 'آخر المحاولات الصوتية:')}
           </h4>
-          {history.length > 0 && (
-            <button
-              onClick={onClearHistory}
-              className="text-[11px] text-rose-500 hover:text-rose-700 flex items-center gap-1 cursor-pointer"
-            >
-              <Trash2 className="w-3 h-3" />
-              <span>{tr('stats_clear_btn', 'مسح السجل')}</span>
-            </button>
-          )}
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-2 pr-0.5">

@@ -96,7 +96,7 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
           <button
             onClick={onClose}
             className="w-9 h-9 rounded-full bg-white hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors cursor-pointer border border-slate-200"
-            title="إغلاق"
+            title={tr('btn_close', 'إغلاق')}
           >
             <X className="w-5 h-5" />
           </button>
@@ -106,7 +106,7 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
         <div className="p-4 sm:p-5 border-b border-slate-100 bg-white space-y-3">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              📚 {tr('lessons_modal_desc', 'موضوع الدرس:')}
+              📚 {tr('lessons_subject_label', 'موضوع الدرس:')}
             </label>
             <select
               value={selectedSubject}
@@ -172,13 +172,14 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-2 bg-slate-50/50">
           {filteredItems.length === 0 ? (
             <div className="text-center py-12 text-slate-400 text-sm">
-              لا توجد كلمات أو تمارين تطابق البحث في هذا الدرس.
+              {tr('lessons_empty_search', 'لا توجد كلمات أو تمارين تطابق البحث في هذا الدرس.')}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {filteredItems.map((item) => {
                 const isSelected = item.id === selectedItem.id;
-                const score = scoresMap[item.id];
+                const cleanWord = item.word.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').trim();
+                const score = scoresMap[item.id] ?? scoresMap[item.word] ?? scoresMap[cleanWord];
                 return (
                   <button
                     key={item.id}
@@ -253,12 +254,17 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
 
         {/* Footer */}
         <div className="p-3 sm:p-4 border-t border-slate-100 bg-white flex items-center justify-between text-xs text-slate-500">
-          <span>إجمالي التدريبات: {filteredItems.length} كلمة وتمرين</span>
+          <span>
+            {tr('lessons_total_exercises', `إجمالي التدريبات: ${filteredItems.length} كلمة وتمرين`).replace(
+              '{count}',
+              String(filteredItems.length)
+            )}
+          </span>
           <button
             onClick={onClose}
             className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer"
           >
-            إغلاق
+            {tr('btn_close', 'إغلاق')}
           </button>
         </div>
       </div>

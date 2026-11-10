@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   WordItem,
   PronunciationEvaluation,
@@ -27,7 +27,6 @@ import { StudentLoginModal } from './components/StudentLoginModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { SocialIcon, getSocialBrandClasses } from './components/SocialIcon';
 import {
-  sendScoreToGoogleSheets,
   fetchCurriculumFromSheets,
   fetchHomeConfigFromSheets,
   fetchStudentSubmissionsFromSheet,
@@ -936,18 +935,26 @@ export default function App() {
       return next;
     });
 
-    // Google Sheets Auto-sync
-    if (sheetsConfig.enabled && sheetsConfig.webhookUrl && sheetsConfig.autoSync) {
-      try {
-        await sendScoreToGoogleSheets(sheetsConfig.webhookUrl, submissionRecord);
-        setSubmissions((prev) =>
-          prev.map((s) => (s.id === submissionRecord.id ? { ...s, syncedToSheets: true } : s))
-        );
-      } catch (err) {
-        console.warn('Auto sync to Google Sheets error:', err);
-      }
-    }
+    // Official exercise submissions are now stored exclusively in "answers 1"
+    // via submitStudentAnswerToSheet when the student or teacher approves the answer.
   };
+
+  // Scores map strictly derived from the current logged-in student's records in "answers 1"
+  const studentScoresMap = useMemo(() => {
+    if (!currentStudent) return {};
+    const map: Record<string, number> = {};
+    studentHistory.forEach((h) => {
+      if (typeof h.score === 'number' && !isNaN(h.score)) {
+        if (h.wordId) map[h.wordId] = h.score;
+        if (h.word) {
+          map[h.word] = h.score;
+          const clean = h.word.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').trim();
+          map[clean] = h.score;
+        }
+      }
+    });
+    return map;
+  }, [currentStudent, studentHistory]);
 
   // Distinct subjects
   const allSubjects = Array.from(
@@ -1128,7 +1135,7 @@ export default function App() {
       {/* Navbar */}
       <Navbar
         streak={streak}
-        totalPracticed={currentStudent ? (studentHistory.length || history.length) : history.length}
+        totalPracticed={currentStudent ? studentHistory.length : 0}
         onOpenStats={() => {
           if (currentStudent && sheetsConfig.webhookUrl) {
             setIsSyncingAnswers1(true);
@@ -1343,6 +1350,8 @@ export default function App() {
                   setEvaluation(null);
                   setRecordedAudioUrl(null);
                 }}
+                currentLang={currentLang}
+                translations={translations}
                 t={t}
               />
 
@@ -1463,7 +1472,7 @@ export default function App() {
         subjectsList={allSubjects}
         selectedSubject={studentSubject}
         onSelectSubject={setStudentSubject}
-        scoresMap={scoresMap}
+        scoresMap={studentScoresMap}
         t={t}
       />
 
