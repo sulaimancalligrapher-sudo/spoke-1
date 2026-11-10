@@ -10,7 +10,6 @@ import {
   Play,
   Pause,
   RotateCcw,
-  BookOpen,
   ArrowRight,
   Activity,
   Star,
@@ -739,35 +738,38 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
         </button>
       </div>
 
-      {/* 6. BOTTOM ACTIONS: 3 DISTINCTLY COLORED BUTTONS */}
-      <div className="flex flex-wrap items-center justify-between gap-2.5 pt-4 border-t border-slate-100">
-        {/* Button 1: إعادة التسجيل (Amber / Gold) */}
+      {/* 6. BOTTOM ACTIONS: 3 HARMONIOUS AND BALANCED BUTTONS */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-2.5 pt-4 border-t border-slate-100">
+        {/* Button 1: إعادة التسجيل (Amber / Gold) - No icon, reduced padding for text room */}
         <button
           onClick={onRetry}
-          className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-amber-500 hover:bg-amber-600 text-white shadow-sm shadow-amber-500/20 transition-all cursor-pointer active:scale-98"
+          className="w-full flex items-center justify-center px-2 sm:px-3 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition-all cursor-pointer active:scale-98 text-center"
+          title={tr('practice_re_record_btn', 'إعادة التسجيل')}
         >
-          <RotateCcw className="w-4 h-4" />
-          <span>{tr('practice_re_record_btn', 'إعادة التسجيل')}</span>
+          <span className="truncate">{tr('practice_re_record_btn', 'إعادة التسجيل')}</span>
         </button>
 
-        {/* Button 2: فتح الدروس (Indigo / Royal Blue) */}
-        {onOpenLessons && (
+        {/* Button 2: فتح الدروس (Indigo / Royal Blue) - Pure text, no icon, no parentheses */}
+        {onOpenLessons ? (
           <button
             onClick={onOpenLessons}
-            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-600/20 transition-all cursor-pointer active:scale-98"
+            className="w-full flex items-center justify-center px-2 sm:px-3 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition-all cursor-pointer active:scale-98 text-center"
+            title={tr('eval_open_lessons_btn', 'فتح الدروس')}
           >
-            <BookOpen className="w-4 h-4 text-indigo-100" />
-            <span>({tr('nav_open_lessons', 'فتح الدروس')})</span>
+            <span className="truncate">{tr('eval_open_lessons_btn', 'فتح الدروس')}</span>
           </button>
+        ) : (
+          <div />
         )}
 
-        {/* Button 3: التالي (Emerald / Green) */}
+        {/* Button 3: التالي (Emerald / Green) - Unchanged with arrow icon */}
         <button
           onClick={onNext}
-          className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/25 transition-all cursor-pointer active:scale-98"
+          className="w-full flex items-center justify-center gap-1.5 px-2 sm:px-3 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer active:scale-98 text-center"
+          title={tr('lessons_next_btn', 'التالي')}
         >
-          <span>{tr('lessons_next_btn', 'التالي')}</span>
-          <ArrowRight className="w-4 h-4 rotate-180" />
+          <span className="truncate">{tr('lessons_next_btn', 'التالي')}</span>
+          <ArrowRight className="w-4 h-4 rotate-180 shrink-0" />
         </button>
       </div>
     </div>

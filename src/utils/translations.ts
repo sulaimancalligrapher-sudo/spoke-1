@@ -340,6 +340,14 @@ export const DEFAULT_TRANSLATIONS: TranslationItem[] = [
     en: 'Mastered',
   },
   {
+    id: 'eval_open_lessons_btn',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'فتح الدروس',
+    th: 'เปิดบทเรียน',
+    en: 'Open Lessons',
+  },
+  {
     id: 'practice_listen_btn',
     category: 'practice',
     categoryLabel: 'صفحة تسجيل الصوت والنتائج',
@@ -1568,6 +1576,114 @@ const EXACT_EVAL_MAP: Record<string, { th: string; en: string }> = {
     th: 'ปรับปรุงฐานเกิดเสียงพยัญชนะ',
     en: 'Improve letter articulation',
   },
+
+  // Dynamic Vowel Accuracy and Makhraj Guidance Phrases (Evaluator Feedbacks)
+  'استمع للتسجيل الصوتي وركّز على حركة الشفتين واللسان عند نطق الحرف المستهدف.': {
+    th: 'ฟังเสียงต้นแบบและสังเกตการเคลื่อนไหวของริมฝีปากและลิ้นขณะออกเสียงพยัญชนะเป้าหมาย',
+    en: 'Listen to the audio recording and focus on the movement of lips and tongue when pronouncing the target letter.',
+  },
+  'استمع للتسجيل الصوتي وركّز على حركة الشفتين واللسان عند نطق الحرف المستهدف': {
+    th: 'ฟังเสียงต้นแบบและสังเกตการเคลื่อนไหวของริมฝีปากและลิ้นขณะออกเสียงพยัญชนะเป้าหมาย',
+    en: 'Listen to the audio recording and focus on the movement of lips and tongue when pronouncing the target letter.',
+  },
+  'تحتاج انتباه لضبط الحركات': {
+    th: 'ต้องใส่ใจในการปรับจังหวะและเครื่องหมายสระให้แม่นยำขึ้น',
+    en: 'Needs attention to adjust short vowels accurately',
+  },
+  'تأكد من منح إذن الميكروفون في المتصفح والتحدث بوضوح.': {
+    th: 'โปรดอนุญาตการใช้งานไมโครโฟนในเบราว์เซอร์และพูดให้ชัดเจน',
+    en: 'Ensure microphone permission is granted in browser and speak clearly.',
+  },
+  'تأكد من تفعيل صلاحية الميكروفون والتحدث في بيئة هادئة.': {
+    th: 'โปรดเปิดใช้งานไมโครโฟนและฝึกพูดในสภาพแวดล้อมที่เงียบสงบ',
+    en: 'Ensure microphone is enabled and speak in a quiet environment.',
+  },
+  'تأكد من فتح الفم بمقدار معتدل وخروج النفس بصوت واضح عند نطق الحروف.': {
+    th: 'เปิดปากในระดับพอดีและปล่อยลมเสียงให้ชัดเจนขณะออกเสียงพยัญชนะ',
+    en: 'Open mouth moderately and let breath flow clearly when articulating letters.',
+  },
+  'غير متوفر': {
+    th: 'ไม่มีข้อมูล',
+    en: 'Not available',
+  },
+  'غير محدد': {
+    th: 'ไม่ได้ระบุ',
+    en: 'Not specified',
+  },
+  'الصوت منخفض جداً': {
+    th: 'ระดับเสียงเบาเกินไป',
+    en: 'Audio volume is too low',
+  },
+  'لم يتم التقاط تسجيل صوتي. يرجى الضغط على زر الميكروفون ثم نطق الكلمة.': {
+    th: 'ตรวจไม่พบเสียงบันทึก กรุณากดปุ่มไมโครโฟนแล้วพูดคำศัพท์',
+    en: 'No audio captured. Please tap microphone button and pronounce the word.',
+  },
+  'لم يتم رصد صوت كافٍ. يرجى الاقتراب من الميكروفون والتحدث بصوت مسموع ومحدد.': {
+    th: 'ตรวจไม่พบระดับเสียงที่เพียงพอ กรุณาเข้าใกล้ไมโครโฟนและพูดให้ชัดเจน',
+    en: 'Insufficient sound detected. Please move closer to mic and speak audibly.',
+  },
+
+  // 19 Short Makhraj Breakdown Fragments (for letter breakdown tags)
+  'حافة اللسان مع ما يوازيها من الأضراس العليا': {
+    th: 'ริมลิ้นกับฟันกรามบนที่ขนานกัน',
+    en: 'Edge of tongue with adjacent upper molars',
+  },
+  'طرف اللسان مع ما بين الثنايا السفلية': {
+    th: 'ปลายลิ้นกับระหว่างฟันหน้าล่าง',
+    en: 'Tip of tongue between lower front teeth',
+  },
+  'طرف اللسان مع أصول الثنايا العليا': {
+    th: 'ปลายลิ้นกับโคนฟันหน้าบน',
+    en: 'Tip of tongue with roots of upper front teeth',
+  },
+  'طرف اللسان مع أطراف الثنايا العليا': {
+    th: 'ปลายลิ้นกับปลายฟันหน้าบน',
+    en: 'Tip of tongue with edges of upper front teeth',
+  },
+  'أقصى اللسان مع ما يحاذيه من الحنك اللحمي (الرخو)': {
+    th: 'โคนลิ้นกับเพดานอ่อน',
+    en: 'Back of tongue with soft palate',
+  },
+  'وسط الحلق': {
+    th: 'กลางลำคอ',
+    en: 'Middle of the throat',
+  },
+  'أدنى الحلق مع ما يقاربه من اللهاة': {
+    th: 'ส่วนบนสุดของลำคอใกล้ลิ้นไก่',
+    en: 'Upper throat near the uvula',
+  },
+  'أدنى الحلق': {
+    th: 'ส่วนบนสุดของลำคอ',
+    en: 'Upper throat',
+  },
+  'أقصى اللسان تحت مخرج القاف قليلاً': {
+    th: 'โคนลิ้นต่ำกว่าฐานเสียงก็อฟเล็กน้อย',
+    en: 'Back of tongue slightly below Qaf',
+  },
+  'طرف اللسان مع ما يحاذيه من الحنك الأعلى': {
+    th: 'ปลายลิ้นกับเพดานแข็งส่วนหน้า',
+    en: 'Tip of tongue with adjacent upper palate',
+  },
+  'أدنى حافة اللسان إلى منتهى طرفه مع أصول الثنايا والرباعيات': {
+    th: 'ขอบลิ้นส่วนหน้าจรดปลายลิ้นกับโคนฟันหน้าและฟันเขี้ยว',
+    en: 'Front edge of tongue to tip with gums of front teeth',
+  },
+  'انطباق الشفتين مع غنة خفيفة من الخيشوم': {
+    th: 'ริมฝีปากทั้งสองประกบกัน พร้อมเสียงขึ้นจมูกเบาๆ',
+    en: 'Closing lips with light nasal resonance',
+  },
+  'طرف اللسان مع لثة الثنايا العليا مع خروج الغنة من الخيشوم': {
+    th: 'ปลายลิ้นกับเหงือกฟันหน้าบน พร้อมเสียงขึ้นจมูก',
+    en: 'Tip of tongue with gums of upper teeth and nasal sound',
+  },
+  'طرف اللسان مع فوق الثنايا السفلية': {
+    th: 'ปลายลิ้นอยู่เหนือฟันหน้าล่าง',
+    en: 'Tip of tongue above lower front teeth',
+  },
+  'وسط اللسان مع الحنك الأعلى': {
+    th: 'กลางลิ้นกับเพดานแข็ง',
+    en: 'Middle of tongue with upper palate',
+  },
 };
 
 /**
@@ -1596,14 +1712,26 @@ function resolveSingleEvaluationPhrase(
     }
   }
 
-  // 3. Fallback: fuzzy/containment match in EXACT_EVAL_MAP
+  // 3. Normalized / Punctuation-agnostic match in EXACT_EVAL_MAP
+  const cleanText = text.replace(/[.،!؟:]/g, '').trim();
   for (const [key, val] of Object.entries(EXACT_EVAL_MAP)) {
-    if (text.includes(key) || key.includes(text)) {
+    const cleanKey = key.replace(/[.،!؟:]/g, '').trim();
+    if (cleanText === cleanKey && val[lang]) {
+      return val[lang];
+    }
+  }
+
+  // 4. Fallback: fuzzy/containment match for longer descriptive sentences
+  for (const [key, val] of Object.entries(EXACT_EVAL_MAP)) {
+    if (key.length >= 8 && text.includes(key)) {
+      if (val[lang]) return val[lang];
+    }
+    if (cleanText.length >= 8 && key.includes(cleanText)) {
       if (val[lang]) return val[lang];
     }
   }
 
-  // 4. Dynamic Regex Patterns (Parameterized Templates)
+  // 5. Dynamic Regex Patterns (Parameterized Templates)
 
   // Pattern: نطق رائع ومتقن لمخرج وصوت حرف (س)!
   const singleLetterMatch = text.match(/نطق رائع ومتقن لمخرج وصوت حرف \((.+?)\)!?/);
