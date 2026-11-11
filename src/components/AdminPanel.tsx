@@ -68,6 +68,8 @@ import {
 } from 'lucide-react';
 import { TranslationItem } from '../utils/translations';
 import { TranslationManager } from './TranslationManager';
+import { MatchingAdminManager } from './MatchingAdminManager';
+import { MatchingLessonSubject } from '../types';
 import {
   getDailyQuotaStatus,
   resetDailyQuota,
@@ -121,6 +123,8 @@ interface AdminPanelProps {
   onUpdateTranslations?: (items: TranslationItem[]) => void;
   geminiApiKey?: string;
   onRefreshFromSheets?: () => Promise<void>;
+  matchingSubjects?: MatchingLessonSubject[];
+  onUpdateMatchingSubjects?: (subjects: MatchingLessonSubject[]) => void;
 }
 
 const TASHKEEL_BUTTONS = [
@@ -164,8 +168,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onUpdateTranslations,
   geminiApiKey,
   onRefreshFromSheets,
+  matchingSubjects = [],
+  onUpdateMatchingSubjects,
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'submissions' | 'sheets' | 'translations'>('lessons');
+  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'submissions' | 'sheets' | 'translations'>('lessons');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1059,6 +1065,18 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           >
             <BookOpen className="w-4 h-4" />
             <span>إدارة الكلمات والدروس ({curriculum.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('matching')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'matching'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-purple-400" />
+            <span>تمرين الوصل (وصل)</span>
           </button>
 
           <button
@@ -2455,6 +2473,15 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             webhookUrl={sheetsConfig.webhookUrl}
             curriculum={curriculum}
             onRefreshFromSheets={onRefreshFromSheets}
+          />
+        )}
+
+        {/* TAB 5: MATCHING EXERCISES MANAGEMENT (وصل) */}
+        {activeTab === 'matching' && (
+          <MatchingAdminManager
+            subjects={matchingSubjects || []}
+            onUpdateSubjects={onUpdateMatchingSubjects || (() => {})}
+            webhookUrl={sheetsConfig.webhookUrl}
           />
         )}
 

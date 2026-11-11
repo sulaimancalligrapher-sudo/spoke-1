@@ -7,13 +7,17 @@ import {
   PracticeHistoryItem,
   Answers1SubmissionRow,
   AdminUserRecord,
+  MatchingLessonSubject,
+  MatchingExercise,
+  MatchingPair,
 } from '../types';
 import { removeTashkeel } from './arabicMatcher';
+import { INITIAL_MATCHING_SUBJECTS } from '../data/matchingCurriculum';
 
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwVIaKX2ycipTQ5pUyWl5j-bYqv1lY3M6yz-UfiqSe5Ug6pCsv3ZXosSRrj2w6AchGRIQ/exec';
+  'https://script.google.com/macros/s/AKfycbx6JgmvD0Srx0GtOY1v90o60sH3vXVNC-N4hZqEr-2f9klbjsi1MlvXoHp_EdAZa4AN/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -981,6 +985,170 @@ export async function ensureTranslationsSheet(
   };
 }
 
+export const STORAGE_KEY_MATCHING_CURRICULUM = 'faseeh_matching_curriculum';
+
+/**
+ * Fetch matching exercises from sheet "وصل"
+ */
+export async function fetchMatchingExercisesFromSheets(
+  webhookUrl?: string
+): Promise<{ success: boolean; subjects: MatchingLessonSubject[]; error?: string }> {
+  // If webhook is not provided, return cached or initial curriculum
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    try {
+      const cached = localStorage.getItem(STORAGE_KEY_MATCHING_CURRICULUM);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return { success: true, subjects: parsed };
+        }
+      }
+    } catch {}
+    return { success: true, subjects: INITIAL_MATCHING_SUBJECTS };
+  }
+
+  try {
+    const cleanUrl = webhookUrl.trim();
+    const targetUrl = cleanUrl.includes('?')
+      ? `${cleanUrl}&action=get_matching&_t=${Date.now()}`
+      : `${cleanUrl}?action=get_matching&_t=${Date.now()}`;
+
+    let res: any = null;
+    try {
+      const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+      if (proxyRes.ok) {
+        res = await proxyRes.json().catch(() => null);
+      }
+    } catch (proxyErr) {
+      console.warn('Proxy GET matching failed, trying direct:', proxyErr);
+    }
+
+    if (!res || !res.subjects) {
+      try {
+        const directRes = await fetch(targetUrl, {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+        });
+        if (directRes.ok) {
+          res = await directRes.json().catch(() => null);
+        }
+      } catch (directErr) {
+        console.warn('Direct GET matching failed:', directErr);
+      }
+    }
+
+    if (res && res.success && Array.isArray(res.subjects) && res.subjects.length > 0) {
+      try {
+        localStorage.setItem(STORAGE_KEY_MATCHING_CURRICULUM, JSON.stringify(res.subjects));
+      } catch {}
+      return { success: true, subjects: res.subjects };
+    }
+  } catch (err: any) {
+    console.warn('Failed to fetch matching exercises from sheets:', err);
+  }
+
+  // Fallback to cached or initial curriculum
+  try {
+    const cached = localStorage.getItem(STORAGE_KEY_MATCHING_CURRICULUM);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return { success: true, subjects: parsed };
+      }
+    }
+  } catch {}
+
+  return { success: true, subjects: INITIAL_MATCHING_SUBJECTS };
+}
+
+/**
+ * Save or update a matching exercise in sheet "وصل"
+ */
+export async function saveMatchingExerciseToSheets(
+  webhookUrl: string,
+  payload: {
+    subjectName: string;
+    exerciseNumber: number;
+    questionText: string;
+    pairs: MatchingPair[];
+  }
+): Promise<{ success: boolean; error?: string; message?: string }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, error: 'رابط Google Sheets Webhook غير متوفر' };
+  }
+
+  const rightWords = payload.pairs.map((p) => p.rightText.trim()).filter(Boolean).join('|');
+  const leftWords = payload.pairs.map((p) => p.leftText.trim()).filter(Boolean).join('|');
+
+  const postPayload = {
+    action: 'save_matching_exercise',
+    sheetName: 'وصل',
+    subjectName: payload.subjectName.trim(),
+    exerciseNumber: payload.exerciseNumber,
+    questionText: payload.questionText.trim(),
+    rightWords: rightWords,
+    leftWords: leftWords,
+  };
+
+  const res = await callGoogleSheetsPost(webhookUrl, postPayload);
+  return {
+    success: res.success,
+    error: res.error,
+    message: res.success ? 'تم حفظ التمرين بنجاح في ورقة "وصل"!' : res.error,
+  };
+}
+
+/**
+ * Submit student matching answer directly to sheet "answers 2"
+ */
+export async function submitMatchingAnswerToSheet(
+  webhookUrl: string,
+  payload: {
+    studentId: string;
+    studentName: string;
+    subjectName: string;
+    exerciseNumber: number;
+    totalPairs: number;
+    correctCount: number;
+    wrongCount: number;
+    percentage: number;
+    totalExercisesInSubject: number;
+    completedCountInSubject: number;
+    overallPercentage: number;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, error: 'رابط Google Sheets Webhook غير متوفر' };
+  }
+
+  // Format: (5 - الصحيح 4 - الخطأ 1 = 80%)
+  const summaryString = `(${payload.totalPairs} - الصحيح ${payload.correctCount} - الخطأ ${payload.wrongCount} = ${payload.percentage}%)`;
+  
+  // Format overall status: e.g. "تم إنجاز (2 من 3 تمارين) - النسبة التراكمية: 85%"
+  const completionStatus = payload.completedCountInSubject >= payload.totalExercisesInSubject
+    ? `مكتمل (${payload.completedCountInSubject} من ${payload.totalExercisesInSubject} تمارين) - النسبة: ${payload.overallPercentage}%`
+    : `جاري الإنجاز (${payload.completedCountInSubject} من ${payload.totalExercisesInSubject} تمارين) - النسبة التراكمية: ${payload.overallPercentage}%`;
+
+  const postPayload = {
+    action: 'submit_matching_answer',
+    sheetName: 'answers 2',
+    studentId: payload.studentId,
+    studentName: payload.studentName,
+    subjectName: payload.subjectName,
+    exerciseNumber: payload.exerciseNumber,
+    summaryString: summaryString,
+    completionStatus: completionStatus,
+    percentage: payload.percentage,
+    timestamp: new Date().toLocaleString('ar-SA'),
+  };
+
+  const res = await callGoogleSheetsPost(webhookUrl, postPayload);
+  return {
+    success: res.success,
+    error: res.error,
+  };
+}
+
 /**
  * Complete Google Apps Script Template Code
  * Supports:
@@ -1368,6 +1536,56 @@ function getAnswers1Sheet(ss) {
   return sheet;
 }
 
+// دالة مساعدة لإنشاء أو استرجاع ورقة أسئلة تمرين الوصل "وصل"
+function getMatchingSheet(ss) {
+  var sheet = ss.getSheetByName("وصل");
+  if (!sheet) {
+    var all = ss.getSheets();
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].getName().trim() === "وصل") {
+        sheet = all[i];
+        break;
+      }
+    }
+    if (!sheet) {
+      sheet = ss.insertSheet("وصل");
+      var headers = ["موضوع الدرس"];
+      for (var ex = 1; ex <= 10; ex++) {
+        headers.push("السؤال " + ex + " (نص السؤال)");
+        headers.push("كلمات اليمين " + ex + " (|)");
+        headers.push("كلمات اليسار " + ex + " (|)");
+      }
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.getRange(1, 1, 1, headers.length).setBackground("#6b21a8").setFontColor("#ffffff").setFontWeight("bold");
+    }
+  }
+  return sheet;
+}
+
+// دالة مساعدة لإنشاء أو استرجاع ورقة إجابات تمرين الوصل "answers 2"
+function getAnswers2Sheet(ss) {
+  var sheet = ss.getSheetByName("answers 2");
+  if (!sheet) {
+    var all = ss.getSheets();
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].getName().trim().toLowerCase() === "answers 2") {
+        sheet = all[i];
+        break;
+      }
+    }
+    if (!sheet) {
+      sheet = ss.insertSheet("answers 2");
+      var headers = ["وقت الإرسال", "ID المشترك", "اسم المشترك", "موضوع الدرس", "حالة الإنجاز"];
+      for (var ex = 1; ex <= 20; ex++) {
+        headers.push("تمرين " + ex);
+      }
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.getRange(1, 1, 1, headers.length).setBackground("#581c87").setFontColor("#ffffff").setFontWeight("bold");
+    }
+  }
+  return sheet;
+}
+
 // 1. GET: جلب الدروس، أو بيانات ورقة الرئيسية، أو المشتركين، أو سجل إجابات الطالب من answers 1
 function doGet(e) {
   try {
@@ -1513,6 +1731,57 @@ function doGet(e) {
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         translations: transList
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (ج-4) إذا كان الطلب جلب أسئلة تمرين الوصل من ورقة "وصل"
+    if (e && e.parameter && e.parameter.action === "get_matching") {
+      var mSheet = getMatchingSheet(ss);
+      var lastR = mSheet.getLastRow();
+      var lastC = Math.max(4, mSheet.getLastColumn());
+      var subjectsList = [];
+      if (lastR > 1) {
+        var rows = mSheet.getRange(2, 1, lastR - 1, lastC).getValues();
+        for (var r = 0; r < rows.length; r++) {
+          var row = rows[r];
+          var subjName = String(row[0] || "").trim();
+          if (subjName) {
+            var exercises = [];
+            var exNum = 1;
+            for (var c = 1; c < row.length; c += 3) {
+              var qText = String(row[c] || "").trim();
+              var rWords = String(row[c + 1] || "").trim();
+              var lWords = String(row[c + 2] || "").trim();
+              if (qText || rWords || lWords) {
+                var rArr = rWords ? rWords.split("|").map(function(s){return s.trim();}).filter(Boolean) : [];
+                var lArr = lWords ? lWords.split("|").map(function(s){return s.trim();}).filter(Boolean) : [];
+                var pairs = [];
+                var maxLen = Math.max(rArr.length, lArr.length);
+                for (var p = 0; p < maxLen; p++) {
+                  pairs.push({
+                    id: "p-" + p,
+                    rightText: rArr[p] || "",
+                    leftText: lArr[p] || ""
+                  });
+                }
+                exercises.push({
+                  id: "ex-" + exNum,
+                  questionText: qText || ("صل الكلمات المناسبة " + exNum),
+                  pairs: pairs
+                });
+                exNum++;
+              }
+            }
+            subjectsList.push({
+              subject: subjName,
+              exercises: exercises
+            });
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        subjects: subjectsList
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -1700,6 +1969,88 @@ function doPost(e) {
       }
       return ContentService.createTextOutput(JSON.stringify({ success: true, message: "تم حفظ الترجمات بنجاح في ورقة الترجمة وتحديث ورقة الرئيسية" }))
         .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-د) حفظ أو تحديث تمرين وصل الكلمات في ورقة "وصل"
+    if (data.action === "save_matching_exercise") {
+      var mSheet = getMatchingSheet(ss);
+      var subjName = String(data.subject || "").trim();
+      var exIdx = parseInt(data.exerciseIndex || 1);
+      var qText = String(data.questionText || "").trim();
+      var rWords = String(data.rightWords || "").trim();
+      var lWords = String(data.leftWords || "").trim();
+      
+      var lastR = mSheet.getLastRow();
+      var targetRow = -1;
+      if (lastR > 1) {
+        var sVals = mSheet.getRange(2, 1, lastR - 1, 1).getValues();
+        for (var i = 0; i < sVals.length; i++) {
+          if (String(sVals[i][0] || "").trim() === subjName) {
+            targetRow = i + 2;
+            break;
+          }
+        }
+      }
+      if (targetRow === -1) {
+        targetRow = lastR + 1;
+        mSheet.getRange(targetRow, 1).setValue(subjName);
+      }
+      
+      var startCol = 2 + (exIdx - 1) * 3;
+      mSheet.getRange(targetRow, startCol, 1, 3).setValues([[qText, rWords, lWords]]);
+      
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        message: "تم حفظ تمرين الوصل في ورقة (وصل) بنجاح"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-هـ) تسجيل نتائج إجابة تمرين الوصل في ورقة "answers 2"
+    if (data.action === "submit_matching_answer") {
+      var a2Sheet = getAnswers2Sheet(ss);
+      var timestamp = data.timestamp || new Date().toLocaleString("ar-SA");
+      var sId = String(data.studentId || "").trim();
+      var sName = String(data.studentName || "").trim();
+      var subj = String(data.lessonSubject || "").trim();
+      var exIdx = parseInt(data.exerciseIndex || 1);
+      var formula = String(data.resultFormula || "").trim();
+      var compStatus = String(data.completionStatus || "").trim();
+
+      var lastR = a2Sheet.getLastRow();
+      var foundRow = -1;
+      if (lastR > 1) {
+        var rows = a2Sheet.getRange(2, 2, lastR - 1, 3).getValues();
+        for (var r = 0; r < rows.length; r++) {
+          var rId = String(rows[r][0] || "").trim();
+          var rName = String(rows[r][1] || "").trim();
+          var rSubj = String(rows[r][2] || "").trim();
+          if ((sId && rId === sId && rSubj === subj) || (rName === sName && rSubj === subj)) {
+            foundRow = r + 2;
+            break;
+          }
+        }
+      }
+
+      var exCol = 6 + (exIdx - 1);
+      if (foundRow > 0) {
+        a2Sheet.getRange(foundRow, 1).setValue(timestamp);
+        if (sId) a2Sheet.getRange(foundRow, 2).setValue(sId);
+        if (sName) a2Sheet.getRange(foundRow, 3).setValue(sName);
+        if (compStatus) a2Sheet.getRange(foundRow, 5).setValue(compStatus);
+        a2Sheet.getRange(foundRow, exCol).setValue(formula);
+      } else {
+        var newRow = [timestamp, sId, sName, subj, compStatus];
+        while (newRow.length < 5 + exIdx) {
+          newRow.push("");
+        }
+        newRow[5 + (exIdx - 1)] = formula;
+        a2Sheet.appendRow(newRow);
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        message: "تم تسجيل إجابة تمرين الوصل في ورقة (answers 2) بنجاح"
+      })).setMimeType(ContentService.MimeType.JSON);
     }
 
     // (أ) حفظ صوت المعلم في مجلد الإدارة والشرح (1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t)

@@ -9,15 +9,18 @@ import {
   EvaluationMode,
   StudentRegistrant,
   HomeBrandConfig,
+  MatchingLessonSubject,
 } from './types';
 import {
   ALL_CURRICULUM,
   INITIAL_CATEGORIES,
   INITIAL_LESSON_SUBJECTS,
 } from './data/arabicCurriculum';
+import { INITIAL_MATCHING_SUBJECTS } from './data/matchingCurriculum';
 import { Navbar } from './components/Navbar';
 import { PracticeCard } from './components/PracticeCard';
 import { EvaluationCard } from './components/EvaluationCard';
+import { WordMatchingArena } from './components/WordMatchingArena';
 import { StatsModal } from './components/StatsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { GuideModal } from './components/GuideModal';
@@ -32,6 +35,8 @@ import {
   fetchStudentSubmissionsFromSheet,
   fetchTranslationsFromSheets,
   saveTranslationsToSheets,
+  fetchMatchingExercisesFromSheets,
+  STORAGE_KEY_MATCHING_CURRICULUM,
   DEFAULT_WEBHOOK_URL,
   DEFAULT_DRIVE_AUDIO_FOLDER_ID,
   STUDENT_AUDIO_DRIVE_FOLDER_ID,
@@ -110,6 +115,22 @@ export default function App() {
 
   // Main UI Mode: 'landing' (الرئيسية التعريفية) or 'practice' (صفحة التدريب والتسجيل)
   const [currentView, setCurrentView] = useState<'landing' | 'practice'>('landing');
+
+  // Exercise Mode: 'pronunciation' (تمرين نطق الكلمات) or 'matching' (تمرين وصل الكلمات)
+  const [appMode, setAppMode] = useState<'pronunciation' | 'matching'>('pronunciation');
+
+  // Matching Exercises Curriculum (Sheet: "وصل")
+  const [matchingSubjects, setMatchingSubjects] = useState<MatchingLessonSubject[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_MATCHING_CURRICULUM);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return INITIAL_MATCHING_SUBJECTS;
+  });
+
   const [isLessonsModalOpen, setIsLessonsModalOpen] = useState(false);
 
   // Modals & Registration
@@ -245,10 +266,11 @@ export default function App() {
       return;
     }
 
-    const [currRes, homeCfg, transRes] = await Promise.all([
+    const [currRes, homeCfg, transRes, matchRes] = await Promise.all([
       fetchCurriculumFromSheets(url),
       fetchHomeConfigFromSheets(url),
       fetchTranslationsFromSheets(url),
+      fetchMatchingExercisesFromSheets(url),
     ]);
 
     // 1. Update curriculum from sheet "الدروس"
@@ -293,6 +315,14 @@ export default function App() {
         saveStoredTranslations(merged);
         return merged;
       });
+    }
+
+    // 4. Update matching curriculum from sheet "وصل"
+    if (matchRes && matchRes.success && matchRes.subjects && matchRes.subjects.length > 0) {
+      setMatchingSubjects(matchRes.subjects);
+      try {
+        localStorage.setItem(STORAGE_KEY_MATCHING_CURRICULUM, JSON.stringify(matchRes.subjects));
+      } catch {}
     }
   };
 
@@ -617,6 +647,20 @@ export default function App() {
           })
           .catch((err) => {
             console.warn('Auto-fetch translations notice:', err);
+          });
+
+        // Auto-fetch matching exercises from sheet "وصل"
+        fetchMatchingExercisesFromSheets(activeConfig.webhookUrl)
+          .then((mRes) => {
+            if (mRes && mRes.success && mRes.subjects && mRes.subjects.length > 0) {
+              setMatchingSubjects(mRes.subjects);
+              try {
+                localStorage.setItem(STORAGE_KEY_MATCHING_CURRICULUM, JSON.stringify(mRes.subjects));
+              } catch {}
+            }
+          })
+          .catch((err) => {
+            console.warn('Auto-fetch matching notice:', err);
           });
       }
 
@@ -1100,6 +1144,8 @@ export default function App() {
           onUpdateTranslations={handleUpdateTranslations}
           geminiApiKey={settings.geminiApiKey}
           onRefreshFromSheets={handleRefreshAllFromSheets}
+          matchingSubjects={matchingSubjects}
+          onUpdateMatchingSubjects={setMatchingSubjects}
         />
 
         <SettingsModal
@@ -1164,6 +1210,13 @@ export default function App() {
         currentLang={currentLang}
         onSelectLang={handleSelectLang}
         t={t}
+        currentMode={appMode}
+        onSelectMode={(mode) => {
+          setAppMode(mode);
+          if (currentView === 'landing') {
+            setCurrentView('practice');
+          }
+        }}
       />
 
       {/* Main Content Area */}
@@ -1267,6 +1320,45 @@ export default function App() {
                 </div>
               </div>
             </div>
+          </div>
+        ) : appMode === 'matching' ? (
+          /* ========================================================
+             3. WORD MATCHING ARENA (تمرين وصل الكلمات - ورقة "وصل" و "answers 2")
+             ======================================================== */
+          <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+            <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentView('landing')}
+                  className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer shadow-2xs"
+                  title={currentLang === 'ar' ? 'الصفحة الرئيسية' : currentLang === 'th' ? 'หน้าหลัก' : 'Home'}
+                >
+                  <Home className="w-4 h-4 text-slate-700" />
+                </button>
+                <button
+                  onClick={() => setAppMode('pronunciation')}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                  title="العودة إلى تمرين نطق الكلمات والمخارج الصوتية"
+                >
+                  <span>🎙️</span>
+                  <span>العودة لتمرين النطق</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs">
+                <span className="px-3 py-1 bg-purple-50 text-purple-800 border border-purple-200 font-extrabold rounded-xl">
+                  🔗 تمرين وصل الكلمات (ورقة وصل)
+                </span>
+              </div>
+            </div>
+
+            <WordMatchingArena
+              subjects={matchingSubjects}
+              currentStudent={currentStudent}
+              webhookUrl={sheetsConfig.webhookUrl}
+              onBackToPronunciation={() => setAppMode('pronunciation')}
+              onRequestLogin={() => setIsLoginModalOpen(true)}
+            />
           </div>
         ) : (
           /* ========================================================

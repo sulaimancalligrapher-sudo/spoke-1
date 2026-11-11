@@ -36,6 +36,8 @@ interface NavbarProps {
   currentLang?: SupportedLang;
   onSelectLang?: (lang: SupportedLang) => void;
   t?: (id: string, fallback?: string) => string;
+  currentMode?: 'pronunciation' | 'matching';
+  onSelectMode?: (mode: 'pronunciation' | 'matching') => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -60,6 +62,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentLang = 'ar',
   onSelectLang,
   t,
+  currentMode = 'pronunciation',
+  onSelectMode,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
 
@@ -145,6 +149,38 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Unified Language Selector (Arabic, Thai, English) */}
           {onSelectLang && (
             <LanguageSelector currentLang={currentLang} onSelectLang={onSelectLang} />
+          )}
+
+          {/* Mode Switcher: تمرين النطق | تمرين الوصل */}
+          {onSelectMode && (
+            <div className="flex items-center p-0.5 bg-slate-100 border border-slate-200/90 rounded-xl">
+              <button
+                type="button"
+                onClick={() => onSelectMode('pronunciation')}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  currentMode === 'pronunciation'
+                    ? 'bg-white text-emerald-800 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="تمرين نطق الكلمات والمخارج الصوتية"
+              >
+                <span>🎙️</span>
+                <span className="hidden md:inline">تمرين النطق</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelectMode('matching')}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  currentMode === 'matching'
+                    ? 'bg-purple-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="تمرين وصل الكلمات المتناسبة"
+              >
+                <span>🔗</span>
+                <span className="hidden md:inline">تمرين الوصل</span>
+              </button>
+            </div>
           )}
 
           {/* Quick Open Lessons Button */}

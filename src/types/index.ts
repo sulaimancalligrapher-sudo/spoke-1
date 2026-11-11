@@ -168,3 +168,32 @@ export interface HomeBrandConfig {
   card?: HomeCardConfig; // B21:B27: بطاقة الصفحة الرئيسية
   adminUsers?: AdminUserRecord[]; // D2:F31: أسماء الإداريين وأرقام الدخول وحالة المنع
 }
+
+export interface MatchingPair {
+  id: string;
+  rightText: string;
+  leftText: string;
+}
+
+export interface MatchingExercise {
+  id: string;
+  exerciseNumber: number; // 1, 2, 3...
+  questionText: string;
+  pairs: MatchingPair[];
+}
+
+export interface MatchingLessonSubject {
+  id: string;
+  subjectName: string;
+  exercises: MatchingExercise[];
+}
+
+export interface MatchingSubmissionResult {
+  exerciseNumber: number;
+  totalPairs: number;
+  correctCount: number;
+  wrongCount: number;
+  percentage: number;
+  summaryString: string; // e.g. "(5 - الصحيح 4 - الخطأ 1 = 80%)"
+}
+
