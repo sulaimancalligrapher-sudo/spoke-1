@@ -54,6 +54,10 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
     { right: '', left: '' },
   ]);
 
+  // Answer Behavior Controls:
+  const [lockOnMistake, setLockOnMistake] = useState<boolean>(false);
+  const [showMistakeFeedback, setShowMistakeFeedback] = useState<boolean>(true);
+
   const [statusMessage, setStatusMessage] = useState<{
     success: boolean;
     text: string;
@@ -95,6 +99,8 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
             { right: '', left: '' },
           ]
     );
+    setLockOnMistake(!!ex.lockOnMistake);
+    setShowMistakeFeedback(ex.showMistakeFeedback !== false);
     setEditingInfo({
       subjectId: subj.id,
       exerciseId: ex.id,
@@ -116,6 +122,8 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
       { right: '', left: '' },
       { right: '', left: '' },
     ]);
+    setLockOnMistake(false);
+    setShowMistakeFeedback(true);
     setStatusMessage(null);
     setSubTab('list');
   };
@@ -170,6 +178,8 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                   ...ex,
                   questionText: questionText.trim(),
                   pairs: formattedPairs,
+                  lockOnMistake,
+                  showMistakeFeedback,
                 };
               }
               return ex;
@@ -188,6 +198,8 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
         exerciseNumber: exerciseNumberToSave,
         questionText: questionText.trim(),
         pairs: formattedPairs,
+        lockOnMistake,
+        showMistakeFeedback,
       };
 
       if (subjectItem) {
@@ -638,6 +650,90 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
             </button>
           </div>
 
+          {/* Section: Answer Behavior Controls (أزرار تحكم طريقة الإجابة والتصحيح) */}
+          <div className="p-4 bg-purple-50/70 border border-purple-200/90 rounded-2xl space-y-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-purple-700" />
+              <h4 className="text-xs font-black text-purple-950">
+                خيارات طريقة الإجابة وسلوك التوصيل للطالب:
+              </h4>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              {/* Control 1: لا يمكن التراجع عن الإجابة */}
+              <div className="p-3 bg-white rounded-xl border border-purple-200 shadow-2xs space-y-2">
+                <span className="text-[11px] font-extrabold text-slate-800 block">
+                  1. خيار التراجع عند الخطأ:
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setLockOnMistake(false)}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      !lockOnMistake
+                        ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🔄 إتاحة المحاولة
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLockOnMistake(true)}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      lockOnMistake
+                        ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🔒 لا يمكن التراجع
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  {lockOnMistake
+                    ? '✓ تم القفل: إذا أخطأ الطالب في توصيل كلمتين، يُثبّت التوصيل كخطأ نهائي ويُحسب خطأ ولا يمكن التراجع.'
+                    : 'الافتراضي: عند الخطأ يومض باللون الأحمر ويُتاح للطالب التوصيل مرة أخرى حتى يصل للإجابة الصحيحة.'}
+                </p>
+              </div>
+
+              {/* Control 2: إظهار / إخفاء الخطأ */}
+              <div className="p-3 bg-white rounded-xl border border-purple-200 shadow-2xs space-y-2">
+                <span className="text-[11px] font-extrabold text-slate-800 block">
+                  2. إظهار / إخفاء الخطأ:
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowMistakeFeedback(true)}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      showMistakeFeedback
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    👁️ إظهار الخطأ فوراً
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowMistakeFeedback(false)}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      !showMistakeFeedback
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🙈 إخفاء الخطأ
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  {showMistakeFeedback
+                    ? 'الافتراضي: يظهر التنبيه الصوتي والمرئي فوراً للكلمات الصحيحة والخاطئة.'
+                    : 'يتم التوصيل بصمت وهدوء دون إظهار الخطأ، وتظهر الدرجة والأخطاء فقط عند نهاية التمرين بالكامل.'}
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* Submit Actions */}
           <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-3">
             {editingInfo && (
@@ -709,10 +805,20 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                       className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:border-purple-200 transition-all"
                     >
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex flex-wrap items-center gap-1.5 mb-1">
                           <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-900 text-[10px] font-bold">
                             تمرين {ex.exerciseNumber}
                           </span>
+                          {ex.lockOnMistake && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-800 text-[9px] font-bold" title="لا يمكن التراجع عند الخطأ">
+                              🔒 لا تراجع
+                            </span>
+                          )}
+                          {ex.showMistakeFeedback === false && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-800 text-[9px] font-bold" title="الخطأ مخفي حتى نهاية التمرين">
+                              🙈 إخفاء الخطأ
+                            </span>
+                          )}
                           <span className="font-amiri text-base font-bold text-slate-800 truncate">
                             {ex.questionText}
                           </span>

@@ -17,7 +17,7 @@ import { INITIAL_MATCHING_SUBJECTS } from '../data/matchingCurriculum';
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwvjSi46Dm2JfQKUr9W8Qq7NhT-ltB1fTivdFkInEowUxWrxxHZjOg5oXZEfcpm14Pf9A/exec';
+  'https://script.google.com/macros/s/AKfycbzEJ35XDgAbVEQpjhooQcxLcdG8FogEJb5Xgbbgj0nWGYKfwZ5nt1E2KL1boWS5L30dmQ/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -1077,14 +1077,16 @@ export async function saveMatchingExerciseToSheets(
     return { success: false, error: 'رابط Google Sheets Webhook غير متوفر' };
   }
 
-  const rightWords = payload.pairs.map((p) => p.rightText.trim()).filter(Boolean).join('|');
-  const leftWords = payload.pairs.map((p) => p.leftText.trim()).filter(Boolean).join('|');
+  const rightWords = payload.pairs.map((p) => p.rightText.trim()).filter(Boolean).join(' | ');
+  const leftWords = payload.pairs.map((p) => p.leftText.trim()).filter(Boolean).join(' | ');
 
   const postPayload = {
     action: 'save_matching_exercise',
     sheetName: 'وصل',
     subjectName: payload.subjectName.trim(),
+    subject: payload.subjectName.trim(),
     exerciseNumber: payload.exerciseNumber,
+    exerciseIndex: payload.exerciseNumber,
     questionText: payload.questionText.trim(),
     rightWords: rightWords,
     leftWords: leftWords,
@@ -1154,6 +1156,11 @@ export async function submitMatchingAnswerToSheet(
 
 /**
  * Export and populate all matching exercises and subjects directly to sheet "وصل"
+ * Exact Sheet Specification:
+ * - Col A: موضوع الدرس
+ * - Ex 1 (Cols B:D): B = نص السؤال | C = الكلمات في اليمين ( | ) | D = الكلمات في اليسار ( | )
+ * - Ex 2 (Cols E:G): E = نص السؤال | F = الكلمات في اليمين ( | ) | G = الكلمات في اليسار ( | )
+ * - Ex 3 (Cols H:J)... and so on!
  */
 export async function exportAllMatchingCurriculumToSheets(
   webhookUrl: string,
@@ -1163,6 +1170,34 @@ export async function exportAllMatchingCurriculumToSheets(
     return { success: false, message: 'رابط Google Sheets Webhook غير متوفر', count: 0 };
   }
 
+  const formattedSubjects = subjects.map((subj) => ({
+    subjectName: subj.subjectName,
+    exercises: subj.exercises.map((ex) => ({
+      exerciseNumber: ex.exerciseNumber,
+      questionText: ex.questionText,
+      rightWords: ex.pairs.map((p) => p.rightText.trim()).filter(Boolean).join(' | '),
+      leftWords: ex.pairs.map((p) => p.leftText.trim()).filter(Boolean).join(' | '),
+    })),
+  }));
+
+  const totalExercises = subjects.reduce((sum, s) => sum + s.exercises.length, 0);
+
+  // 1. Try single atomic bulk export action (fastest and guarantees perfect horizontal layout)
+  const bulkRes = await callGoogleSheetsPost(webhookUrl, {
+    action: 'export_matching_curriculum',
+    sheetName: 'وصل',
+    subjects: formattedSubjects,
+  });
+
+  if (bulkRes.success) {
+    return {
+      success: true,
+      message: `تم نقل وتصدير ${subjects.length} مواضيع و ${totalExercises} تمارين بنجاح إلى ورقة (وصل) بالهيكل الأفقي المعتمد!`,
+      count: totalExercises,
+    };
+  }
+
+  // 2. Fallback to save_matching_exercise per exercise if script is on an older version
   let savedCount = 0;
   for (const subj of subjects) {
     for (const ex of subj.exercises) {
@@ -1178,7 +1213,7 @@ export async function exportAllMatchingCurriculumToSheets(
 
   return {
     success: true,
-    message: `تم تصدير ونقل ${savedCount} تمرين بنجاح إلى ورقة (وصل)! يمكنك الآن فحص الشيت والتأكد من صحة الهيكل.`,
+    message: `تم نقل وتصدير ${subjects.length} مواضيع و ${savedCount} تمارين إلى ورقة (وصل)!`,
     count: savedCount,
   };
 }
@@ -1585,9 +1620,9 @@ function getMatchingSheet(ss) {
       sheet = ss.insertSheet("وصل");
       var headers = ["موضوع الدرس"];
       for (var ex = 1; ex <= 10; ex++) {
-        headers.push("السؤال " + ex + " (نص السؤال)");
-        headers.push("كلمات اليمين " + ex + " (|)");
-        headers.push("كلمات اليسار " + ex + " (|)");
+        headers.push("السؤال " + ex);
+        headers.push("الكلمات في اليمين " + ex + " ( | )");
+        headers.push("الكلمات في اليسار " + ex + " ( | )");
       }
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
       sheet.getRange(1, 1, 1, headers.length).setBackground("#6b21a8").setFontColor("#ffffff").setFontWeight("bold");
@@ -2005,11 +2040,68 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (0-د) حفظ أو تحديث تمرين وصل الكلمات في ورقة "وصل"
+    // (0-د) تصدير ونقل كافة مواضيع وتمارين وصل الكلمات دفعة واحدة إلى ورقة "وصل"
+    if (data.action === "export_matching_curriculum") {
+      var mSheet = getMatchingSheet(ss);
+      var subjectsArr = data.subjects || [];
+      if (!Array.isArray(subjectsArr)) subjectsArr = [];
+
+      var maxEx = 10;
+      for (var s = 0; s < subjectsArr.length; s++) {
+        if (subjectsArr[s].exercises && subjectsArr[s].exercises.length > maxEx) {
+          maxEx = subjectsArr[s].exercises.length;
+        }
+      }
+
+      // بناء صف العناوين: A = موضوع الدرس | ثم لكل تمرين 3 أعمدة (السؤال | اليمين | اليسار)
+      var headers = ["موضوع الدرس"];
+      for (var ex = 1; ex <= maxEx; ex++) {
+        headers.push("السؤال " + ex);
+        headers.push("الكلمات في اليمين " + ex + " ( | )");
+        headers.push("الكلمات في اليسار " + ex + " ( | )");
+      }
+
+      // مسح المحتويات السابقة لإعادة كتابة الهيكل المعتمد بدقة
+      mSheet.clearContents();
+      mSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      mSheet.getRange(1, 1, 1, headers.length).setBackground("#6b21a8").setFontColor("#ffffff").setFontWeight("bold");
+
+      var dataRows = [];
+      var totalExCount = 0;
+      for (var i = 0; i < subjectsArr.length; i++) {
+        var subj = subjectsArr[i];
+        var row = [String(subj.subjectName || "").trim()];
+        var exercises = subj.exercises || [];
+        for (var e = 0; e < maxEx; e++) {
+          if (e < exercises.length) {
+            var exItem = exercises[e];
+            row.push(String(exItem.questionText || "").trim());
+            row.push(String(exItem.rightWords || "").trim());
+            row.push(String(exItem.leftWords || "").trim());
+            totalExCount++;
+          } else {
+            row.push("", "", "");
+          }
+        }
+        dataRows.push(row);
+      }
+
+      if (dataRows.length > 0) {
+        mSheet.getRange(2, 1, dataRows.length, headers.length).setValues(dataRows);
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        message: "تم تصدير " + subjectsArr.length + " مواضيع و " + totalExCount + " تمارين بنجاح إلى ورقة (وصل)",
+        count: totalExCount
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-د-2) حفظ أو تحديث تمرين وصل الكلمات في ورقة "وصل"
     if (data.action === "save_matching_exercise") {
       var mSheet = getMatchingSheet(ss);
-      var subjName = String(data.subject || "").trim();
-      var exIdx = parseInt(data.exerciseIndex || 1);
+      var subjName = String(data.subjectName || data.subject || "").trim();
+      var exIdx = parseInt(data.exerciseNumber || data.exerciseIndex || 1);
       var qText = String(data.questionText || "").trim();
       var rWords = String(data.rightWords || "").trim();
       var lWords = String(data.leftWords || "").trim();

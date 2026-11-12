@@ -7,7 +7,7 @@ import {
 import { SupportedLang } from '../utils/translations';
 import { submitMatchingAnswerToSheet } from '../utils/googleSheets';
 import { removeTashkeel } from '../utils/arabicMatcher';
-import { transcribeWithInBrowserWhisper } from '../utils/whisperEngine';
+import { transcribeWithInBrowserWhisper, findBestCandidateMatch } from '../utils/whisperEngine';
 import {
   Mic,
   MousePointer,
@@ -168,9 +168,37 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
   const [selectedRightId, setSelectedRightId] = useState<string | null>(null);
   const [selectedLeftId, setSelectedLeftId] = useState<string | null>(null);
 
-  // Completed connections in current exercise
-  const [matchedPairIds, setMatchedPairIds] = useState<string[]>([]);
+interface ConnectedAttempt {
+  rightId: string;
+  leftId: string;
+  isCorrect: boolean;
+  rightText: string;
+  leftText: string;
+  correctLeftText: string;
+}
+
+  // Connections and attempts in current exercise
+  const [connections, setConnections] = useState<ConnectedAttempt[]>([]);
   const [incorrectFlashIds, setIncorrectFlashIds] = useState<{ rightId: string; leftId: string } | null>(null);
+
+  // User Interactive Toggles for Answer Behavior (overrides exercise defaults if set)
+  const [userLockOnMistake, setUserLockOnMistake] = useState<boolean | null>(null);
+  const [userShowMistakeFeedback, setUserShowMistakeFeedback] = useState<boolean | null>(null);
+
+  // Effective settings: User selection takes precedence over exercise default
+  const effectiveLockOnMistake = userLockOnMistake !== null
+    ? userLockOnMistake
+    : !!activeExercise?.lockOnMistake;
+
+  const effectiveShowMistakeFeedback = userShowMistakeFeedback !== null
+    ? userShowMistakeFeedback
+    : activeExercise?.showMistakeFeedback !== false;
+
+  // Helpers to test if card is already connected
+  const isRightConnected = (id: string) => connections.some((c) => c.rightId === id);
+  const isLeftConnected = (id: string) => connections.some((c) => c.leftId === id);
+  const getRightConn = (id: string) => connections.find((c) => c.rightId === id);
+  const getLeftConn = (id: string) => connections.find((c) => c.leftId === id);
 
   // Score tracking for current exercise
   const [correctCount, setCorrectCount] = useState<number>(0);
@@ -224,12 +252,14 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
     setLeftItems(shuffledL);
     setSelectedRightId(null);
     setSelectedLeftId(null);
-    setMatchedPairIds([]);
+    setConnections([]);
     setIncorrectFlashIds(null);
     setCorrectCount(0);
     setWrongCount(0);
     setIsCompleted(false);
     setSheetSyncSuccess(null);
+    setUserLockOnMistake(null);
+    setUserShowMistakeFeedback(null);
     setGuidanceBox({
       type: 'info',
       message: 'ابدأ التوصيل: انقر بالفأرة واللمس 🖱️ أو اضغط زر تسجيل النطق 🎙️',
@@ -344,9 +374,11 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
 
         try {
           const audioBlob = new Blob(chunks, { type: mimeType });
-          const allWords = [
-            ...rightItems.map((i) => i.text),
-            ...leftItems.map((i) => i.text),
+          const connectedRIds = new Set(connections.map((c) => c.rightId));
+          const connectedLIds = new Set(connections.map((c) => c.leftId));
+          const remainingCandidates = [
+            ...rightItems.filter((i) => !connectedRIds.has(i.id)).map((i) => i.text),
+            ...leftItems.filter((i) => !connectedLIds.has(i.id)).map((i) => i.text),
           ];
 
           const text = await transcribeWithInBrowserWhisper(
@@ -354,17 +386,18 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
             undefined,
             1,
             undefined,
-            { lessonVocabulary: allWords }
+            { lessonVocabulary: remainingCandidates, audioDuration: 2.2 }
           );
 
           setIsTranscribing(false);
-          const trimmed = (text || '').trim();
-          if (trimmed) {
-            handleVoiceMatchedWord(trimmed);
+          const rawSpoken = (text || '').trim();
+          if (rawSpoken) {
+            const snapped = findBestCandidateMatch(rawSpoken, remainingCandidates);
+            handleVoiceMatchedWord(snapped || rawSpoken);
           } else {
             setGuidanceBox({
               type: 'error',
-              message: 'لم يتم التعرف على الكلمة بدقة، حاول نطق كلمة من الكلمات المعروضة.',
+              message: 'لم يتم التقاط كلمة واضحة، انطق إحدى الكلمات المعروضة وحاول مجدداً.',
             });
           }
         } catch (err: any) {
@@ -379,14 +412,14 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
 
       recorder.start(100);
 
-      // Stop recording automatically after 3.2 seconds
+      // Stop recording automatically after 2.2 seconds for snappy response in Firefox
       recordingTimeoutRef.current = setTimeout(() => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
           try {
             mediaRecorderRef.current.stop();
           } catch {}
         }
-      }, 3200);
+      }, 2200);
     } catch (err: any) {
       console.warn('Microphone access error in Firefox/MediaRecorder:', err);
       stopVoiceRecording();
@@ -445,7 +478,7 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
         recognizer.maxAlternatives = 3;
         recognizer.lang = 'ar-SA';
 
-        // Auto-stop after 4 seconds on PC Chrome to guarantee button returns to normal
+        // Auto-stop after 3.5 seconds on PC Chrome to guarantee button returns to normal
         recordingTimeoutRef.current = setTimeout(() => {
           stopVoiceRecording();
           setGuidanceBox((prev) =>
@@ -456,7 +489,7 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
                 }
               : prev
           );
-        }, 4000);
+        }, 3500);
 
         recognizer.onresult = (event: any) => {
           stopVoiceRecording();
@@ -507,9 +540,13 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
 
     // Case 1: If right item is not yet selected
     if (!selectedRightId) {
-      // Search in right items
-      const matchR = rightItems.find((item) => {
-        if (matchedPairIds.includes(item.pairId)) return false;
+      // 1. Check in available right items
+      const availableRights = rightItems.filter((item) => !isRightConnected(item.id));
+      const rightTexts = availableRights.map((i) => i.text);
+      const snappedRight = findBestCandidateMatch(cleanSpoken, rightTexts);
+
+      const matchR = availableRights.find((item) => {
+        if (snappedRight && item.text === snappedRight) return true;
         const cleanItem = removeTashkeel(item.text).toLowerCase().trim();
         return cleanSpoken.includes(cleanItem) || cleanItem.includes(cleanSpoken);
       });
@@ -524,9 +561,13 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
         return;
       }
 
-      // Or maybe student spoke a left item first
-      const matchL = leftItems.find((item) => {
-        if (matchedPairIds.includes(item.pairId)) return false;
+      // 2. Or maybe student spoke an available left item first
+      const availableLefts = leftItems.filter((item) => !isLeftConnected(item.id));
+      const leftTexts = availableLefts.map((i) => i.text);
+      const snappedLeft = findBestCandidateMatch(cleanSpoken, leftTexts);
+
+      const matchL = availableLefts.find((item) => {
+        if (snappedLeft && item.text === snappedLeft) return true;
         const cleanItem = removeTashkeel(item.text).toLowerCase().trim();
         return cleanSpoken.includes(cleanItem) || cleanItem.includes(cleanSpoken);
       });
@@ -545,21 +586,24 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
       playAudioChime('error');
       setGuidanceBox({
         type: 'error',
-        message: `⚠️ سُمع: «${spokenText}» — لم تتطابق مع الكلمات المتبقية، حاول نطق كلمة أخرى من الكلمات الظاهرة.`,
+        message: `⚠️ سُمع: «${spokenText}» — لم تتطابق مع الكلمات المتبقية، انطق كلمة أخرى من الكلمات الظاهرة.`,
       });
       return;
     }
 
     // Case 2: Right item is already selected -> test match with left column!
-    const rItem = rightItems.find((i) => i.id === selectedRightId);
-    const matchL = leftItems.find((item) => {
-      if (matchedPairIds.includes(item.pairId)) return false;
+    const availableLefts = leftItems.filter((item) => !isLeftConnected(item.id));
+    const leftTexts = availableLefts.map((i) => i.text);
+    const snappedLeft = findBestCandidateMatch(cleanSpoken, leftTexts);
+
+    const matchL = availableLefts.find((item) => {
+      if (snappedLeft && item.text === snappedLeft) return true;
       const cleanItem = removeTashkeel(item.text).toLowerCase().trim();
       return cleanSpoken.includes(cleanItem) || cleanItem.includes(cleanSpoken);
     });
 
-    if (matchL && rItem) {
-      handleCheckMatch(rItem.id, matchL.id);
+    if (matchL) {
+      handleCheckMatch(selectedRightId, matchL.id);
     } else {
       playAudioChime('error');
       setGuidanceBox({
@@ -575,42 +619,108 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
     const lItem = leftItems.find((i) => i.id === lId);
     if (!rItem || !lItem) return;
 
-    if (rItem.pairId === lItem.pairId) {
+    const correctPair = activeExercise?.pairs.find((p) => p.id === rItem.pairId);
+    const isCorrect = rItem.pairId === lItem.pairId;
+    const correctLeft = correctPair?.leftText || '';
+
+    if (isCorrect) {
       // Correct Match!
-      playAudioChime('success');
-      const newMatched = [...matchedPairIds, rItem.pairId];
-      setMatchedPairIds(newMatched);
-      setCorrectCount((prev) => prev + 1);
+      const newConn: ConnectedAttempt = {
+        rightId: rId,
+        leftId: lId,
+        isCorrect: true,
+        rightText: rItem.text,
+        leftText: lItem.text,
+        correctLeftText: correctLeft,
+      };
+      const nextConnections = [...connections, newConn];
+      setConnections(nextConnections);
+      const nextCorrect = correctCount + 1;
+      setCorrectCount(nextCorrect);
       setSelectedRightId(null);
       setSelectedLeftId(null);
-      setGuidanceBox({
-        type: 'success',
-        message: `✓ أحسنت! إجابة صحيحة: «${rItem.text}» ⟷ «${lItem.text}»`,
-      });
+
+      if (effectiveShowMistakeFeedback) {
+        playAudioChime('success');
+        setGuidanceBox({
+          type: 'success',
+          message: `✓ أحسنت! إجابة صحيحة: «${rItem.text}» ⟷ «${lItem.text}»`,
+        });
+      } else {
+        playAudioChime('tap');
+        setGuidanceBox({
+          type: 'info',
+          message: `تم التوصيل بنجاح. تابع توصيل الكلمات المتبقية.`,
+        });
+      }
 
       // Check if all pairs are solved
-      if (activeExercise && newMatched.length >= activeExercise.pairs.length) {
-        handleExerciseFinished(correctCount + 1, wrongCount);
+      if (activeExercise && nextConnections.length >= activeExercise.pairs.length) {
+        handleExerciseFinished(nextCorrect, wrongCount, nextConnections);
       }
     } else {
       // Wrong Match!
-      playAudioChime('error');
-      setWrongCount((prev) => prev + 1);
-      setIncorrectFlashIds({ rightId: rId, leftId: lId });
-      setGuidanceBox({
-        type: 'error',
-        message: `❌ إجابة غير صحيحة: «${rItem.text}» لا تطابق «${lItem.text}»، حاول مجدداً!`,
-      });
-      setTimeout(() => {
-        setIncorrectFlashIds(null);
+      const shouldLock = effectiveLockOnMistake || !effectiveShowMistakeFeedback;
+
+      if (shouldLock) {
+        // Locked as incorrect! Cannot undo!
+        const newConn: ConnectedAttempt = {
+          rightId: rId,
+          leftId: lId,
+          isCorrect: false,
+          rightText: rItem.text,
+          leftText: lItem.text,
+          correctLeftText: correctLeft,
+        };
+        const nextConnections = [...connections, newConn];
+        setConnections(nextConnections);
+        const nextWrong = wrongCount + 1;
+        setWrongCount(nextWrong);
         setSelectedRightId(null);
         setSelectedLeftId(null);
-      }, 700);
+
+        if (effectiveShowMistakeFeedback) {
+          playAudioChime('error');
+          setGuidanceBox({
+            type: 'error',
+            message: `❌ إجابة غير صحيحة! تم تثبيت النتيجة ولا يمكن التراجع عنها.`,
+          });
+        } else {
+          playAudioChime('tap');
+          setGuidanceBox({
+            type: 'info',
+            message: `تم التوصيل. تابع توصيل الكلمات المتبقية.`,
+          });
+        }
+
+        // Check if all pairs are solved
+        if (activeExercise && nextConnections.length >= activeExercise.pairs.length) {
+          handleExerciseFinished(correctCount, nextWrong, nextConnections);
+        }
+      } else {
+        // Standard Retry Mode: Flash error and let student retry
+        playAudioChime('error');
+        setWrongCount((prev) => prev + 1);
+        setIncorrectFlashIds({ rightId: rId, leftId: lId });
+        setGuidanceBox({
+          type: 'error',
+          message: `❌ إجابة غير صحيحة: «${rItem.text}» لا تطابق «${lItem.text}»، حاول مجدداً!`,
+        });
+        setTimeout(() => {
+          setIncorrectFlashIds(null);
+          setSelectedRightId(null);
+          setSelectedLeftId(null);
+        }, 700);
+      }
     }
   };
 
   // When exercise finishes, auto-submit to sheet "answers 2"
-  const handleExerciseFinished = async (finalCorrect: number, finalWrong: number) => {
+  const handleExerciseFinished = async (
+    finalCorrect: number,
+    finalWrong: number,
+    _finalConnections?: ConnectedAttempt[]
+  ) => {
     setIsCompleted(true);
     stopVoiceRecording();
     if (!activeExercise || !activeSubject) return;
@@ -663,7 +773,7 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
 
   // User click on right column card
   const handleRightCardClick = (item: ShuffledItem) => {
-    if (matchedPairIds.includes(item.pairId) || isCompleted) return;
+    if (isRightConnected(item.id) || isCompleted) return;
     playAudioChime('tap');
 
     if (selectedRightId === item.id) {
@@ -681,7 +791,7 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
 
   // User click on left column card
   const handleLeftCardClick = (item: ShuffledItem) => {
-    if (matchedPairIds.includes(item.pairId) || isCompleted) return;
+    if (isLeftConnected(item.id) || isCompleted) return;
     playAudioChime('tap');
 
     if (selectedLeftId === item.id) {
@@ -823,8 +933,39 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
           </h2>
         </div>
 
+        {/* Answer Behavior Mode Badges & Quick Toggles */}
+        <div className="flex flex-wrap items-center justify-center gap-2 mb-3">
+          {/* Toggle 1: Lock on Mistake */}
+          <button
+            type="button"
+            onClick={() => setUserLockOnMistake(!effectiveLockOnMistake)}
+            className={`px-3 py-1 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs ${
+              effectiveLockOnMistake
+                ? 'bg-rose-50 border-rose-300 text-rose-800'
+                : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+            }`}
+            title="انقر للتبديل: هل يمكن التراجع عند الخطأ أم محاولة واحدة وتثبيت النتيجة؟"
+          >
+            <span>{effectiveLockOnMistake ? '🔒 لا يمكن التراجع عن الإجابة' : '🔄 إتاحة المحاولة عند الخطأ'}</span>
+          </button>
+
+          {/* Toggle 2: Show/Hide Feedback */}
+          <button
+            type="button"
+            onClick={() => setUserShowMistakeFeedback(!effectiveShowMistakeFeedback)}
+            className={`px-3 py-1 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs ${
+              !effectiveShowMistakeFeedback
+                ? 'bg-indigo-50 border-indigo-300 text-indigo-900 ring-2 ring-indigo-200'
+                : 'bg-emerald-50 border-emerald-300 text-emerald-900'
+            }`}
+            title="انقر للتبديل: هل يظهر الخطأ فوراً أم يُخفى حتى نهاية التمرين؟"
+          >
+            <span>{effectiveShowMistakeFeedback ? '👁️ إظهار الخطأ فوراً' : '🙈 الخطأ مخفي حتى النهاية'}</span>
+          </button>
+        </div>
+
         {/* 2 Dedicated Interaction Buttons: زر تشغيل الفأرة & زر تسجيل النطق */}
-        <div className="flex flex-wrap items-center justify-center gap-3 my-3 w-full max-w-md">
+        <div className="flex flex-wrap items-center justify-center gap-3 my-2 w-full max-w-md">
           {/* Button 1: تشغيل الفأرة */}
           <button
             type="button"
@@ -901,7 +1042,9 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
                 العمود الأيمن
               </span>
               {rightItems.map((item) => {
-                const isMatched = matchedPairIds.includes(item.pairId);
+                const conn = getRightConn(item.id);
+                const isMatched = !!conn;
+                const isCorrectMatch = conn?.isCorrect;
                 const isSelected = selectedRightId === item.id;
                 const isFlashingWrong = incorrectFlashIds?.rightId === item.id;
 
@@ -912,7 +1055,11 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
                     disabled={isMatched}
                     className={`w-full p-3 sm:p-4 rounded-2xl border-2 font-amiri text-lg sm:text-2xl font-bold transition-all flex items-center justify-between cursor-pointer active:scale-98 select-none ${
                       isMatched
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-60 cursor-default'
+                        ? effectiveShowMistakeFeedback
+                          ? isCorrectMatch
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-60 cursor-default'
+                            : 'bg-rose-50 border-rose-300 text-rose-900 opacity-70 cursor-default line-through'
+                          : 'bg-purple-50/80 border-purple-200 text-purple-900 opacity-70 cursor-default'
                         : isFlashingWrong
                         ? 'bg-rose-50 border-rose-500 text-rose-900'
                         : isSelected
@@ -921,7 +1068,17 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
                     }`}
                   >
                     <span className="truncate">{item.text}</span>
-                    {isMatched && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+                    {isMatched && (
+                      effectiveShowMistakeFeedback ? (
+                        isCorrectMatch ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                        )
+                      ) : (
+                        <span className="text-xs text-purple-600 shrink-0 font-sans">🔗</span>
+                      )
+                    )}
                   </button>
                 );
               })}
@@ -933,7 +1090,9 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
                 العمود الأيسر
               </span>
               {leftItems.map((item) => {
-                const isMatched = matchedPairIds.includes(item.pairId);
+                const conn = getLeftConn(item.id);
+                const isMatched = !!conn;
+                const isCorrectMatch = conn?.isCorrect;
                 const isSelected = selectedLeftId === item.id;
                 const isFlashingWrong = incorrectFlashIds?.leftId === item.id;
 
@@ -944,7 +1103,11 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
                     disabled={isMatched}
                     className={`w-full p-3 sm:p-4 rounded-2xl border-2 font-amiri text-lg sm:text-2xl font-bold transition-all flex items-center justify-between cursor-pointer active:scale-98 select-none ${
                       isMatched
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-60 cursor-default'
+                        ? effectiveShowMistakeFeedback
+                          ? isCorrectMatch
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-60 cursor-default'
+                            : 'bg-rose-50 border-rose-300 text-rose-900 opacity-70 cursor-default line-through'
+                          : 'bg-purple-50/80 border-purple-200 text-purple-900 opacity-70 cursor-default'
                         : isFlashingWrong
                         ? 'bg-rose-50 border-rose-500 text-rose-900'
                         : isSelected
@@ -953,7 +1116,17 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
                     }`}
                   >
                     <span className="truncate">{item.text}</span>
-                    {isMatched && <CheckCircle2 className="w-4 h-4 text-purple-600 shrink-0" />}
+                    {isMatched && (
+                      effectiveShowMistakeFeedback ? (
+                        isCorrectMatch ? (
+                          <CheckCircle2 className="w-4 h-4 text-purple-600 shrink-0" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                        )
+                      ) : (
+                        <span className="text-xs text-purple-600 shrink-0 font-sans">🔗</span>
+                      )
+                    )}
                   </button>
                 );
               })}
@@ -979,6 +1152,43 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
             <div className="bg-white p-4 rounded-2xl border border-purple-200/90 shadow-xs font-mono text-base sm:text-lg font-black text-purple-950 tracking-wide dir-ltr select-all">
               ({totalPairsCount} - الصحيح {correctCount} - الخطأ {wrongCount} = {accuracyPercent}%)
             </div>
+
+            {/* Detailed Reveal Breakdown if Feedback was Hidden during exercise */}
+            {!effectiveShowMistakeFeedback && connections.length > 0 && (
+              <div className="bg-white/95 p-3.5 rounded-2xl border border-purple-200 text-right space-y-2 shadow-2xs">
+                <span className="text-xs font-extrabold text-slate-800 block border-b border-slate-100 pb-1.5">
+                  كشف الإجابات والتوصيلات:
+                </span>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {connections.map((c, idx) => (
+                    <div
+                      key={idx}
+                      className={`p-2 rounded-xl border text-xs flex items-center justify-between gap-2 ${
+                        c.isCorrect
+                          ? 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
+                          : 'bg-rose-50/90 border-rose-200 text-rose-950'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {c.isCorrect ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                        )}
+                        <span className="font-amiri font-bold text-sm">
+                          {c.rightText} ⟷ {c.leftText}
+                        </span>
+                      </div>
+                      {!c.isCorrect && (
+                        <span className="text-[10px] font-bold text-rose-800 bg-white px-2 py-0.5 rounded-md border border-rose-200">
+                          الصواب: {c.correctLeftText}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Student & Sheet Sync feedback */}
             <div className="text-xs text-slate-600 space-y-1.5 pt-1">

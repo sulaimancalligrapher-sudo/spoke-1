@@ -252,21 +252,29 @@ export async function transcribeWithInBrowserWhisper(
     if (options?.lessonVocabulary && options.lessonVocabulary.length > 0) {
       const extraVocab = options.lessonVocabulary
         .filter((w) => w && w.trim() !== cleanTarget)
-        .slice(0, 5)
+        .slice(0, 8)
         .join(' ، ');
       if (extraVocab) {
         cleanPrompt += ` مفردات الدرس: ${extraVocab}.`;
       }
     }
+  } else if (options?.lessonVocabulary && options.lessonVocabulary.length > 0) {
+    // When transcribing matching exercise without a single target:
+    const vocabList = options.lessonVocabulary.slice(0, 12).join(' ، ');
+    cleanPrompt = `تمرين قراءة ووصل كلمات عربية فصيحة، الكلمات المتاحة للتوصيل: ${vocabList}.`;
   }
+
+  // Fast chunk length for brief utterance (under 5 seconds) to dramatically speed up WebAssembly
+  const isBriefAudio = (options?.audioDuration && options.audioDuration <= 5) || pcmData.length < 16000 * 5;
+  const chunkLength = isBriefAudio ? 10 : 30;
 
   // When repetition is enabled, we explicitly set repetition_penalty to 1.0 (neutral)
   // and no_repeat_ngram_size to 0, allowing Whisper to emit identical repeated tokens!
   const output = await transcriber(pcmData, {
     language: 'arabic',
     task: 'transcribe',
-    chunk_length_s: 30,
-    stride_length_s: 5,
+    chunk_length_s: chunkLength,
+    stride_length_s: isBriefAudio ? 2 : 5,
     initial_prompt: cleanPrompt,
     temperature: 0.0,
     repetition_penalty: isRepetition ? 1.0 : 1.05,
@@ -316,6 +324,11 @@ export async function transcribeWithInBrowserWhisper(
         cleanText = atomicTarget;
       }
     }
+  } else if (!cleanTarget && options?.lessonVocabulary && options.lessonVocabulary.length > 0 && cleanText) {
+    const matchedCandidate = findBestCandidateMatch(cleanText, options.lessonVocabulary);
+    if (matchedCandidate) {
+      cleanText = matchedCandidate;
+    }
   }
 
   // 3. CONSTRAINED REPETITION EXPANSION
@@ -339,3 +352,78 @@ export async function transcribeWithInBrowserWhisper(
 
   return cleanText;
 }
+
+/**
+ * Snap a decoded speech text to the closest matching candidate word in the active exercise
+ */
+export function findBestCandidateMatch(decodedText: string, candidates: string[]): string | null {
+  if (!decodedText || !candidates || candidates.length === 0) return null;
+
+  const normalize = (s: string) =>
+    removeTashkeel(s)
+      .toLowerCase()
+      .replace(/[إأآا]/g, 'ا')
+      .replace(/[ىي]/g, 'ي')
+      .replace(/ة/g, 'ه')
+      .replace(/[.,!؟;:_#%&*()<>[\]{}"']/g, '')
+      .trim();
+
+  const stripPrefixes = (s: string) => {
+    let t = s;
+    if (t.startsWith('ال') && t.length > 3) t = t.substring(2);
+    if ((t.startsWith('و') || t.startsWith('ب') || t.startsWith('ل') || t.startsWith('ف')) && t.length > 3) {
+      t = t.substring(1);
+    }
+    return t;
+  };
+
+  const normDecoded = normalize(decodedText);
+  const bareDecoded = stripPrefixes(normDecoded);
+
+  // 1. Exact or stripped prefix match
+  for (const cand of candidates) {
+    const normCand = normalize(cand);
+    const bareCand = stripPrefixes(normCand);
+    if (normCand === normDecoded || bareCand === bareDecoded || normCand === bareDecoded || bareCand === normDecoded) {
+      return cand;
+    }
+  }
+
+  // 2. Substring containment
+  for (const cand of candidates) {
+    const normCand = normalize(cand);
+    if (normDecoded.includes(normCand) || normCand.includes(normDecoded)) {
+      return cand;
+    }
+  }
+
+  // 3. Levenshtein similarity scoring
+  let bestCand: string | null = null;
+  let bestScore = 0;
+
+  for (const cand of candidates) {
+    const normCand = normalize(cand);
+    const bareCand = stripPrefixes(normCand);
+
+    const dist1 = getLevenshteinDistance(normDecoded, normCand);
+    const maxLen1 = Math.max(normDecoded.length, normCand.length);
+    const score1 = maxLen1 > 0 ? 1 - dist1 / maxLen1 : 0;
+
+    const dist2 = getLevenshteinDistance(bareDecoded, bareCand);
+    const maxLen2 = Math.max(bareDecoded.length, bareCand.length);
+    const score2 = maxLen2 > 0 ? 1 - dist2 / maxLen2 : 0;
+
+    const finalScore = Math.max(score1, score2);
+    if (finalScore > bestScore) {
+      bestScore = finalScore;
+      bestCand = cand;
+    }
+  }
+
+  if (bestScore >= 0.50 && bestCand) {
+    return bestCand;
+  }
+
+  return null;
+}
+
