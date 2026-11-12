@@ -2,16 +2,14 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   MatchingLessonSubject,
   MatchingExercise,
-  MatchingPair,
   StudentRegistrant,
 } from '../types';
 import { SupportedLang } from '../utils/translations';
 import { submitMatchingAnswerToSheet } from '../utils/googleSheets';
-import { createSpeechRecognizer, isSpeechRecognitionSupported } from '../utils/arabicAudio';
 import { removeTashkeel } from '../utils/arabicMatcher';
 import {
   Mic,
-  MicOff,
+  MousePointer,
   Sparkles,
   Award,
   RotateCcw,
@@ -20,13 +18,10 @@ import {
   CheckCircle2,
   AlertCircle,
   HelpCircle,
-  Volume2,
   BookOpen,
-  Send,
   Loader2,
   User,
   ArrowRight,
-  RefreshCw,
 } from 'lucide-react';
 
 interface WordMatchingArenaProps {
@@ -39,20 +34,31 @@ interface WordMatchingArenaProps {
   onRequestLogin?: () => void;
   onGoToPronunciation?: () => void;
   onBackToPronunciation?: () => void;
+  activeSubjectId?: string;
+  activeExerciseIndex?: number;
+  onSelectSubjectExercise?: (subjectId: string, exerciseIndex: number) => void;
+  onOpenMatchingLessonsModal?: () => void;
 }
 
 interface ShuffledItem {
-  id: string; // unique item id
+  id: string;
   text: string;
-  pairId: string; // ID of the pair it belongs to
+  pairId: string;
 }
 
-// Simple synthesizer for instant chime effects without external assets
+// Cross-browser safe audio synthesizer (Safari, Chrome, Firefox, iOS, Android)
+let sharedAudioCtx: AudioContext | null = null;
 function playAudioChime(type: 'success' | 'error' | 'tap') {
   try {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
+    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+      sharedAudioCtx = new AudioContextClass();
+    }
+    if (sharedAudioCtx.state === 'suspended') {
+      sharedAudioCtx.resume().catch(() => {});
+    }
+    const ctx = sharedAudioCtx;
     const now = ctx.currentTime;
 
     if (type === 'success') {
@@ -71,13 +77,13 @@ function playAudioChime(type: 'success' | 'error' | 'tap') {
         osc.stop(now + idx * 0.08 + 0.35);
       });
     } else if (type === 'error') {
-      // Gentle soft error buzz
+      // Soft gentle error buzz
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sawtooth';
       osc.frequency.setValueAtTime(180, now);
       osc.frequency.exponentialRampToValueAtTime(110, now + 0.25);
-      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.setValueAtTime(0.12, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -109,16 +115,33 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
   onRequestLogin,
   onGoToPronunciation,
   onBackToPronunciation,
+  activeSubjectId,
+  activeExerciseIndex = 0,
+  onSelectSubjectExercise,
+  onOpenMatchingLessonsModal,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
   const handleTriggerLogin = onRequestLogin || onOpenLogin || (() => {});
   const handleTriggerPronunciation = onBackToPronunciation || onGoToPronunciation || (() => {});
 
-  // Active Subject & Exercise
+  // Active Subject & Exercise state
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>(
-    subjects[0]?.id || ''
+    activeSubjectId || subjects[0]?.id || ''
   );
-  const [exerciseIndex, setExerciseIndex] = useState<number>(0);
+  const [exerciseIndex, setExerciseIndex] = useState<number>(activeExerciseIndex);
+
+  // Synchronize when activeSubjectId or activeExerciseIndex prop changes from outside (e.g. MatchingLessonsModal)
+  useEffect(() => {
+    if (activeSubjectId) {
+      setSelectedSubjectId(activeSubjectId);
+    }
+  }, [activeSubjectId]);
+
+  useEffect(() => {
+    if (typeof activeExerciseIndex === 'number') {
+      setExerciseIndex(activeExerciseIndex);
+    }
+  }, [activeExerciseIndex]);
 
   // Keep selectedSubject in sync if subjects change
   useEffect(() => {
@@ -153,18 +176,28 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
   const [wrongCount, setWrongCount] = useState<number>(0);
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
 
-  // Student progress in this subject (number of exercises completed so far)
+  // Student progress in this subject
   const [completedExercisesInSubject, setCompletedExercisesInSubject] = useState<Record<number, number>>({});
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [sheetSyncSuccess, setSheetSyncSuccess] = useState<string | null>(null);
 
-  // Speech Recognition
+  // Interaction Mode & Voice Recognition state
+  const [activeInputMode, setActiveInputMode] = useState<'mouse' | 'voice'>('mouse');
   const [isListening, setIsListening] = useState<boolean>(false);
-  const [speechHint, setSpeechHint] = useState<string | null>(null);
+  const [guidanceBox, setGuidanceBox] = useState<{
+    type: 'success' | 'error' | 'recording' | 'info';
+    message: string;
+  }>({
+    type: 'info',
+    message: 'اختر طريقة التوصيل: انقر بالفأرة/اللمس 🖱️ أو اضغط زر تسجيل النطق 🎙️',
+  });
+
+  const recordingTimeoutRef = useRef<any>(null);
   const recognizerRef = useRef<any>(null);
 
   // Initialize or re-shuffle when activeExercise changes
   const initExercise = () => {
+    stopVoiceRecording();
     if (!activeExercise || !activeExercise.pairs.length) return;
 
     // Shuffle right items
@@ -193,12 +226,204 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
     setWrongCount(0);
     setIsCompleted(false);
     setSheetSyncSuccess(null);
-    setSpeechHint(null);
+    setGuidanceBox({
+      type: 'info',
+      message: 'ابدأ التوصيل: انقر بالفأرة واللمس 🖱️ أو اضغط زر تسجيل النطق 🎙️',
+    });
   };
 
   useEffect(() => {
     initExercise();
   }, [activeExercise]);
+
+  // Clean up timers & speech recognizer on unmount
+  useEffect(() => {
+    return () => {
+      stopVoiceRecording();
+    };
+  }, []);
+
+  // Stop recording safely and revert button to normal state
+  const stopVoiceRecording = () => {
+    if (recordingTimeoutRef.current) {
+      clearTimeout(recordingTimeoutRef.current);
+      recordingTimeoutRef.current = null;
+    }
+    if (recognizerRef.current) {
+      try {
+        recognizerRef.current.abort();
+      } catch {}
+      recognizerRef.current = null;
+    }
+    setIsListening(false);
+  };
+
+  // Button 1: Activate Mouse/Touch Mode
+  const handleActivateMouseMode = () => {
+    stopVoiceRecording();
+    setActiveInputMode('mouse');
+    setGuidanceBox({
+      type: 'info',
+      message: 'وضع الفأرة واللمس مفعّل: انقر على الكلمة في اليمين ثم مقابلتها في اليسار 🖱️',
+    });
+  };
+
+  // Button 2: Start Voice Recording
+  const handleStartVoiceRecording = () => {
+    if (isCompleted) return;
+
+    if (isListening) {
+      stopVoiceRecording();
+      setGuidanceBox({
+        type: 'info',
+        message: 'تم إيقاف التسجيل. اضغط تسجيل نطق مجدداً أو استخدم الفأرة.',
+      });
+      return;
+    }
+
+    setActiveInputMode('voice');
+    setIsListening(true);
+    setGuidanceBox({
+      type: 'recording',
+      message: 'استمع لصوتك... انطق أي كلمة ظاهرة أمامك بوضوح 🎙️',
+    });
+
+    // Auto-stop after 4.5 seconds and return button to normal state
+    recordingTimeoutRef.current = setTimeout(() => {
+      stopVoiceRecording();
+      setGuidanceBox((prev) =>
+        prev?.type === 'recording'
+          ? {
+              type: 'error',
+              message: 'انتهت مدة الاستماع دون التقاط صوت واضح. اضغط تسجيل نطق وحاول مجدداً.',
+            }
+          : prev
+      );
+    }, 4500);
+
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRec) {
+      try {
+        const recognizer = new SpeechRec();
+        // CRITICAL FOR PC CHROME, SAFARI, AND ALL BROWSERS:
+        // continuous = false ensures single-utterance and automatic onend
+        recognizer.continuous = false;
+        recognizer.interimResults = false;
+        recognizer.maxAlternatives = 3;
+        recognizer.lang = 'ar-SA';
+
+        recognizer.onresult = (event: any) => {
+          stopVoiceRecording();
+          const transcript = event.results?.[0]?.[0]?.transcript || '';
+          const trimmed = transcript.trim().replace(/[.,!؟]/g, '');
+          if (trimmed) {
+            handleVoiceMatchedWord(trimmed);
+          }
+        };
+
+        recognizer.onerror = (event: any) => {
+          console.warn('Speech error notice:', event.error);
+          stopVoiceRecording();
+          if (event.error !== 'aborted' && event.error !== 'no-speech') {
+            setGuidanceBox({
+              type: 'error',
+              message: 'لم يتم التقاط النطق بوضوح. تأكد من تفعيل الميكروفون والتحدث بوضوح.',
+            });
+          }
+        };
+
+        recognizer.onend = () => {
+          stopVoiceRecording();
+        };
+
+        recognizerRef.current = recognizer;
+        recognizer.start();
+      } catch (err) {
+        console.warn('Speech start error:', err);
+        stopVoiceRecording();
+        setGuidanceBox({
+          type: 'error',
+          message: 'تعذر تشغيل الميكروفون في هذا المتصفح. يمكنك التوصيل بالفأرة أو اللمس بسهولة.',
+        });
+      }
+    } else {
+      // Browser does not support Web Speech API
+      stopVoiceRecording();
+      setGuidanceBox({
+        type: 'error',
+        message: 'خاصية التعرف الصوتي غير مدعومة في هذا المتصفح. يمكنك التوصيل بالفأرة أو اللمس 🖱️ بكل سهولة.',
+      });
+    }
+  };
+
+  // Match voice spoken text against cards
+  const handleVoiceMatchedWord = (spokenText: string) => {
+    const cleanSpoken = removeTashkeel(spokenText).toLowerCase().trim();
+    if (!cleanSpoken) return;
+
+    // Case 1: If right item is not yet selected
+    if (!selectedRightId) {
+      // Search in right items
+      const matchR = rightItems.find((item) => {
+        if (matchedPairIds.includes(item.pairId)) return false;
+        const cleanItem = removeTashkeel(item.text).toLowerCase().trim();
+        return cleanSpoken.includes(cleanItem) || cleanItem.includes(cleanSpoken);
+      });
+
+      if (matchR) {
+        setSelectedRightId(matchR.id);
+        playAudioChime('tap');
+        setGuidanceBox({
+          type: 'success',
+          message: `✓ تم التعرف على: «${matchR.text}» في العمود الأيمن. انطق كلمتها المقابلة أو اخترها بالفأرة!`,
+        });
+        return;
+      }
+
+      // Or maybe student spoke a left item first
+      const matchL = leftItems.find((item) => {
+        if (matchedPairIds.includes(item.pairId)) return false;
+        const cleanItem = removeTashkeel(item.text).toLowerCase().trim();
+        return cleanSpoken.includes(cleanItem) || cleanItem.includes(cleanSpoken);
+      });
+
+      if (matchL) {
+        setSelectedLeftId(matchL.id);
+        playAudioChime('tap');
+        setGuidanceBox({
+          type: 'success',
+          message: `✓ تم التعرف على: «${matchL.text}» في العمود الأيسر. انطق كلمتها المقابلة أو اخترها بالفأرة!`,
+        });
+        return;
+      }
+
+      // No match found
+      playAudioChime('error');
+      setGuidanceBox({
+        type: 'error',
+        message: `⚠️ سُمع: «${spokenText}» — لم تتطابق مع الكلمات المتبقية، حاول نطق كلمة أخرى من الكلمات الظاهرة.`,
+      });
+      return;
+    }
+
+    // Case 2: Right item is already selected -> test match with left column!
+    const rItem = rightItems.find((i) => i.id === selectedRightId);
+    const matchL = leftItems.find((item) => {
+      if (matchedPairIds.includes(item.pairId)) return false;
+      const cleanItem = removeTashkeel(item.text).toLowerCase().trim();
+      return cleanSpoken.includes(cleanItem) || cleanItem.includes(cleanSpoken);
+    });
+
+    if (matchL && rItem) {
+      handleCheckMatch(rItem.id, matchL.id);
+    } else {
+      playAudioChime('error');
+      setGuidanceBox({
+        type: 'error',
+        message: `⚠️ سُمع: «${spokenText}» — لم نجد كلمة مقابلة مطابقة، حاول مجدداً أو اختر بالفأرة.`,
+      });
+    }
+  };
 
   // Handle Match Evaluation between selectedRightId and selectedLeftId
   const handleCheckMatch = (rId: string, lId: string) => {
@@ -214,6 +439,10 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
       setCorrectCount((prev) => prev + 1);
       setSelectedRightId(null);
       setSelectedLeftId(null);
+      setGuidanceBox({
+        type: 'success',
+        message: `✓ أحسنت! إجابة صحيحة: «${rItem.text}» ⟷ «${lItem.text}»`,
+      });
 
       // Check if all pairs are solved
       if (activeExercise && newMatched.length >= activeExercise.pairs.length) {
@@ -224,6 +453,10 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
       playAudioChime('error');
       setWrongCount((prev) => prev + 1);
       setIncorrectFlashIds({ rightId: rId, leftId: lId });
+      setGuidanceBox({
+        type: 'error',
+        message: `❌ إجابة غير صحيحة: «${rItem.text}» لا تطابق «${lItem.text}»، حاول مجدداً!`,
+      });
       setTimeout(() => {
         setIncorrectFlashIds(null);
         setSelectedRightId(null);
@@ -235,10 +468,10 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
   // When exercise finishes, auto-submit to sheet "answers 2"
   const handleExerciseFinished = async (finalCorrect: number, finalWrong: number) => {
     setIsCompleted(true);
+    stopVoiceRecording();
     if (!activeExercise || !activeSubject) return;
 
     const totalPairs = activeExercise.pairs.length;
-    // Calculate percentage: correct / (correct + wrong) or based on accuracy
     const totalAttempts = Math.max(totalPairs, finalCorrect + finalWrong);
     const percentage = Math.round((finalCorrect / totalAttempts) * 100);
 
@@ -320,113 +553,34 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
     }
   };
 
-  // Speech Recognition (Voice Mode)
-  const toggleSpeechRecognition = () => {
-    if (isListening) {
-      if (recognizerRef.current) {
-        recognizerRef.current.abort();
-      }
-      setIsListening(false);
-      setSpeechHint(null);
-      return;
-    }
-
-    if (!isSpeechRecognitionSupported()) {
-      alert('خاصية التعرف الصوتي غير مدعومة في هذا المتصفح. يمكنك التوصيل باللمس أو الفأرة بسهولة.');
-      return;
-    }
-
-    try {
-      const recognizer = createSpeechRecognizer(
-        (transcript: string) => {
-          const trimmed = (transcript || '').trim();
-          if (trimmed) {
-            setSpeechHint(`سُمع: "${trimmed}"`);
-            handleVoiceSearchWord(trimmed);
-          }
-        },
-        (_error: string) => {
-          setIsListening(false);
-          setSpeechHint('لم يتم التقاط نطق واضح. اضغط الميكروفون وحاول مجدداً.');
-        },
-        () => {
-          setIsListening(false);
-        }
-      );
-      if (!recognizer) return;
-      recognizerRef.current = recognizer;
-      setIsListening(true);
-      setSpeechHint('استمع لصوتك... انطق أي كلمة ظاهرة أمامك');
-      recognizer.start();
-    } catch {
-      setIsListening(false);
-    }
-  };
-
-  // Match spoken word against right or left cards
-  const handleVoiceSearchWord = (spokenText: string) => {
-    const cleanSpoken = removeTashkeel(spokenText).toLowerCase();
-
-    // 1. If right item is not yet selected, search right items first
-    if (!selectedRightId) {
-      const matchR = rightItems.find((item) => {
-        if (matchedPairIds.includes(item.pairId)) return false;
-        const cleanItem = removeTashkeel(item.text).toLowerCase();
-        return cleanSpoken.includes(cleanItem) || cleanItem.includes(cleanSpoken);
-      });
-
-      if (matchR) {
-        setSelectedRightId(matchR.id);
-        playAudioChime('tap');
-        setSpeechHint(`✓ تم تحديد: ${matchR.text} - الآن انطق الكلمة المقابلة في اليسار`);
-        return;
-      }
-    }
-
-    // 2. Search left items
-    const matchL = leftItems.find((item) => {
-      if (matchedPairIds.includes(item.pairId)) return false;
-      const cleanItem = removeTashkeel(item.text).toLowerCase();
-      return cleanSpoken.includes(cleanItem) || cleanItem.includes(cleanSpoken);
-    });
-
-    if (matchL) {
-      if (selectedRightId) {
-        // Execute match!
-        handleCheckMatch(selectedRightId, matchL.id);
-        setSpeechHint(`تم محاولة توصيل الكلمتين`);
-      } else {
-        setSelectedLeftId(matchL.id);
-        playAudioChime('tap');
-        setSpeechHint(`✓ تم تحديد: ${matchL.text} - الآن انطق الكلمة المقابلة في اليمين`);
-      }
-      return;
-    }
-
-    // If not found in either column
-    playAudioChime('error');
-    setSpeechHint(`الكلمة "${spokenText}" غير متطابقة مع الكلمات المتبقية.`);
-  };
-
-  // Navigation handlers
+  // Pagination navigation
   const handleNextExercise = () => {
-    if (!activeSubject) return;
-    const nextIdx = (exerciseIndex + 1) % activeSubject.exercises.length;
-    setExerciseIndex(nextIdx);
+    if (activeSubject && exerciseIndex < activeSubject.exercises.length - 1) {
+      const nextIdx = exerciseIndex + 1;
+      setExerciseIndex(nextIdx);
+      if (onSelectSubjectExercise) {
+        onSelectSubjectExercise(selectedSubjectId, nextIdx);
+      }
+    }
   };
 
   const handlePrevExercise = () => {
-    if (!activeSubject) return;
-    const prevIdx =
-      (exerciseIndex - 1 + activeSubject.exercises.length) % activeSubject.exercises.length;
-    setExerciseIndex(prevIdx);
+    if (exerciseIndex > 0) {
+      const prevIdx = exerciseIndex - 1;
+      setExerciseIndex(prevIdx);
+      if (onSelectSubjectExercise) {
+        onSelectSubjectExercise(selectedSubjectId, prevIdx);
+      }
+    }
   };
 
   if (!activeSubject || !activeExercise) {
     return (
-      <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm text-center">
-        <HelpCircle className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-        <h3 className="text-base font-bold text-slate-800 mb-2">لا توجد تمارين وصل متاحة حالياً</h3>
+      <div className="bg-white rounded-3xl p-8 border border-slate-200 text-center max-w-lg mx-auto my-12 shadow-sm">
+        <Sparkles className="w-12 h-12 text-purple-500 mx-auto mb-3" />
+        <h3 className="text-lg font-bold text-slate-800 mb-2">
+          لا توجد تمارين وصل مضافة حالياً
+        </h3>
         <p className="text-xs text-slate-500 mb-4">
           يمكن للمعلم إضافة تمارين جديدة في ورقة "وصل" أو من خلال لوحة التحكم.
         </p>
@@ -441,29 +595,32 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
   }
 
   const totalPairsCount = activeExercise.pairs.length;
-  const remainingCount = totalPairsCount - matchedPairIds.length;
   const accuracyPercent = Math.round(
     (correctCount / Math.max(1, correctCount + wrongCount)) * 100
   );
 
   return (
     <div className="flex flex-col gap-5 w-full animate-in fade-in duration-300">
-      {/* 1. Header Toolbar: Subject & Exercise Selector + Voice Toggle */}
+      {/* 1. Header Toolbar: Subject & Exercise Selector + Matching Lessons List trigger */}
       <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-slate-200/90 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
-        {/* Subject dropdown */}
+        {/* Subject dropdown & Lessons Modal Trigger */}
         <div className="w-full md:w-auto flex flex-wrap items-center gap-2.5">
           <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
-            <BookOpen className="w-4 h-4 text-indigo-600 shrink-0" />
+            <BookOpen className="w-4 h-4 text-purple-600 shrink-0" />
             <span>موضوع الدرس:</span>
           </div>
 
           <select
             value={selectedSubjectId}
             onChange={(e) => {
-              setSelectedSubjectId(e.target.value);
+              const newSubjId = e.target.value;
+              setSelectedSubjectId(newSubjId);
               setExerciseIndex(0);
+              if (onSelectSubjectExercise) {
+                onSelectSubjectExercise(newSubjId, 0);
+              }
             }}
-            className="px-3 py-1.5 bg-slate-50 border border-slate-200 focus:border-indigo-500 rounded-xl text-xs sm:text-sm font-bold text-slate-800 cursor-pointer focus:outline-hidden"
+            className="px-3 py-1.5 bg-slate-50 border border-slate-200 focus:border-purple-500 rounded-xl text-xs sm:text-sm font-bold text-slate-800 cursor-pointer focus:outline-hidden"
           >
             {subjects.map((subj) => (
               <option key={subj.id} value={subj.id}>
@@ -471,66 +628,44 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
               </option>
             ))}
           </select>
+
+          {onOpenMatchingLessonsModal && (
+            <button
+              type="button"
+              onClick={onOpenMatchingLessonsModal}
+              className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+              title="استعراض كافة دروس وتمارين الوصل"
+            >
+              <span>قائمة الدروس 📑</span>
+            </button>
+          )}
         </div>
 
         {/* Exercise Pagination / Step */}
         <div className="flex items-center gap-2 w-full md:w-auto justify-between md:justify-end">
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={handlePrevExercise}
-              disabled={exerciseIndex === 0}
-              className="p-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
-              title="التمرين السابق"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-
-            <span className="px-3 py-1 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-900 font-extrabold text-xs">
-              التمرين {activeExercise.exerciseNumber} من {activeSubject.exercises.length}
-            </span>
-
-            <button
-              onClick={handleNextExercise}
-              disabled={exerciseIndex >= activeSubject.exercises.length - 1}
-              className="p-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
-              title="التمرين التالي"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Voice Microphone Toggle */}
           <button
-            onClick={toggleSpeechRecognition}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
-              isListening
-                ? 'bg-rose-600 text-white animate-pulse'
-                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
-            }`}
-            title="تفعيل التعرف الصوتي للتوصيل بالنطق"
+            onClick={handlePrevExercise}
+            disabled={exerciseIndex === 0}
+            className="p-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
+            title="التمرين السابق"
           >
-            {isListening ? (
-              <>
-                <MicOff className="w-3.5 h-3.5" />
-                <span>جاري الاستماع...</span>
-              </>
-            ) : (
-              <>
-                <Mic className="w-3.5 h-3.5 text-emerald-600" />
-                <span>التوصيل بالصوت 🎙️</span>
-              </>
-            )}
+            <ChevronRight className="w-4 h-4" />
+          </button>
+
+          <span className="px-3.5 py-1 rounded-xl bg-purple-50 border border-purple-100 text-purple-900 font-extrabold text-xs">
+            التمرين {activeExercise.exerciseNumber} من {activeSubject.exercises.length}
+          </span>
+
+          <button
+            onClick={handleNextExercise}
+            disabled={exerciseIndex >= activeSubject.exercises.length - 1}
+            className="p-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
+            title="التمرين التالي"
+          >
+            <ChevronLeft className="w-4 h-4" />
           </button>
         </div>
       </div>
-
-      {/* Voice Hint banner if listening */}
-      {speechHint && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-2 text-xs font-semibold text-amber-900 flex items-center justify-between gap-2 animate-in fade-in">
-          <span>{speechHint}</span>
-          {isListening && <Loader2 className="w-3.5 h-3.5 text-amber-600 animate-spin shrink-0" />}
-        </div>
-      )}
 
       {/* 2. Main Question Card */}
       <div className="bg-white rounded-3xl p-5 sm:p-7 border border-slate-200 shadow-sm flex flex-col items-center text-center relative overflow-hidden">
@@ -544,24 +679,70 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
           </h2>
         </div>
 
-        {/* Live Status Bar */}
-        <div className="flex items-center gap-4 text-xs font-bold my-3 px-4 py-1.5 bg-slate-50 border border-slate-200/80 rounded-2xl">
-          <span className="text-emerald-700 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" /> الصحيح: {correctCount}
-          </span>
-          <span className="text-slate-300">|</span>
-          <span className="text-rose-600 flex items-center gap-1">
-            <AlertCircle className="w-3.5 h-3.5" /> الخطأ: {wrongCount}
-          </span>
-          <span className="text-slate-300">|</span>
-          <span className="text-slate-600">
-            المتبقي: {remainingCount} من {totalPairsCount}
-          </span>
+        {/* 2 Dedicated Interaction Buttons: زر تشغيل الفأرة & زر تسجيل النطق */}
+        <div className="flex flex-wrap items-center justify-center gap-3 my-3 w-full max-w-md">
+          {/* Button 1: تشغيل الفأرة */}
+          <button
+            type="button"
+            onClick={handleActivateMouseMode}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer shadow-xs border ${
+              activeInputMode === 'mouse' && !isListening
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 hover:border-indigo-300'
+            }`}
+          >
+            <MousePointer className="w-4 h-4" />
+            <span>تشغيل الفأرة 🖱️</span>
+          </button>
+
+          {/* Button 2: تسجيل نطق (يتغير لونه ويبدأ التسجيل ثم يتوقف تلقائياً بعد النطق أو بعد ثوانٍ) */}
+          <button
+            type="button"
+            onClick={handleStartVoiceRecording}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer shadow-xs border ${
+              isListening
+                ? 'bg-rose-600 text-white border-rose-600 animate-pulse ring-4 ring-rose-200 shadow-lg shadow-rose-600/30'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 hover:border-rose-300'
+            }`}
+          >
+            {isListening ? (
+              <>
+                <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
+                <span>جاري الاستماع... 🎙️</span>
+              </>
+            ) : (
+              <>
+                <Mic className="w-4 h-4 text-rose-500" />
+                <span>تسجيل نطق 🎙️</span>
+              </>
+            )}
+          </button>
         </div>
+
+        {/* 4. Guidance / Feedback Box placed DIRECTLY UNDER the two buttons */}
+        {guidanceBox && (
+          <div
+            className={`w-full max-w-xl mx-auto mb-4 p-3 rounded-2xl border text-xs sm:text-sm font-bold flex items-center justify-center gap-2 animate-in fade-in duration-200 transition-all ${
+              guidanceBox.type === 'success'
+                ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                : guidanceBox.type === 'error'
+                ? 'bg-rose-50 text-rose-900 border-rose-300'
+                : guidanceBox.type === 'recording'
+                ? 'bg-amber-50 text-amber-950 border-amber-300'
+                : 'bg-slate-50 text-slate-700 border-slate-200'
+            }`}
+          >
+            {guidanceBox.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+            {guidanceBox.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+            {guidanceBox.type === 'recording' && <Loader2 className="w-4 h-4 text-amber-600 animate-spin shrink-0" />}
+            {guidanceBox.type === 'info' && <HelpCircle className="w-4 h-4 text-indigo-600 shrink-0" />}
+            <span>{guidanceBox.message}</span>
+          </div>
+        )}
 
         {/* 3. The Two Columns (Right Words & Left Words) */}
         {!isCompleted ? (
-          <div className="grid grid-cols-2 gap-3 sm:gap-6 w-full max-w-2xl my-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-6 w-full max-w-2xl my-3">
             {/* RIGHT COLUMN */}
             <div className="flex flex-col gap-2.5">
               <span className="text-[11px] font-extrabold text-slate-400 block mb-1">
@@ -581,7 +762,7 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
                       isMatched
                         ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-60 cursor-default'
                         : isFlashingWrong
-                        ? 'bg-rose-50 border-rose-500 text-rose-900 animate-shake'
+                        ? 'bg-rose-50 border-rose-500 text-rose-900'
                         : isSelected
                         ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-600/30 scale-102 ring-4 ring-indigo-200'
                         : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-800 shadow-2xs hover:border-indigo-300'
@@ -613,53 +794,65 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
                       isMatched
                         ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-60 cursor-default'
                         : isFlashingWrong
-                        ? 'bg-rose-50 border-rose-500 text-rose-900 animate-shake'
+                        ? 'bg-rose-50 border-rose-500 text-rose-900'
                         : isSelected
-                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-600/30 scale-102 ring-4 ring-indigo-200'
-                        : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-800 shadow-2xs hover:border-indigo-300'
+                        ? 'bg-purple-600 border-purple-600 text-white shadow-md shadow-purple-600/30 scale-102 ring-4 ring-purple-200'
+                        : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-800 shadow-2xs hover:border-purple-300'
                     }`}
                   >
                     <span className="truncate">{item.text}</span>
-                    {isMatched && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+                    {isMatched && <CheckCircle2 className="w-4 h-4 text-purple-600 shrink-0" />}
                   </button>
                 );
               })}
             </div>
           </div>
         ) : (
-          /* 4. Exercise Completion Card */
-          <div className="w-full max-w-lg p-6 bg-linear-to-b from-emerald-50 to-teal-50/40 border border-emerald-200 rounded-3xl text-center my-4 animate-in fade-in zoom-in-95 duration-300">
-            <div className="w-14 h-14 bg-emerald-600 text-white rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-md shadow-emerald-600/20">
-              <Award className="w-8 h-8" />
+          /* 4. EXERCISE COMPLETED RESULT CARD */
+          <div className="w-full max-w-lg my-6 p-6 sm:p-8 bg-linear-to-b from-purple-50/70 to-emerald-50/70 rounded-3xl border border-purple-200 text-center space-y-4 animate-in zoom-in-95 duration-300 shadow-md">
+            <div className="w-16 h-16 rounded-3xl bg-linear-to-tr from-purple-600 to-emerald-500 text-white flex items-center justify-center mx-auto shadow-lg shadow-purple-600/20">
+              <Award className="w-9 h-9" />
             </div>
 
-            <h3 className="text-lg font-black text-emerald-950 mb-1">
-              ما شاء الله! أحسنت إكمال تمرين الوصل
-            </h3>
-
-            {/* The exact requested result formula string */}
-            <div className="my-3 py-2.5 px-4 bg-white/90 border border-emerald-200 rounded-2xl text-center shadow-xs">
-              <span className="text-xs font-bold text-slate-400 block mb-0.5">صيغة النتيجة الرسمية</span>
-              <span className="text-base sm:text-lg font-black font-cairo text-emerald-800">
-                ({totalPairsCount} - الصحيح {correctCount} - الخطأ {wrongCount} = {accuracyPercent}%)
+            <div>
+              <span className="text-xs font-bold text-purple-700 bg-purple-100 px-3 py-1 rounded-full">
+                تم إنهاء التوصيل بنجاح!
               </span>
+              <h3 className="text-xl sm:text-2xl font-black font-amiri text-slate-900 mt-2">
+                نتيجة التمرين:
+              </h3>
             </div>
 
-            {/* Sync Status with answers 2 */}
-            <div className="text-xs font-bold text-emerald-700 mb-4 flex items-center justify-center gap-1.5">
+            {/* Official Formula: (إجمالي الكلمات - الصحيح X - الخطأ Y = %Z) */}
+            <div className="bg-white p-4 rounded-2xl border border-purple-200/90 shadow-xs font-mono text-base sm:text-lg font-black text-purple-950 tracking-wide dir-ltr select-all">
+              ({totalPairsCount} - الصحيح {correctCount} - الخطأ {wrongCount} = {accuracyPercent}%)
+            </div>
+
+            {/* Student & Sheet Sync feedback */}
+            <div className="text-xs text-slate-600 space-y-1.5 pt-1">
+              {currentStudent ? (
+                <div className="flex items-center justify-center gap-1.5 font-bold text-slate-700">
+                  <User className="w-3.5 h-3.5 text-purple-600" />
+                  <span>المشترك: {currentStudent.name} (ID: {currentStudent.id})</span>
+                </div>
+              ) : null}
+
               {isSubmitting ? (
-                <>
+                <div className="flex items-center justify-center gap-1.5 text-purple-700 font-bold">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>جاري توثيق النتيجة في ورقة answers 2...</span>
-                </>
+                </div>
               ) : sheetSyncSuccess ? (
-                <span>{sheetSyncSuccess}</span>
+                <div className="flex items-center justify-center gap-1.5 text-emerald-700 font-bold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>{sheetSyncSuccess}</span>
+                </div>
               ) : !currentStudent ? (
-                <div className="bg-amber-50 border border-amber-200 p-2 rounded-xl text-amber-900 text-[11px]">
-                  <span>سجّل دخولك لتوثيق نتائجك تلقائياً في ورقة answers 2</span>
+                <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-xl text-amber-900 text-[11px] space-y-1.5">
+                  <p>سجّل دخولك لتوثيق نتائجك تلقائياً في ورقة answers 2 باسمك ورقمك</p>
                   <button
                     onClick={handleTriggerLogin}
-                    className="block mx-auto mt-1 px-3 py-1 bg-amber-600 text-white rounded-lg text-xs font-bold cursor-pointer"
+                    className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-all shadow-2xs"
                   >
                     دخول الطالب
                   </button>
@@ -667,38 +860,33 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
               ) : null}
             </div>
 
-            {/* Bottom Actions */}
-            <div className="grid grid-cols-2 gap-3 pt-2">
+            {/* Bottom Actions inside Completion Card */}
+            <div className="flex flex-wrap items-center justify-center gap-2.5 pt-3 border-t border-purple-200/80">
               <button
                 onClick={initExercise}
-                className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition-all cursor-pointer active:scale-98"
+                className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
               >
-                <RotateCcw className="w-4 h-4 text-slate-500" />
+                <RotateCcw className="w-3.5 h-3.5" />
                 <span>إعادة التمرين</span>
               </button>
 
-              <button
-                onClick={handleNextExercise}
-                className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer active:scale-98"
-              >
-                <span>التمرين التالي</span>
-                <ArrowRight className="w-4 h-4 rotate-180" />
-              </button>
+              {exerciseIndex < activeSubject.exercises.length - 1 ? (
+                <button
+                  onClick={handleNextExercise}
+                  className="flex items-center gap-1.5 px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-purple-600/20 cursor-pointer"
+                >
+                  <span>التمرين التالي</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleTriggerPronunciation}
+                  className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+                >
+                  <span>الانتقال لتمرين النطق 🎙️</span>
+                </button>
+              )}
             </div>
-          </div>
-        )}
-
-        {/* Re-shuffle button during active exercise */}
-        {!isCompleted && (
-          <div className="mt-2 flex items-center justify-center gap-3">
-            <button
-              onClick={initExercise}
-              className="text-xs text-slate-400 hover:text-indigo-600 flex items-center gap-1 font-semibold cursor-pointer transition-colors"
-              title="إعادة خلط وترتيب الكلمات"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>إعادة خلط الكلمات 🔀</span>
-            </button>
           </div>
         )}
       </div>

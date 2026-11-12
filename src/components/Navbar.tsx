@@ -36,6 +36,7 @@ interface NavbarProps {
   currentLang?: SupportedLang;
   onSelectLang?: (lang: SupportedLang) => void;
   t?: (id: string, fallback?: string) => string;
+  onOpenMatchingLessons?: () => void;
   currentMode?: 'pronunciation' | 'matching';
   onSelectMode?: (mode: 'pronunciation' | 'matching') => void;
 }
@@ -62,6 +63,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentLang = 'ar',
   onSelectLang,
   t,
+  onOpenMatchingLessons,
   currentMode = 'pronunciation',
   onSelectMode,
 }) => {
@@ -151,46 +153,25 @@ export const Navbar: React.FC<NavbarProps> = ({
             <LanguageSelector currentLang={currentLang} onSelectLang={onSelectLang} />
           )}
 
-          {/* Mode Switcher: تمرين النطق | تمرين الوصل */}
-          {onSelectMode && (
-            <div className="flex items-center p-0.5 bg-slate-100 border border-slate-200/90 rounded-xl">
-              <button
-                type="button"
-                onClick={() => onSelectMode('pronunciation')}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                  currentMode === 'pronunciation'
-                    ? 'bg-white text-emerald-800 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="تمرين نطق الكلمات والمخارج الصوتية"
-              >
-                <span>🎙️</span>
-                <span className="hidden md:inline">تمرين النطق</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onSelectMode('matching')}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                  currentMode === 'matching'
-                    ? 'bg-purple-600 text-white shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="تمرين وصل الكلمات المتناسبة"
-              >
-                <span>🔗</span>
-                <span className="hidden md:inline">تمرين الوصل</span>
-              </button>
-            </div>
-          )}
-
-          {/* Quick Open Lessons Button */}
+          {/* Quick Open Lessons Button (تمرين النطق) */}
           {onOpenLessons && (
             <button
               onClick={onOpenLessons}
               className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-600/20 cursor-pointer"
-              title={tr('nav_open_lessons', 'فتح قائمة الدروس واختيار تمرين')}
+              title={tr('nav_open_lessons', 'فتح قائمة دروس وتمارين النطق')}
             >
               <span>{tr('nav_open_lessons', 'فتح الدروس 📚')}</span>
+            </button>
+          )}
+
+          {/* Dedicated Matching Lessons Button (تمرين الوصل - ورقة وصل) */}
+          {onOpenMatchingLessons && (
+            <button
+              onClick={onOpenMatchingLessons}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-purple-600/20 cursor-pointer"
+              title="فتح قائمة دروس وتمارين وصل الكلمات (ورقة وصل)"
+            >
+              <span>دروس الوصل 🔗</span>
             </button>
           )}
 

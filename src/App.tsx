@@ -26,6 +26,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { GuideModal } from './components/GuideModal';
 import { AdminPanel } from './components/AdminPanel';
 import { LessonsModal } from './components/LessonsModal';
+import { MatchingLessonsModal } from './components/MatchingLessonsModal';
 import { StudentLoginModal } from './components/StudentLoginModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { SocialIcon, getSocialBrandClasses } from './components/SocialIcon';
@@ -132,6 +133,9 @@ export default function App() {
   });
 
   const [isLessonsModalOpen, setIsLessonsModalOpen] = useState(false);
+  const [isMatchingLessonsModalOpen, setIsMatchingLessonsModalOpen] = useState(false);
+  const [activeMatchingSubjectId, setActiveMatchingSubjectId] = useState<string>('');
+  const [activeMatchingExerciseIdx, setActiveMatchingExerciseIdx] = useState<number>(0);
 
   // Modals & Registration
   const [isStatsOpen, setIsStatsOpen] = useState(false);
@@ -1210,6 +1214,7 @@ export default function App() {
         currentLang={currentLang}
         onSelectLang={handleSelectLang}
         t={t}
+        onOpenMatchingLessons={() => setIsMatchingLessonsModalOpen(true)}
         currentMode={appMode}
         onSelectMode={(mode) => {
           setAppMode(mode);
@@ -1356,6 +1361,13 @@ export default function App() {
               subjects={matchingSubjects}
               currentStudent={currentStudent}
               webhookUrl={sheetsConfig.webhookUrl}
+              activeSubjectId={activeMatchingSubjectId || matchingSubjects[0]?.id}
+              activeExerciseIndex={activeMatchingExerciseIdx}
+              onSelectSubjectExercise={(sId, exIdx) => {
+                setActiveMatchingSubjectId(sId);
+                setActiveMatchingExerciseIdx(exIdx);
+              }}
+              onOpenMatchingLessonsModal={() => setIsMatchingLessonsModalOpen(true)}
               onBackToPronunciation={() => setAppMode('pronunciation')}
               onRequestLogin={() => setIsLoginModalOpen(true)}
             />
@@ -1566,6 +1578,25 @@ export default function App() {
         onSelectSubject={setStudentSubject}
         scoresMap={studentScoresMap}
         t={t}
+      />
+
+      {/* Matching Lessons Selector Modal (ورقة وصل) */}
+      <MatchingLessonsModal
+        isOpen={isMatchingLessonsModalOpen}
+        onClose={() => setIsMatchingLessonsModalOpen(false)}
+        subjects={matchingSubjects}
+        activeSubjectId={activeMatchingSubjectId || matchingSubjects[0]?.id}
+        activeExerciseIndex={activeMatchingExerciseIdx}
+        onSelectSubjectExercise={(subjId, exIdx) => {
+          setActiveMatchingSubjectId(subjId);
+          setActiveMatchingExerciseIdx(exIdx);
+          setAppMode('matching');
+          setCurrentView('practice');
+        }}
+        onOpenAdminMatching={() => {
+          setIsMatchingLessonsModalOpen(false);
+          handleOpenAdmin();
+        }}
       />
 
       {/* Student Login & Registration Verification Modal */}
