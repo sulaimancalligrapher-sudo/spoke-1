@@ -17,7 +17,7 @@ import { INITIAL_MATCHING_SUBJECTS } from '../data/matchingCurriculum';
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbx6JgmvD0Srx0GtOY1v90o60sH3vXVNC-N4hZqEr-2f9klbjsi1MlvXoHp_EdAZa4AN/exec';
+  'https://script.google.com/macros/s/AKfycbwvjSi46Dm2JfQKUr9W8Qq7NhT-ltB1fTivdFkInEowUxWrxxHZjOg5oXZEfcpm14Pf9A/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -1135,7 +1135,10 @@ export async function submitMatchingAnswerToSheet(
     studentId: payload.studentId,
     studentName: payload.studentName,
     subjectName: payload.subjectName,
+    lessonSubject: payload.subjectName,
     exerciseNumber: payload.exerciseNumber,
+    exerciseIndex: payload.exerciseNumber,
+    resultFormula: summaryString,
     summaryString: summaryString,
     completionStatus: completionStatus,
     percentage: payload.percentage,
@@ -1146,6 +1149,37 @@ export async function submitMatchingAnswerToSheet(
   return {
     success: res.success,
     error: res.error,
+  };
+}
+
+/**
+ * Export and populate all matching exercises and subjects directly to sheet "وصل"
+ */
+export async function exportAllMatchingCurriculumToSheets(
+  webhookUrl: string,
+  subjects: MatchingLessonSubject[]
+): Promise<{ success: boolean; message: string; count: number }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'رابط Google Sheets Webhook غير متوفر', count: 0 };
+  }
+
+  let savedCount = 0;
+  for (const subj of subjects) {
+    for (const ex of subj.exercises) {
+      await saveMatchingExerciseToSheets(webhookUrl, {
+        subjectName: subj.subjectName,
+        exerciseNumber: ex.exerciseNumber,
+        questionText: ex.questionText,
+        pairs: ex.pairs,
+      });
+      savedCount++;
+    }
+  }
+
+  return {
+    success: true,
+    message: `تم تصدير ونقل ${savedCount} تمرين بنجاح إلى ورقة (وصل)! يمكنك الآن فحص الشيت والتأكد من صحة الهيكل.`,
+    count: savedCount,
   };
 }
 
@@ -2011,9 +2045,9 @@ function doPost(e) {
       var timestamp = data.timestamp || new Date().toLocaleString("ar-SA");
       var sId = String(data.studentId || "").trim();
       var sName = String(data.studentName || "").trim();
-      var subj = String(data.lessonSubject || "").trim();
-      var exIdx = parseInt(data.exerciseIndex || 1);
-      var formula = String(data.resultFormula || "").trim();
+      var subj = String(data.lessonSubject || data.subjectName || data.subject || "").trim();
+      var exIdx = parseInt(data.exerciseIndex || data.exerciseNumber || 1);
+      var formula = String(data.resultFormula || data.summaryString || "").trim();
       var compStatus = String(data.completionStatus || "").trim();
 
       var lastR = a2Sheet.getLastRow();
@@ -2036,6 +2070,7 @@ function doPost(e) {
         a2Sheet.getRange(foundRow, 1).setValue(timestamp);
         if (sId) a2Sheet.getRange(foundRow, 2).setValue(sId);
         if (sName) a2Sheet.getRange(foundRow, 3).setValue(sName);
+        if (subj) a2Sheet.getRange(foundRow, 4).setValue(subj);
         if (compStatus) a2Sheet.getRange(foundRow, 5).setValue(compStatus);
         a2Sheet.getRange(foundRow, exCol).setValue(formula);
       } else {

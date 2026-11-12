@@ -7,6 +7,7 @@ import {
 import { SupportedLang } from '../utils/translations';
 import { submitMatchingAnswerToSheet } from '../utils/googleSheets';
 import { removeTashkeel } from '../utils/arabicMatcher';
+import { transcribeWithInBrowserWhisper } from '../utils/whisperEngine';
 import {
   Mic,
   MousePointer,
@@ -184,6 +185,7 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
   // Interaction Mode & Voice Recognition state
   const [activeInputMode, setActiveInputMode] = useState<'mouse' | 'voice'>('mouse');
   const [isListening, setIsListening] = useState<boolean>(false);
+  const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
   const [guidanceBox, setGuidanceBox] = useState<{
     type: 'success' | 'error' | 'recording' | 'info';
     message: string;
@@ -194,6 +196,8 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
 
   const recordingTimeoutRef = useRef<any>(null);
   const recognizerRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
 
   // Initialize or re-shuffle when activeExercise changes
   const initExercise = () => {
@@ -243,19 +247,155 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
     };
   }, []);
 
-  // Stop recording safely and revert button to normal state
+  // Stop recording safely and revert button to normal state across all browsers
   const stopVoiceRecording = () => {
     if (recordingTimeoutRef.current) {
       clearTimeout(recordingTimeoutRef.current);
       recordingTimeoutRef.current = null;
     }
     if (recognizerRef.current) {
-      try {
-        recognizerRef.current.abort();
-      } catch {}
+      const rec = recognizerRef.current;
       recognizerRef.current = null;
+      rec.onresult = null;
+      rec.onerror = null;
+      rec.onend = null;
+      rec.onspeechend = null;
+      try {
+        rec.abort();
+      } catch {}
+    }
+    if (mediaRecorderRef.current) {
+      const mr = mediaRecorderRef.current;
+      mediaRecorderRef.current = null;
+      mr.ondataavailable = null;
+      mr.onstop = null;
+      try {
+        if (mr.state !== 'inactive') mr.stop();
+      } catch {}
+    }
+    if (mediaStreamRef.current) {
+      try {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      } catch {}
+      mediaStreamRef.current = null;
     }
     setIsListening(false);
+  };
+
+  // Dedicated Firefox & MediaRecorder + in-browser Whisper audio recording pipeline
+  const recordAndTranscribeWithWhisper = async () => {
+    try {
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        throw new Error('المتصفح لا يدعم الوصول إلى الميكروفون');
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
+      mediaStreamRef.current = stream;
+
+      let mimeType = 'audio/webm';
+      if (typeof MediaRecorder !== 'undefined') {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+          mimeType = 'audio/ogg;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        }
+      }
+
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      mediaRecorderRef.current = recorder;
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        if (mediaStreamRef.current) {
+          try {
+            mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+          } catch {}
+          mediaStreamRef.current = null;
+        }
+        mediaRecorderRef.current = null;
+        setIsListening(false);
+
+        if (chunks.length === 0) {
+          setGuidanceBox({
+            type: 'error',
+            message: 'لم يتم التقاط صوت واضح، انقر تسجيل نطق وحاول مجدداً.',
+          });
+          return;
+        }
+
+        setIsTranscribing(true);
+        setGuidanceBox({
+          type: 'recording',
+          message: 'جاري التعرف على الكلمة المنطوقة... ⏳',
+        });
+
+        try {
+          const audioBlob = new Blob(chunks, { type: mimeType });
+          const allWords = [
+            ...rightItems.map((i) => i.text),
+            ...leftItems.map((i) => i.text),
+          ];
+
+          const text = await transcribeWithInBrowserWhisper(
+            audioBlob,
+            undefined,
+            1,
+            undefined,
+            { lessonVocabulary: allWords }
+          );
+
+          setIsTranscribing(false);
+          const trimmed = (text || '').trim();
+          if (trimmed) {
+            handleVoiceMatchedWord(trimmed);
+          } else {
+            setGuidanceBox({
+              type: 'error',
+              message: 'لم يتم التعرف على الكلمة بدقة، حاول نطق كلمة من الكلمات المعروضة.',
+            });
+          }
+        } catch (err: any) {
+          console.warn('Whisper recognition error:', err);
+          setIsTranscribing(false);
+          setGuidanceBox({
+            type: 'error',
+            message: 'تعذر تحليل الصوت، يمكنك النقر بالفأرة أو اللمس للتوصيل.',
+          });
+        }
+      };
+
+      recorder.start(100);
+
+      // Stop recording automatically after 3.2 seconds
+      recordingTimeoutRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          try {
+            mediaRecorderRef.current.stop();
+          } catch {}
+        }
+      }, 3200);
+    } catch (err: any) {
+      console.warn('Microphone access error in Firefox/MediaRecorder:', err);
+      stopVoiceRecording();
+      setIsTranscribing(false);
+      setGuidanceBox({
+        type: 'error',
+        message: 'تعذر الوصول للميكروفون في المتصفح. تأكد من إعطاء إذن الميكروفون، أو استخدم الفأرة.',
+      });
+    }
   };
 
   // Button 1: Activate Mouse/Touch Mode
@@ -268,11 +408,17 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
     });
   };
 
-  // Button 2: Start Voice Recording
+  // Button 2: Start Voice Recording (Dual Engine: Web Speech API for Chrome/Safari + MediaRecorder/Whisper for Firefox)
   const handleStartVoiceRecording = () => {
-    if (isCompleted) return;
+    if (isCompleted || isTranscribing) return;
 
     if (isListening) {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        try {
+          mediaRecorderRef.current.stop();
+          return;
+        } catch {}
+      }
       stopVoiceRecording();
       setGuidanceBox({
         type: 'info',
@@ -288,29 +434,29 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
       message: 'استمع لصوتك... انطق أي كلمة ظاهرة أمامك بوضوح 🎙️',
     });
 
-    // Auto-stop after 4.5 seconds and return button to normal state
-    recordingTimeoutRef.current = setTimeout(() => {
-      stopVoiceRecording();
-      setGuidanceBox((prev) =>
-        prev?.type === 'recording'
-          ? {
-              type: 'error',
-              message: 'انتهت مدة الاستماع دون التقاط صوت واضح. اضغط تسجيل نطق وحاول مجدداً.',
-            }
-          : prev
-      );
-    }, 4500);
+    const isFirefox = typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent);
+    const SpeechRec = !isFirefox && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
 
-    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRec) {
       try {
         const recognizer = new SpeechRec();
-        // CRITICAL FOR PC CHROME, SAFARI, AND ALL BROWSERS:
-        // continuous = false ensures single-utterance and automatic onend
         recognizer.continuous = false;
         recognizer.interimResults = false;
         recognizer.maxAlternatives = 3;
         recognizer.lang = 'ar-SA';
+
+        // Auto-stop after 4 seconds on PC Chrome to guarantee button returns to normal
+        recordingTimeoutRef.current = setTimeout(() => {
+          stopVoiceRecording();
+          setGuidanceBox((prev) =>
+            prev?.type === 'recording'
+              ? {
+                  type: 'error',
+                  message: 'انتهت مدة الاستماع دون التقاط صوت واضح. اضغط تسجيل نطق وحاول مجدداً.',
+                }
+              : prev
+          );
+        }, 4000);
 
         recognizer.onresult = (event: any) => {
           stopVoiceRecording();
@@ -319,6 +465,12 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
           if (trimmed) {
             handleVoiceMatchedWord(trimmed);
           }
+        };
+
+        recognizer.onspeechend = () => {
+          try {
+            recognizer.stop();
+          } catch {}
         };
 
         recognizer.onerror = (event: any) => {
@@ -339,20 +491,12 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
         recognizerRef.current = recognizer;
         recognizer.start();
       } catch (err) {
-        console.warn('Speech start error:', err);
-        stopVoiceRecording();
-        setGuidanceBox({
-          type: 'error',
-          message: 'تعذر تشغيل الميكروفون في هذا المتصفح. يمكنك التوصيل بالفأرة أو اللمس بسهولة.',
-        });
+        console.warn('Web Speech API failed, falling back to MediaRecorder + Whisper:', err);
+        recordAndTranscribeWithWhisper();
       }
     } else {
-      // Browser does not support Web Speech API
-      stopVoiceRecording();
-      setGuidanceBox({
-        type: 'error',
-        message: 'خاصية التعرف الصوتي غير مدعومة في هذا المتصفح. يمكنك التوصيل بالفأرة أو اللمس 🖱️ بكل سهولة.',
-      });
+      // In Firefox (or browsers without SpeechRecognition): MediaRecorder + Whisper
+      recordAndTranscribeWithWhisper();
     }
   };
 
@@ -695,13 +839,16 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
             <span>تشغيل الفأرة 🖱️</span>
           </button>
 
-          {/* Button 2: تسجيل نطق (يتغير لونه ويبدأ التسجيل ثم يتوقف تلقائياً بعد النطق أو بعد ثوانٍ) */}
+          {/* Button 2: تسجيل نطق (يدعم Web Speech API و MediaRecorder + Whisper في فايرفوكس) */}
           <button
             type="button"
             onClick={handleStartVoiceRecording}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer shadow-xs border ${
+            disabled={isTranscribing}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer shadow-xs border disabled:cursor-not-allowed ${
               isListening
                 ? 'bg-rose-600 text-white border-rose-600 animate-pulse ring-4 ring-rose-200 shadow-lg shadow-rose-600/30'
+                : isTranscribing
+                ? 'bg-amber-600 text-white border-amber-600 shadow-md shadow-amber-600/20'
                 : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 hover:border-rose-300'
             }`}
           >
@@ -709,6 +856,11 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
               <>
                 <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
                 <span>جاري الاستماع... 🎙️</span>
+              </>
+            ) : isTranscribing ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                <span>جاري التحليل... ⏳</span>
               </>
             ) : (
               <>

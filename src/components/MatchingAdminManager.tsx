@@ -3,6 +3,7 @@ import { MatchingLessonSubject, MatchingExercise, MatchingPair } from '../types'
 import {
   saveMatchingExerciseToSheets,
   fetchMatchingExercisesFromSheets,
+  exportAllMatchingCurriculumToSheets,
   STORAGE_KEY_MATCHING_CURRICULUM,
 } from '../utils/googleSheets';
 import {
@@ -14,10 +15,11 @@ import {
   CheckCircle2,
   AlertCircle,
   HelpCircle,
-  Layers,
   Sparkles,
-  ArrowRight,
   List,
+  Edit3,
+  UploadCloud,
+  X,
 } from 'lucide-react';
 
 interface MatchingAdminManagerProps {
@@ -33,7 +35,13 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
 }) => {
   const [subTab, setSubTab] = useState<'add' | 'list'>('list');
 
-  // Add Exercise Form State
+  // Add / Edit Exercise Form State
+  const [editingInfo, setEditingInfo] = useState<{
+    subjectId: string;
+    exerciseId: string;
+    exerciseNumber: number;
+  } | null>(null);
+
   const [selectedSubjectMode, setSelectedSubjectMode] = useState<'existing' | 'new'>('existing');
   const [existingSubjectName, setExistingSubjectName] = useState<string>(
     subjects[0]?.subjectName || ''
@@ -52,6 +60,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
   } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Add pair row
   const handleAddPairRow = () => {
@@ -71,6 +80,44 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
       next[index] = { ...next[index], [side]: val };
       return next;
     });
+  };
+
+  // Start Editing an existing exercise
+  const handleStartEdit = (subj: MatchingLessonSubject, ex: MatchingExercise) => {
+    setSelectedSubjectMode('existing');
+    setExistingSubjectName(subj.subjectName);
+    setQuestionText(ex.questionText);
+    setPairs(
+      ex.pairs.length > 0
+        ? ex.pairs.map((p) => ({ right: p.rightText, left: p.leftText }))
+        : [
+            { right: '', left: '' },
+            { right: '', left: '' },
+          ]
+    );
+    setEditingInfo({
+      subjectId: subj.id,
+      exerciseId: ex.id,
+      exerciseNumber: ex.exerciseNumber,
+    });
+    setSubTab('add');
+    setStatusMessage({
+      success: true,
+      text: `أنت تقوم الآن بتعديل تمرين ${ex.exerciseNumber} في موضوع «${subj.subjectName}».`,
+    });
+  };
+
+  // Cancel Editing
+  const handleCancelEdit = () => {
+    setEditingInfo(null);
+    setQuestionText('');
+    setPairs([
+      { right: '', left: '' },
+      { right: '', left: '' },
+      { right: '', left: '' },
+    ]);
+    setStatusMessage(null);
+    setSubTab('list');
   };
 
   // Submit / Save Exercise
@@ -101,74 +148,112 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
     setIsSaving(true);
     setStatusMessage(null);
 
-    // Prepare new exercise object
-    const subjectItem = subjects.find((s) => s.subjectName === effectiveSubject);
-    const exerciseNumber = subjectItem ? subjectItem.exercises.length + 1 : 1;
-
     const formattedPairs: MatchingPair[] = validPairs.map((p, idx) => ({
       id: `p-${Date.now()}-${idx + 1}`,
       rightText: p.right.trim(),
       leftText: p.left.trim(),
     }));
 
-    const newExercise: MatchingExercise = {
-      id: `match-ex-${Date.now()}`,
-      exerciseNumber,
-      questionText: questionText.trim(),
-      pairs: formattedPairs,
-    };
-
-    // Update local state and localStorage
     let nextSubjects: MatchingLessonSubject[];
-    if (subjectItem) {
+    let exerciseNumberToSave = 1;
+
+    if (editingInfo) {
+      // EDIT MODE
+      exerciseNumberToSave = editingInfo.exerciseNumber;
       nextSubjects = subjects.map((s) => {
-        if (s.id === subjectItem.id) {
+        if (s.id === editingInfo.subjectId) {
           return {
             ...s,
-            exercises: [...s.exercises, newExercise],
+            exercises: s.exercises.map((ex) => {
+              if (ex.id === editingInfo.exerciseId) {
+                return {
+                  ...ex,
+                  questionText: questionText.trim(),
+                  pairs: formattedPairs,
+                };
+              }
+              return ex;
+            }),
           };
         }
         return s;
       });
     } else {
-      const newSubj: MatchingLessonSubject = {
-        id: `match-subj-${Date.now()}`,
-        subjectName: effectiveSubject,
-        exercises: [newExercise],
+      // ADD MODE
+      const subjectItem = subjects.find((s) => s.subjectName === effectiveSubject);
+      exerciseNumberToSave = subjectItem ? subjectItem.exercises.length + 1 : 1;
+
+      const newExercise: MatchingExercise = {
+        id: `match-ex-${Date.now()}`,
+        exerciseNumber: exerciseNumberToSave,
+        questionText: questionText.trim(),
+        pairs: formattedPairs,
       };
-      nextSubjects = [...subjects, newSubj];
+
+      if (subjectItem) {
+        nextSubjects = subjects.map((s) => {
+          if (s.id === subjectItem.id) {
+            return {
+              ...s,
+              exercises: [...s.exercises, newExercise],
+            };
+          }
+          return s;
+        });
+      } else {
+        const newSubj: MatchingLessonSubject = {
+          id: `match-subj-${Date.now()}`,
+          subjectName: effectiveSubject,
+          exercises: [newExercise],
+        };
+        nextSubjects = [...subjects, newSubj];
+      }
     }
 
+    // Update state and localStorage
     onUpdateSubjects(nextSubjects);
     try {
       localStorage.setItem(STORAGE_KEY_MATCHING_CURRICULUM, JSON.stringify(nextSubjects));
     } catch {}
 
-    // Save to Google Sheets sheet "وصل" if webhook is active
-    let sheetNote = '';
+    // Save to Google Sheet "وصل"
     if (webhookUrl) {
       try {
-        const res = await saveMatchingExerciseToSheets(webhookUrl, {
+        const sheetRes = await saveMatchingExerciseToSheets(webhookUrl, {
           subjectName: effectiveSubject,
-          exerciseNumber,
+          exerciseNumber: exerciseNumberToSave,
           questionText: questionText.trim(),
           pairs: formattedPairs,
         });
-        if (res.success) {
-          sheetNote = ' وتمت المزامنة بنجاح مع ورقة "وصل" في الشيت!';
+
+        if (sheetRes.success) {
+          setStatusMessage({
+            success: true,
+            text: editingInfo
+              ? `تم تحديث وحفظ التمرين ${exerciseNumberToSave} بنجاح في ورقة "وصل"!`
+              : `تم حفظ التمرين الجديد بنجاح في ورقة "وصل"!`,
+          });
+        } else {
+          setStatusMessage({
+            success: false,
+            text: `تم الحفظ محلياً، وتعذر التحديث في الشيت: ${sheetRes.error || ''}`,
+          });
         }
-      } catch (err: any) {
-        console.warn('Failed to sync matching exercise to sheet:', err);
+      } catch {
+        setStatusMessage({
+          success: false,
+          text: 'تم الحفظ محلياً في المتصفح فقط.',
+        });
       }
+    } else {
+      setStatusMessage({
+        success: true,
+        text: 'تم الحفظ محلياً في المتصفح بنجاح! (للحفظ في Google Sheets تأكد من إدخال رابط Webhook)',
+      });
     }
 
     setIsSaving(false);
-    setStatusMessage({
-      success: true,
-      text: `تم حفظ التمرين بنجاح في المنصة${sheetNote}`,
-    });
-
-    // Reset Form
+    setEditingInfo(null);
     setQuestionText('');
     setPairs([
       { right: '', left: '' },
@@ -176,30 +261,38 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
       { right: '', left: '' },
     ]);
     if (selectedSubjectMode === 'new') {
-      setExistingSubjectName(effectiveSubject);
       setSelectedSubjectMode('existing');
-      setNewSubjectName('');
+      setExistingSubjectName(effectiveSubject);
     }
-    setSubTab('list');
   };
 
-  // Delete an exercise
-  const handleDeleteExercise = (subjId: string, exId: string) => {
-    if (!confirm('هل أنت متأكد من حذف هذا التمرين؟')) return;
+  // Delete exercise
+  const handleDeleteExercise = (subjectId: string, exerciseId: string) => {
+    if (!confirm('هل أنت متأكد من رغبتك في حذف هذا التمرين؟')) return;
+
     const nextSubjects = subjects
-      .map((s) => {
-        if (s.id === subjId) {
-          const filtered = s.exercises.filter((ex) => ex.id !== exId);
-          return { ...s, exercises: filtered };
+      .map((subj) => {
+        if (subj.id === subjectId) {
+          const filtered = subj.exercises.filter((e) => e.id !== exerciseId);
+          // Renumber exercises
+          const renumbered = filtered.map((e, idx) => ({
+            ...e,
+            exerciseNumber: idx + 1,
+          }));
+          return { ...subj, exercises: renumbered };
         }
-        return s;
+        return subj;
       })
-      .filter((s) => s.exercises.length > 0);
+      .filter((subj) => subj.exercises.length > 0);
 
     onUpdateSubjects(nextSubjects);
     try {
       localStorage.setItem(STORAGE_KEY_MATCHING_CURRICULUM, JSON.stringify(nextSubjects));
     } catch {}
+    setStatusMessage({
+      success: true,
+      text: 'تم حذف التمرين بنجاح من القائمة المحلية.',
+    });
   };
 
   // Refresh from sheet "وصل"
@@ -233,133 +326,214 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
     }
   };
 
+  // Export / Populate all matching curriculum into sheet "وصل"
+  const handleExportAllToSheets = async () => {
+    if (!webhookUrl) {
+      alert('يرجى التأكد من إدخال رابط Google Sheets Webhook أولاً في الإعدادات.');
+      return;
+    }
+
+    if (!confirm('سيتم نقل وتصدير كافة تمارين التوصيل الحالية إلى ورقة (وصل) في Google Sheets. هل تود المتابعة؟')) {
+      return;
+    }
+
+    setIsExporting(true);
+    setStatusMessage(null);
+    try {
+      const res = await exportAllMatchingCurriculumToSheets(webhookUrl, subjects);
+      if (res.success) {
+        setStatusMessage({
+          success: true,
+          text: res.message,
+        });
+      } else {
+        setStatusMessage({
+          success: false,
+          text: res.message || 'فشل نقل التمارين إلى ورقة وصل',
+        });
+      }
+    } catch (err: any) {
+      setStatusMessage({
+        success: false,
+        text: 'حدث خطأ أثناء نقل التمارين إلى الشيت: ' + (err?.message || ''),
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-5 w-full animate-in fade-in duration-200">
       {/* Top Banner & Sub-tabs */}
-      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
               🔗
             </div>
             <h2 className="text-base sm:text-lg font-bold text-slate-900">
-              إدارة تمارين الوصل (وصل الكلمات)
+              إدارة تمارين الوصل (ورقة وصل)
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            إضافة وتعديل أسئلة وأزواج الكلمات المترابطة المحفوظة في ورقة <strong>وصل</strong>
+            إضافة وتعديل وحذف أسئلة وأزواج الكلمات المترابطة المحفوظة في ورقة <strong>وصل</strong>
           </p>
         </div>
 
-        {/* Sub-tab buttons & Refresh */}
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        {/* Action Buttons: Export to Sheets, List, Add/Edit */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Button: Export All to Sheet "وصل" */}
+          <button
+            type="button"
+            onClick={handleExportAllToSheets}
+            disabled={isExporting}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-300 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer disabled:opacity-50"
+            title="نقل وتصدير كافة التمارين إلى ورقة (وصل) في Google Sheets للتأكد من صحة الهيكل"
+          >
+            {isExporting ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-purple-600" />
+                <span>جاري النقل للشيت...</span>
+              </>
+            ) : (
+              <>
+                <UploadCloud className="w-3.5 h-3.5 text-purple-700" />
+                <span>نقل التمارين لورقة وصل 📤</span>
+              </>
+            )}
+          </button>
+
           <button
             onClick={() => setSubTab('list')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               subTab === 'list'
                 ? 'bg-purple-600 text-white shadow-xs'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            <List className="w-3.5 h-3.5" />
-            <span>قائمة التمارين ({subjects.reduce((a, b) => a + b.exercises.length, 0)})</span>
+            <List className="w-4 h-4" />
+            <span>قائمة التمارين ({subjects.reduce((acc, s) => acc + s.exercises.length, 0)})</span>
           </button>
 
           <button
-            onClick={() => setSubTab('add')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            onClick={() => {
+              if (editingInfo) handleCancelEdit();
+              setSubTab('add');
+            }}
+            className={`flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               subTab === 'add'
                 ? 'bg-purple-600 text-white shadow-xs'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ إضافة تمرين جديد</span>
+            <Plus className="w-4 h-4" />
+            <span>{editingInfo ? 'تعديل تمرين' : 'إضافة تمرين جديد'}</span>
           </button>
 
-          {webhookUrl && (
-            <button
-              onClick={handleRefreshFromSheet}
-              disabled={isRefreshing}
-              className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-all cursor-pointer"
-              title="تحديث البيانات من ورقة وصل في الشيت"
-            >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            </button>
-          )}
+          <button
+            onClick={handleRefreshFromSheet}
+            disabled={isRefreshing}
+            className="p-2 bg-slate-100 hover:bg-purple-50 text-slate-700 hover:text-purple-700 rounded-xl transition-all border border-slate-200 cursor-pointer disabled:opacity-50"
+            title="جلب وتحديث التمارين من ورقة وصل"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-purple-600' : ''}`} />
+          </button>
         </div>
       </div>
 
+      {/* Status Notice */}
       {statusMessage && (
         <div
-          className={`p-3 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 animate-in fade-in ${
+          className={`p-3.5 rounded-2xl border text-xs font-bold flex items-center justify-between gap-2 animate-in fade-in ${
             statusMessage.success
-              ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
-              : 'bg-rose-50 border border-rose-200 text-rose-800'
+              ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+              : 'bg-rose-50 text-rose-900 border-rose-300'
           }`}
         >
-          <span>{statusMessage.text}</span>
+          <div className="flex items-center gap-2">
+            {statusMessage.success ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            )}
+            <span>{statusMessage.text}</span>
+          </div>
           <button
             onClick={() => setStatusMessage(null)}
-            className="text-slate-400 hover:text-slate-600 cursor-pointer"
+            className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
           >
-            ✕
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
-      {/* SUB-TAB 1: ADD NEW EXERCISE FORM */}
+      {/* Editing Banner */}
+      {editingInfo && subTab === 'add' && (
+        <div className="p-3 bg-purple-100 border border-purple-300 rounded-2xl flex items-center justify-between text-xs text-purple-950 font-bold">
+          <div className="flex items-center gap-2">
+            <Edit3 className="w-4 h-4 text-purple-700 shrink-0" />
+            <span>
+              أنت الآن في وضع <strong>تعديل التمرين {editingInfo.exerciseNumber}</strong>. قم بتعديل الكلمات أو السؤال ثم اضغط حفظ.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleCancelEdit}
+            className="px-3 py-1 bg-white hover:bg-slate-100 text-slate-800 rounded-xl border border-purple-200 transition-all cursor-pointer"
+          >
+            إلغاء التعديل
+          </button>
+        </div>
+      )}
+
+      {/* SUB-TAB 1: ADD / EDIT EXERCISE FORM */}
       {subTab === 'add' && (
         <form
           onSubmit={handleSaveExercise}
-          className="bg-white rounded-3xl p-5 sm:p-7 border border-slate-200 shadow-sm flex flex-col gap-5"
+          className="bg-white rounded-3xl p-5 sm:p-7 border border-slate-200 shadow-xs space-y-6"
         >
-          <div className="border-b border-slate-100 pb-3">
-            <h3 className="text-sm font-bold text-slate-800">إضافة تمرين وصل جديد</h3>
-            <p className="text-xs text-slate-500">
-              قم بكتابة موضوع الدرس، نص السؤال، وأزواج الكلمات العربية المتطابقة.
-            </p>
-          </div>
-
-          {/* Subject Field */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              موضوع الدرس:
+          {/* Section: Lesson Subject */}
+          <div className="space-y-3">
+            <label className="block text-xs font-bold text-slate-700">
+              موضوع الدرس (العامود A في ورقة وصل):
             </label>
-            <div className="flex items-center gap-2 mb-2">
-              <button
-                type="button"
-                onClick={() => setSelectedSubjectMode('existing')}
-                className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                  selectedSubjectMode === 'existing'
-                    ? 'bg-purple-100 text-purple-900 border border-purple-200'
-                    : 'bg-slate-100 text-slate-600'
-                }`}
-              >
-                اختيار موضوع موجود
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedSubjectMode('new')}
-                className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                  selectedSubjectMode === 'new'
-                    ? 'bg-purple-100 text-purple-900 border border-purple-200'
-                    : 'bg-slate-100 text-slate-600'
-                }`}
-              >
-                + كتابة موضوع جديد
-              </button>
-            </div>
+
+            {!editingInfo ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="subjectMode"
+                    checked={selectedSubjectMode === 'existing'}
+                    onChange={() => setSelectedSubjectMode('existing')}
+                    className="accent-purple-600"
+                  />
+                  <span>اختيار من المواضيع الحالية</span>
+                </label>
+
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="subjectMode"
+                    checked={selectedSubjectMode === 'new'}
+                    onChange={() => setSelectedSubjectMode('new')}
+                    className="accent-purple-600"
+                  />
+                  <span>إضافة موضوع درس جديد</span>
+                </label>
+              </div>
+            ) : null}
 
             {selectedSubjectMode === 'existing' ? (
               <select
                 value={existingSubjectName}
                 onChange={(e) => setExistingSubjectName(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-bold text-slate-800 focus:outline-hidden focus:border-purple-500"
+                disabled={!!editingInfo}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm font-bold text-slate-800 focus:outline-hidden focus:border-purple-500 disabled:opacity-60"
               >
                 {subjects.map((s) => (
                   <option key={s.id} value={s.subjectName}>
-                    {s.subjectName}
+                    {s.subjectName} ({s.exercises.length} تمارين حالية)
                   </option>
                 ))}
               </select>
@@ -368,37 +542,39 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                 type="text"
                 value={newSubjectName}
                 onChange={(e) => setNewSubjectName(e.target.value)}
-                placeholder="مثال: أسماء الإشارة / الأضداد / حروف الجر..."
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-bold text-slate-800 focus:outline-hidden focus:border-purple-500 placeholder:text-slate-400"
-                required
+                placeholder="اكتب اسم موضوع الدرس الجديد (مثال: الجمع والمفرد، المترادفات...)"
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm font-bold text-slate-800 focus:outline-hidden focus:border-purple-500"
+                required={selectedSubjectMode === 'new'}
               />
             )}
           </div>
 
-          {/* Question Text */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              نص السؤال:
+          {/* Section: Question Text */}
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-slate-700">
+              نص السؤال (العامود الأول للتمرين في ورقة وصل):
             </label>
             <input
               type="text"
               value={questionText}
               onChange={(e) => setQuestionText(e.target.value)}
-              placeholder="مثال: صِلْ بَيْنَ الكَلِمَةِ وَضِدِّهَا فِي المَعْنَى"
-              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-bold text-slate-800 focus:outline-hidden focus:border-purple-500 placeholder:text-slate-400"
+              placeholder="مثال: صِلْ بَيْنَ الكَلِمَةِ وَضِدِّهَا المُنَاسِب"
+              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm font-bold text-slate-800 focus:outline-hidden focus:border-purple-500 font-amiri text-base"
               required
             />
           </div>
 
-          {/* Word Pairs Builder */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-bold text-slate-700">
-                أزواج الكلمات المتطابقة (اليمين واليسار):
-              </label>
-              <span className="text-[11px] text-slate-400">
-                (ادخل الكلمات مرتبة؛ وسيقوم النظام بلخبطة عرضها عشوائياً للطلاب)
-              </span>
+          {/* Section: Word Pairs Builder */}
+          <div className="space-y-3 pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="block text-xs font-bold text-slate-900">
+                  أزواج كلمات التوصيل (العامود 2 كلمات اليمين ⟷ العامود 3 كلمات اليسار):
+                </label>
+                <span className="text-[11px] text-slate-400">
+                  (أدخل الكلمات المتقابلة بالترتيب؛ وسيقوم النظام بلخبطة عرضها عشوائياً للطلاب)
+                </span>
+              </div>
             </div>
 
             <div className="space-y-2.5">
@@ -462,8 +638,18 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
             </button>
           </div>
 
-          {/* Submit Button */}
+          {/* Submit Actions */}
           <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-3">
+            {editingInfo && (
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs transition-all cursor-pointer"
+              >
+                إلغاء التعديل
+              </button>
+            )}
+
             <button
               type="submit"
               disabled={isSaving}
@@ -477,7 +663,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
               ) : (
                 <>
                   <Save className="w-4 h-4" />
-                  <span>حفظ التمرين إلى ورقة (وصل)</span>
+                  <span>{editingInfo ? 'تحديث وحفظ التعديلات' : 'حفظ التمرين إلى ورقة (وصل)'}</span>
                 </>
               )}
             </button>
@@ -520,7 +706,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                   {subj.exercises.map((ex) => (
                     <div
                       key={ex.id}
-                      className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+                      className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:border-purple-200 transition-all"
                     >
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 mb-1">
@@ -545,10 +731,24 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                         </div>
                       </div>
 
+                      {/* Action buttons: Edit & Delete */}
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Edit Button */}
                         <button
+                          type="button"
+                          onClick={() => handleStartEdit(subj, ex)}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-purple-200"
+                          title="تعديل هذا التمرين"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>تعديل</span>
+                        </button>
+
+                        {/* Delete Button */}
+                        <button
+                          type="button"
                           onClick={() => handleDeleteExercise(subj.id, ex.id)}
-                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
                           title="حذف هذا التمرين"
                         >
                           <Trash2 className="w-4 h-4" />
