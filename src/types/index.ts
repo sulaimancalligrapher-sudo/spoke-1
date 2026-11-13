@@ -202,3 +202,20 @@ export interface MatchingSubmissionResult {
   summaryString: string; // e.g. "(5 - الصحيح 4 - الخطأ 1 = 80%)"
 }
 
+export interface MatchingExerciseHistoryEntry {
+  exerciseNumber: number;
+  formulaString: string; // e.g. "(5 - 4 صحيح - 1 خطأ = 80%)"
+  percentage: number;
+}
+
+export interface MatchingHistoryItem {
+  id: string;
+  timestamp: string;
+  studentId: string;
+  studentName: string;
+  lessonSubject: string;
+  completionStatus: string;
+  exercises: MatchingExerciseHistoryEntry[];
+}
+
+

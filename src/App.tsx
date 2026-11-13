@@ -10,6 +10,7 @@ import {
   StudentRegistrant,
   HomeBrandConfig,
   MatchingLessonSubject,
+  MatchingHistoryItem,
 } from './types';
 import {
   ALL_CURRICULUM,
@@ -34,6 +35,7 @@ import {
   fetchCurriculumFromSheets,
   fetchHomeConfigFromSheets,
   fetchStudentSubmissionsFromSheet,
+  fetchStudentMatchingHistory,
   fetchTranslationsFromSheets,
   saveTranslationsToSheets,
   fetchMatchingExercisesFromSheets,
@@ -159,6 +161,10 @@ export default function App() {
   // Dedicated Student Evaluation History (from sheet "answers 1")
   const [studentHistory, setStudentHistory] = useState<PracticeHistoryItem[]>([]);
   const [isSyncingAnswers1, setIsSyncingAnswers1] = useState(false);
+
+  // Student Matching Exercise History (from sheet "answers 2")
+  const [matchingHistory, setMatchingHistory] = useState<MatchingHistoryItem[]>([]);
+  const [isSyncingMatching, setIsSyncingMatching] = useState(false);
 
   // Scores map: wordId -> score
   const [scoresMap, setScoresMap] = useState<Record<string, number>>({});
@@ -685,8 +691,19 @@ export default function App() {
                 if (sh && sh.length > 0) setStudentHistory(sh);
               })
               .catch(() => {});
+            fetchStudentMatchingHistory(activeConfig.webhookUrl, parsed.id, parsed.name)
+              .then((mh) => {
+                if (mh && mh.length > 0) setMatchingHistory(mh);
+              })
+              .catch(() => {});
           }
         } catch (e) {}
+      } else {
+        fetchStudentMatchingHistory('', '', '')
+          .then((mh) => {
+            if (mh && mh.length > 0) setMatchingHistory(mh);
+          })
+          .catch(() => {});
       }
     } catch (e) {
       console.warn('LocalStorage load error:', e);
@@ -736,12 +753,21 @@ export default function App() {
         })
         .catch(() => {})
         .finally(() => setIsSyncingAnswers1(false));
+
+      setIsSyncingMatching(true);
+      fetchStudentMatchingHistory(sheetsConfig.webhookUrl, student.id, student.name)
+        .then((mh) => {
+          if (mh) setMatchingHistory(mh);
+        })
+        .catch(() => {})
+        .finally(() => setIsSyncingMatching(false));
     }
   };
 
   const handleLogout = () => {
     setCurrentStudent(null);
     setStudentHistory([]);
+    setMatchingHistory([]);
     try {
       localStorage.removeItem(STORAGE_KEY_STUDENT);
     } catch (e) {}
@@ -1195,6 +1221,20 @@ export default function App() {
               })
               .catch(() => {})
               .finally(() => setIsSyncingAnswers1(false));
+
+            setIsSyncingMatching(true);
+            fetchStudentMatchingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+              .then((mh) => {
+                if (mh) setMatchingHistory(mh);
+              })
+              .catch(() => {})
+              .finally(() => setIsSyncingMatching(false));
+          } else {
+            fetchStudentMatchingHistory('', '', '')
+              .then((mh) => {
+                if (mh) setMatchingHistory(mh);
+              })
+              .catch(() => {});
           }
           setIsStatsOpen(true);
         }}
@@ -1542,9 +1582,12 @@ export default function App() {
         isOpen={isStatsOpen}
         onClose={() => setIsStatsOpen(false)}
         history={currentStudent ? studentHistory : history}
+        matchingHistory={matchingHistory}
         onClearHistory={handleClearHistory}
         currentStudent={currentStudent}
         isSyncingFromSheets={isSyncingAnswers1}
+        isSyncingMatching={isSyncingMatching}
+        defaultTab={appMode === 'matching' ? 'matching' : 'pronunciation'}
         currentLang={currentLang}
         translations={translations}
         t={t}

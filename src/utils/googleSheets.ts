@@ -10,6 +10,8 @@ import {
   MatchingLessonSubject,
   MatchingExercise,
   MatchingPair,
+  MatchingHistoryItem,
+  MatchingExerciseHistoryEntry,
 } from '../types';
 import { removeTashkeel } from './arabicMatcher';
 import { INITIAL_MATCHING_SUBJECTS } from '../data/matchingCurriculum';
@@ -17,7 +19,7 @@ import { INITIAL_MATCHING_SUBJECTS } from '../data/matchingCurriculum';
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbw99HfRH6nTo8VhsCp1rgTKgn3VdIR6rxbQBoU86_Ol4RyL-RXuvL8cb2aWwVks9Jx80A/exec';
+  'https://script.google.com/macros/s/AKfycbyjxiotp1iXfp0eQwxoOL618FC8_Y2x2hVeK2ASL885F5olN1zcKJKr1yQdXsWa_tDY5Q/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -873,6 +875,109 @@ export async function fetchStudentSubmissionsFromSheet(
 }
 
 /**
+ * Fetch student matching exercise history from sheet "answers 2" and merge with local cache
+ */
+export async function fetchStudentMatchingHistory(
+  webhookUrl: string,
+  studentId: string,
+  studentName: string
+): Promise<MatchingHistoryItem[]> {
+  const cleanId = (studentId || '').trim();
+  const cleanName = (studentName || '').trim();
+  const mergedMap = new Map<string, MatchingHistoryItem>();
+
+  // 1. Fetch from Google Sheets "answers 2"
+  if (webhookUrl && webhookUrl.trim().startsWith('http') && (cleanId || cleanName)) {
+    try {
+      const cleanUrl = webhookUrl.trim();
+      const separator = cleanUrl.includes('?') ? '&' : '?';
+      const targetUrl = `${cleanUrl}${separator}action=get_student_matching_history&studentId=${encodeURIComponent(
+        cleanId
+      )}&studentName=${encodeURIComponent(cleanName)}&_t=${Date.now()}`;
+
+      let data: any = null;
+      try {
+        const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+        if (proxyRes.ok) data = await proxyRes.json().catch(() => null);
+      } catch {}
+
+      if (!data || !Array.isArray(data.matchingHistory)) {
+        try {
+          const directRes = await fetch(targetUrl, {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+          });
+          if (directRes.ok) data = await directRes.json().catch(() => null);
+        } catch {}
+      }
+
+      if (data && Array.isArray(data.matchingHistory)) {
+        for (const item of data.matchingHistory) {
+          const subj = String(item.lessonSubject || item.subjectName || '').trim();
+          if (!subj) continue;
+          const exercises: MatchingExerciseHistoryEntry[] = Array.isArray(item.exercises)
+            ? item.exercises
+                .map((ex: any) => ({
+                  exerciseNumber: Number(ex.exerciseNumber) || 1,
+                  formulaString: String(ex.formulaString || '').trim(),
+                  percentage: typeof ex.percentage === 'number' ? ex.percentage : parseInt(ex.percentage) || 0,
+                }))
+                .sort((a: MatchingExerciseHistoryEntry, b: MatchingExerciseHistoryEntry) => a.exerciseNumber - b.exerciseNumber)
+            : [];
+          mergedMap.set(subj, {
+            id: item.id || `ans2-${subj}`,
+            timestamp: String(item.timestamp || '').trim(),
+            studentId: String(item.studentId || cleanId).trim(),
+            studentName: String(item.studentName || cleanName).trim(),
+            lessonSubject: subj,
+            completionStatus: String(item.completionStatus || '').trim(),
+            exercises,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Error fetching student matching history from Google Sheets:', e);
+    }
+  }
+
+  // 2. Merge with locally cached matching submissions for this student
+  try {
+    const cacheKey = cleanId ? `faseeh_matching_sub_${cleanId}` : 'faseeh_matching_sub_guest';
+    const rawCache = localStorage.getItem(cacheKey);
+    if (rawCache) {
+      const localItems: MatchingHistoryItem[] = JSON.parse(rawCache);
+      if (Array.isArray(localItems)) {
+        for (const localItem of localItems) {
+          const subj = (localItem.lessonSubject || '').trim();
+          if (!subj) continue;
+          const existing = mergedMap.get(subj);
+          if (!existing) {
+            mergedMap.set(subj, localItem);
+          } else {
+            // Merge any locally saved exercises that aren't in the sheet row yet
+            const exMap = new Map<number, MatchingExerciseHistoryEntry>();
+            for (const ex of existing.exercises) exMap.set(ex.exerciseNumber, ex);
+            for (const ex of localItem.exercises || []) {
+              if (!exMap.has(ex.exerciseNumber)) {
+                exMap.set(ex.exerciseNumber, ex);
+              }
+            }
+            existing.exercises = Array.from(exMap.values()).sort(
+              (a, b) => a.exerciseNumber - b.exerciseNumber
+            );
+            if (!existing.completionStatus && localItem.completionStatus) {
+              existing.completionStatus = localItem.completionStatus;
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+
+  return Array.from(mergedMap.values());
+}
+
+/**
  * Fetch all student submissions summary from sheet "answers 1"
  */
 export async function fetchAllSubmissionsFromSheet(webhookUrl: string): Promise<Answers1SubmissionRow[]> {
@@ -1203,6 +1308,50 @@ export async function submitMatchingAnswerToSheet(
     ? `مكتمل (${payload.completedCountInSubject} من ${payload.totalExercisesInSubject} تمارين) - النسبة: ${payload.overallPercentage}%`
     : `جاري الإنجاز (${payload.completedCountInSubject} من ${payload.totalExercisesInSubject} تمارين) - النسبة التراكمية: ${payload.overallPercentage}%`;
 
+  const timestampStr = new Date().toLocaleString('ar-SA');
+
+  // Cache locally so the student sees their matching scores immediately in StatsModal
+  try {
+    const cleanId = (payload.studentId || '').trim();
+    const cacheKey = cleanId ? `faseeh_matching_sub_${cleanId}` : 'faseeh_matching_sub_guest';
+    const raw = localStorage.getItem(cacheKey);
+    const list: MatchingHistoryItem[] = raw ? JSON.parse(raw) : [];
+    const safeList = Array.isArray(list) ? list : [];
+    const subjName = payload.subjectName.trim();
+    const existingIdx = safeList.findIndex((item) => item.lessonSubject === subjName);
+    const newEntry: MatchingExerciseHistoryEntry = {
+      exerciseNumber: payload.exerciseNumber,
+      formulaString: summaryString,
+      percentage: payload.percentage,
+    };
+
+    if (existingIdx >= 0) {
+      const existing = safeList[existingIdx];
+      const filteredEx = (existing.exercises || []).filter(
+        (ex) => ex.exerciseNumber !== payload.exerciseNumber
+      );
+      filteredEx.push(newEntry);
+      filteredEx.sort((a, b) => a.exerciseNumber - b.exerciseNumber);
+      safeList[existingIdx] = {
+        ...existing,
+        timestamp: timestampStr,
+        completionStatus,
+        exercises: filteredEx,
+      };
+    } else {
+      safeList.unshift({
+        id: `local-ans2-${Date.now()}`,
+        timestamp: timestampStr,
+        studentId: cleanId,
+        studentName: payload.studentName,
+        lessonSubject: subjName,
+        completionStatus,
+        exercises: [newEntry],
+      });
+    }
+    localStorage.setItem(cacheKey, JSON.stringify(safeList));
+  } catch {}
+
   const postPayload = {
     action: 'submit_matching_answer',
     sheetName: 'answers 2',
@@ -1216,7 +1365,7 @@ export async function submitMatchingAnswerToSheet(
     summaryString: summaryString,
     completionStatus: completionStatus,
     percentage: payload.percentage,
-    timestamp: new Date().toLocaleString('ar-SA'),
+    timestamp: timestampStr,
   };
 
   const res = await callGoogleSheetsPost(webhookUrl, postPayload);
@@ -1798,6 +1947,60 @@ function doGet(e) {
         studentId: qId,
         studentName: qName,
         history: historyList
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (ب-2) إذا كان الطلب جلب سجل درجات تمرين التوصيل لطالب معين من ورقة "answers 2"
+    if (e && e.parameter && e.parameter.action === "get_student_matching_history") {
+      var a2Sheet = getAnswers2Sheet(ss);
+      var qId = String(e.parameter.studentId || "").trim();
+      var qName = String(e.parameter.studentName || "").trim();
+      var lastR = a2Sheet.getLastRow();
+      var lastC = Math.max(6, a2Sheet.getLastColumn());
+      var matchingList = [];
+
+      if (lastR > 1) {
+        var dataRows = a2Sheet.getRange(2, 1, lastR - 1, lastC).getValues();
+        for (var r = 0; r < dataRows.length; r++) {
+          var row = dataRows[r];
+          var rowTime = String(row[0] || "").trim();
+          var rowId = String(row[1] || "").trim();
+          var rowName = String(row[2] || "").trim();
+          var rowSubj = String(row[3] || "").trim();
+          var rowStatus = String(row[4] || "").trim();
+
+          var isMatch = (qId && rowId === qId) || (qName && rowName === qName);
+          if (isMatch && rowSubj) {
+            var exercisesArr = [];
+            for (var c = 5; c < row.length; c++) {
+              var cellStr = String(row[c] || "").trim();
+              if (cellStr) {
+                var pctMatch = cellStr.match(/(\d+)\s*%/);
+                var pctVal = pctMatch ? parseInt(pctMatch[1]) : 0;
+                exercisesArr.push({
+                  exerciseNumber: (c - 5) + 1,
+                  formulaString: cellStr,
+                  percentage: pctVal
+                });
+              }
+            }
+            matchingList.push({
+              id: "ans2-r" + (r + 2),
+              timestamp: rowTime,
+              studentId: rowId || qId,
+              studentName: rowName || qName,
+              lessonSubject: rowSubj,
+              completionStatus: rowStatus,
+              exercises: exercisesArr
+            });
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        studentId: qId,
+        studentName: qName,
+        matchingHistory: matchingList
       })).setMimeType(ContentService.MimeType.JSON);
     }
     
