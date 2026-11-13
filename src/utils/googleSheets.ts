@@ -17,7 +17,7 @@ import { INITIAL_MATCHING_SUBJECTS } from '../data/matchingCurriculum';
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbzEJ35XDgAbVEQpjhooQcxLcdG8FogEJb5Xgbbgj0nWGYKfwZ5nt1E2KL1boWS5L30dmQ/exec';
+  'https://script.google.com/macros/s/AKfycbxrkqZ4alxBXBU8yAxuB3aV5zk6Rz1065ECt5W4y2wMpRrKeSlBAvkkvgjnFhBtvIezJA/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -1038,10 +1038,27 @@ export async function fetchMatchingExercisesFromSheets(
     }
 
     if (res && res.success && Array.isArray(res.subjects) && res.subjects.length > 0) {
+      const normalizedSubjects: MatchingLessonSubject[] = res.subjects.map((s: any, sIdx: number) => ({
+        id: s.id || `subj-${sIdx + 1}`,
+        subjectName: String(s.subjectName || s.subject || `الموضوع ${sIdx + 1}`).trim(),
+        exercises: Array.isArray(s.exercises)
+          ? s.exercises.map((ex: any, eIdx: number) => ({
+              id: ex.id || `ex-${eIdx + 1}`,
+              exerciseNumber: ex.exerciseNumber || eIdx + 1,
+              questionText: ex.questionText || `صل الكلمات المناسبة ${eIdx + 1}`,
+              pairs: Array.isArray(ex.pairs) ? ex.pairs : [],
+              inputMode: ex.inputMode || 'both',
+              durationSeconds: typeof ex.durationSeconds === 'number' ? ex.durationSeconds : 4,
+              lockOnMistake: Boolean(ex.lockOnMistake),
+              showMistakeFeedback: ex.showMistakeFeedback !== false,
+            }))
+          : [],
+      }));
+
       try {
-        localStorage.setItem(STORAGE_KEY_MATCHING_CURRICULUM, JSON.stringify(res.subjects));
+        localStorage.setItem(STORAGE_KEY_MATCHING_CURRICULUM, JSON.stringify(normalizedSubjects));
       } catch {}
-      return { success: true, subjects: res.subjects };
+      return { success: true, subjects: normalizedSubjects };
     }
   } catch (err: any) {
     console.warn('Failed to fetch matching exercises from sheets:', err);
@@ -1062,7 +1079,42 @@ export async function fetchMatchingExercisesFromSheets(
 }
 
 /**
- * Save or update a matching exercise in sheet "وصل"
+ * Format exercise settings object to readable string for Column 4 in sheet "وصل"
+ * e.g. "صوت فقط | لا تراجع | إخفاء الخطأ | 4 ثواني"
+ */
+export function formatExerciseSettingsString(exercise: {
+  inputMode?: 'voice_only' | 'both';
+  durationSeconds?: number;
+  lockOnMistake?: boolean;
+  showMistakeFeedback?: boolean;
+}): string {
+  const modeStr = exercise.inputMode === 'voice_only' ? 'صوت فقط' : 'فأرة وصوت';
+  const lockStr = exercise.lockOnMistake ? 'لا تراجع' : 'إتاحة المحاولة';
+  const feedbackStr = exercise.showMistakeFeedback === false ? 'إخفاء الخطأ' : 'إظهار الخطأ';
+  const dur = typeof exercise.durationSeconds === 'number' && exercise.durationSeconds > 0 ? exercise.durationSeconds : 4;
+  return `${modeStr} | ${lockStr} | ${feedbackStr} | ${dur} ثواني`;
+}
+
+/**
+ * Parse Column 4 settings string from sheet "وصل" back into exercise properties
+ */
+export function parseExerciseSettingsString(str?: string): {
+  inputMode: 'voice_only' | 'both';
+  durationSeconds: number;
+  lockOnMistake: boolean;
+  showMistakeFeedback: boolean;
+} {
+  const s = String(str || '').trim();
+  const inputMode: 'voice_only' | 'both' = s.includes('صوت فقط') ? 'voice_only' : 'both';
+  const lockOnMistake = s.includes('لا تراجع') || s.includes('قفل');
+  const showMistakeFeedback = !s.includes('إخفاء');
+  const durMatch = s.match(/(\d+)\s*ثوان/);
+  const durationSeconds = durMatch ? parseInt(durMatch[1], 10) : 4;
+  return { inputMode, durationSeconds, lockOnMistake, showMistakeFeedback };
+}
+
+/**
+ * Save or update a matching exercise in sheet "وصل" (4 columns per exercise)
  */
 export async function saveMatchingExerciseToSheets(
   webhookUrl: string,
@@ -1071,6 +1123,10 @@ export async function saveMatchingExerciseToSheets(
     exerciseNumber: number;
     questionText: string;
     pairs: MatchingPair[];
+    inputMode?: 'voice_only' | 'both';
+    durationSeconds?: number;
+    lockOnMistake?: boolean;
+    showMistakeFeedback?: boolean;
   }
 ): Promise<{ success: boolean; error?: string; message?: string }> {
   if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
@@ -1079,6 +1135,7 @@ export async function saveMatchingExerciseToSheets(
 
   const rightWords = payload.pairs.map((p) => p.rightText.trim()).filter(Boolean).join(' | ');
   const leftWords = payload.pairs.map((p) => p.leftText.trim()).filter(Boolean).join(' | ');
+  const settingsString = formatExerciseSettingsString(payload);
 
   const postPayload = {
     action: 'save_matching_exercise',
@@ -1090,13 +1147,15 @@ export async function saveMatchingExerciseToSheets(
     questionText: payload.questionText.trim(),
     rightWords: rightWords,
     leftWords: leftWords,
+    settingsString: settingsString,
+    settings: settingsString,
   };
 
   const res = await callGoogleSheetsPost(webhookUrl, postPayload);
   return {
     success: res.success,
     error: res.error,
-    message: res.success ? 'تم حفظ التمرين بنجاح في ورقة "وصل"!' : res.error,
+    message: res.success ? 'تم حفظ التمرين بنجاح في ورقة "وصل" بالهيكل المعتمد!' : res.error,
   };
 }
 
@@ -1117,14 +1176,18 @@ export async function submitMatchingAnswerToSheet(
     totalExercisesInSubject: number;
     completedCountInSubject: number;
     overallPercentage: number;
+    modeDescription?: string;
+    summaryString?: string;
   }
 ): Promise<{ success: boolean; error?: string }> {
   if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
     return { success: false, error: 'رابط Google Sheets Webhook غير متوفر' };
   }
 
-  // Format: (5 - الصحيح 4 - الخطأ 1 = 80%)
-  const summaryString = `(${payload.totalPairs} - الصحيح ${payload.correctCount} - الخطأ ${payload.wrongCount} = ${payload.percentage}%)`;
+  // Format: e.g. "(5 - 4 صحيح - 1 خطأ = 80%)" or "(5 - الصحيح 5 - أخطاء المحاولات 2 = 71%)"
+  const summaryString =
+    payload.summaryString ||
+    `(${payload.totalPairs} - الصحيح ${payload.correctCount} - الخطأ ${payload.wrongCount} = ${payload.percentage}%)`;
   
   // Format overall status: e.g. "تم إنجاز (2 من 3 تمارين) - النسبة التراكمية: 85%"
   const completionStatus = payload.completedCountInSubject >= payload.totalExercisesInSubject
@@ -1156,11 +1219,11 @@ export async function submitMatchingAnswerToSheet(
 
 /**
  * Export and populate all matching exercises and subjects directly to sheet "وصل"
- * Exact Sheet Specification:
+ * Exact 4-Column Sheet Specification:
  * - Col A: موضوع الدرس
- * - Ex 1 (Cols B:D): B = نص السؤال | C = الكلمات في اليمين ( | ) | D = الكلمات في اليسار ( | )
- * - Ex 2 (Cols E:G): E = نص السؤال | F = الكلمات في اليمين ( | ) | G = الكلمات في اليسار ( | )
- * - Ex 3 (Cols H:J)... and so on!
+ * - Ex 1 (Cols B:E): B = نص السؤال | C = الكلمات في اليمين ( | ) | D = الكلمات في اليسار ( | ) | E = إعدادات التمرين
+ * - Ex 2 (Cols F:I): F = نص السؤال | G = الكلمات في اليمين ( | ) | H = الكلمات في اليسار ( | ) | I = إعدادات التمرين
+ * - Ex 3 (Cols J:M)... and so on!
  */
 export async function exportAllMatchingCurriculumToSheets(
   webhookUrl: string,
@@ -1177,12 +1240,13 @@ export async function exportAllMatchingCurriculumToSheets(
       questionText: ex.questionText,
       rightWords: ex.pairs.map((p) => p.rightText.trim()).filter(Boolean).join(' | '),
       leftWords: ex.pairs.map((p) => p.leftText.trim()).filter(Boolean).join(' | '),
+      settingsString: formatExerciseSettingsString(ex),
     })),
   }));
 
   const totalExercises = subjects.reduce((sum, s) => sum + s.exercises.length, 0);
 
-  // 1. Try single atomic bulk export action (fastest and guarantees perfect horizontal layout)
+  // 1. Try single atomic bulk export action (fastest and guarantees 4-column layout)
   const bulkRes = await callGoogleSheetsPost(webhookUrl, {
     action: 'export_matching_curriculum',
     sheetName: 'وصل',
@@ -1192,7 +1256,7 @@ export async function exportAllMatchingCurriculumToSheets(
   if (bulkRes.success) {
     return {
       success: true,
-      message: `تم نقل وتصدير ${subjects.length} مواضيع و ${totalExercises} تمارين بنجاح إلى ورقة (وصل) بالهيكل الأفقي المعتمد!`,
+      message: `تم نقل وتصدير ${subjects.length} مواضيع و ${totalExercises} تمارين بنجاح إلى ورقة (وصل) بالهيكل الجديد المعتمد (4 أعمدة لكل تمرين)!`,
       count: totalExercises,
     };
   }
@@ -1206,6 +1270,10 @@ export async function exportAllMatchingCurriculumToSheets(
         exerciseNumber: ex.exerciseNumber,
         questionText: ex.questionText,
         pairs: ex.pairs,
+        inputMode: ex.inputMode,
+        durationSeconds: ex.durationSeconds,
+        lockOnMistake: ex.lockOnMistake,
+        showMistakeFeedback: ex.showMistakeFeedback,
       });
       savedCount++;
     }
@@ -1605,7 +1673,7 @@ function getAnswers1Sheet(ss) {
   return sheet;
 }
 
-// دالة مساعدة لإنشاء أو استرجاع ورقة أسئلة تمرين الوصل "وصل"
+// دالة مساعدة لإنشاء أو استرجاع ورقة أسئلة تمرين الوصل "وصل" (4 أعمدة لكل تمرين)
 function getMatchingSheet(ss) {
   var sheet = ss.getSheetByName("وصل");
   if (!sheet) {
@@ -1623,6 +1691,7 @@ function getMatchingSheet(ss) {
         headers.push("السؤال " + ex);
         headers.push("الكلمات في اليمين " + ex + " ( | )");
         headers.push("الكلمات في اليسار " + ex + " ( | )");
+        headers.push("إعدادات التمرين " + ex);
       }
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
       sheet.getRange(1, 1, 1, headers.length).setBackground("#6b21a8").setFontColor("#ffffff").setFontWeight("bold");
@@ -1803,11 +1872,11 @@ function doGet(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (ج-4) إذا كان الطلب جلب أسئلة تمرين الوصل من ورقة "وصل"
+    // (ج-4) إذا كان الطلب جلب أسئلة تمرين الوصل من ورقة "وصل" (4 أعمدة لكل تمرين)
     if (e && e.parameter && e.parameter.action === "get_matching") {
       var mSheet = getMatchingSheet(ss);
       var lastR = mSheet.getLastRow();
-      var lastC = Math.max(4, mSheet.getLastColumn());
+      var lastC = Math.max(5, mSheet.getLastColumn());
       var subjectsList = [];
       if (lastR > 1) {
         var rows = mSheet.getRange(2, 1, lastR - 1, lastC).getValues();
@@ -1817,11 +1886,12 @@ function doGet(e) {
           if (subjName) {
             var exercises = [];
             var exNum = 1;
-            for (var c = 1; c < row.length; c += 3) {
+            for (var c = 1; c < row.length; c += 4) {
               var qText = String(row[c] || "").trim();
               var rWords = String(row[c + 1] || "").trim();
               var lWords = String(row[c + 2] || "").trim();
-              if (qText || rWords || lWords) {
+              var sStr = String(row[c + 3] || "").trim();
+              if (qText || rWords || lWords || sStr) {
                 var rArr = rWords ? rWords.split("|").map(function(s){return s.trim();}).filter(Boolean) : [];
                 var lArr = lWords ? lWords.split("|").map(function(s){return s.trim();}).filter(Boolean) : [];
                 var pairs = [];
@@ -1833,15 +1903,27 @@ function doGet(e) {
                     leftText: lArr[p] || ""
                   });
                 }
+                var inputMode = sStr.indexOf("صوت فقط") !== -1 ? "voice_only" : "both";
+                var lockOnMistake = sStr.indexOf("لا تراجع") !== -1 || sStr.indexOf("قفل") !== -1;
+                var showMistakeFeedback = sStr.indexOf("إخفاء") === -1;
+                var durMatch = sStr.match(/(\d+)\s*ثوان/);
+                var durationSeconds = durMatch ? parseInt(durMatch[1]) : 4;
                 exercises.push({
                   id: "ex-" + exNum,
+                  exerciseNumber: exNum,
                   questionText: qText || ("صل الكلمات المناسبة " + exNum),
-                  pairs: pairs
+                  pairs: pairs,
+                  inputMode: inputMode,
+                  durationSeconds: durationSeconds,
+                  lockOnMistake: lockOnMistake,
+                  showMistakeFeedback: showMistakeFeedback
                 });
                 exNum++;
               }
             }
             subjectsList.push({
+              id: "subj-" + (r + 1),
+              subjectName: subjName,
               subject: subjName,
               exercises: exercises
             });
@@ -2040,7 +2122,7 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (0-د) تصدير ونقل كافة مواضيع وتمارين وصل الكلمات دفعة واحدة إلى ورقة "وصل"
+    // (0-د) تصدير ونقل كافة مواضيع وتمارين وصل الكلمات دفعة واحدة إلى ورقة "وصل" (4 أعمدة لكل تمرين)
     if (data.action === "export_matching_curriculum") {
       var mSheet = getMatchingSheet(ss);
       var subjectsArr = data.subjects || [];
@@ -2053,12 +2135,13 @@ function doPost(e) {
         }
       }
 
-      // بناء صف العناوين: A = موضوع الدرس | ثم لكل تمرين 3 أعمدة (السؤال | اليمين | اليسار)
+      // بناء صف العناوين: A = موضوع الدرس | ثم لكل تمرين 4 أعمدة (السؤال | اليمين | اليسار | الإعدادات)
       var headers = ["موضوع الدرس"];
       for (var ex = 1; ex <= maxEx; ex++) {
         headers.push("السؤال " + ex);
         headers.push("الكلمات في اليمين " + ex + " ( | )");
         headers.push("الكلمات في اليسار " + ex + " ( | )");
+        headers.push("إعدادات التمرين " + ex);
       }
 
       // مسح المحتويات السابقة لإعادة كتابة الهيكل المعتمد بدقة
@@ -2078,9 +2161,10 @@ function doPost(e) {
             row.push(String(exItem.questionText || "").trim());
             row.push(String(exItem.rightWords || "").trim());
             row.push(String(exItem.leftWords || "").trim());
+            row.push(String(exItem.settingsString || "").trim());
             totalExCount++;
           } else {
-            row.push("", "", "");
+            row.push("", "", "", "");
           }
         }
         dataRows.push(row);
@@ -2097,7 +2181,7 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (0-د-2) حفظ أو تحديث تمرين وصل الكلمات في ورقة "وصل"
+    // (0-د-2) حفظ أو تحديث تمرين وصل الكلمات في ورقة "وصل" (4 أعمدة لكل تمرين)
     if (data.action === "save_matching_exercise") {
       var mSheet = getMatchingSheet(ss);
       var subjName = String(data.subjectName || data.subject || "").trim();
@@ -2105,6 +2189,7 @@ function doPost(e) {
       var qText = String(data.questionText || "").trim();
       var rWords = String(data.rightWords || "").trim();
       var lWords = String(data.leftWords || "").trim();
+      var sStr = String(data.settingsString || data.settings || "").trim();
       
       var lastR = mSheet.getLastRow();
       var targetRow = -1;
@@ -2122,8 +2207,8 @@ function doPost(e) {
         mSheet.getRange(targetRow, 1).setValue(subjName);
       }
       
-      var startCol = 2 + (exIdx - 1) * 3;
-      mSheet.getRange(targetRow, startCol, 1, 3).setValues([[qText, rWords, lWords]]);
+      var startCol = 2 + (exIdx - 1) * 4;
+      mSheet.getRange(targetRow, startCol, 1, 4).setValues([[qText, rWords, lWords, sStr]]);
       
       return ContentService.createTextOutput(JSON.stringify({
         success: true,

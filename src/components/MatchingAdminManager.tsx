@@ -55,6 +55,8 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
   ]);
 
   // Answer Behavior Controls:
+  const [inputMode, setInputMode] = useState<'both' | 'voice_only'>('both');
+  const [durationSeconds, setDurationSeconds] = useState<number>(4);
   const [lockOnMistake, setLockOnMistake] = useState<boolean>(false);
   const [showMistakeFeedback, setShowMistakeFeedback] = useState<boolean>(true);
 
@@ -99,6 +101,8 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
             { right: '', left: '' },
           ]
     );
+    setInputMode(ex.inputMode || 'both');
+    setDurationSeconds(typeof ex.durationSeconds === 'number' && ex.durationSeconds > 0 ? ex.durationSeconds : 4);
     setLockOnMistake(!!ex.lockOnMistake);
     setShowMistakeFeedback(ex.showMistakeFeedback !== false);
     setEditingInfo({
@@ -122,6 +126,8 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
       { right: '', left: '' },
       { right: '', left: '' },
     ]);
+    setInputMode('both');
+    setDurationSeconds(4);
     setLockOnMistake(false);
     setShowMistakeFeedback(true);
     setStatusMessage(null);
@@ -178,6 +184,8 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                   ...ex,
                   questionText: questionText.trim(),
                   pairs: formattedPairs,
+                  inputMode,
+                  durationSeconds,
                   lockOnMistake,
                   showMistakeFeedback,
                 };
@@ -198,6 +206,8 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
         exerciseNumber: exerciseNumberToSave,
         questionText: questionText.trim(),
         pairs: formattedPairs,
+        inputMode,
+        durationSeconds,
         lockOnMistake,
         showMistakeFeedback,
       };
@@ -236,6 +246,10 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
           exerciseNumber: exerciseNumberToSave,
           questionText: questionText.trim(),
           pairs: formattedPairs,
+          inputMode,
+          durationSeconds,
+          lockOnMistake,
+          showMistakeFeedback,
         });
 
         if (sheetRes.success) {
@@ -655,15 +669,80 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-purple-700" />
               <h4 className="text-xs font-black text-purple-950">
-                خيارات طريقة الإجابة وسلوك التوصيل للطالب:
+                خيارات طريقة الإجابة وسلوك التوصيل للطالب (تُحفظ في العامود 4 بورقة وصل):
               </h4>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-              {/* Control 1: لا يمكن التراجع عن الإجابة */}
+              {/* Control 1: طريقة إدخال الإجابة */}
               <div className="p-3 bg-white rounded-xl border border-purple-200 shadow-2xs space-y-2">
                 <span className="text-[11px] font-extrabold text-slate-800 block">
-                  1. خيار التراجع عند الخطأ:
+                  1. أزرار الإدخال المتاحة للطالب:
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setInputMode('both')}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      inputMode === 'both'
+                        ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🖱️🎙️ فأرة وصوت
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInputMode('voice_only')}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      inputMode === 'voice_only'
+                        ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🎙️ صوت فقط
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  {inputMode === 'voice_only'
+                    ? '✓ صوت فقط: سيظهر للطالب زر النطق فقط (يُخفى زر الفأرة لإلزام الطالب بالنطق والتوصيل الصوتي).'
+                    : 'الافتراضي: يظهر للطالب زري الفأرة والصوت ويمكنه الاختيار بينهما بحرية.'}
+                </p>
+              </div>
+
+              {/* Control 2: مدة الاستماع والعد التنازلي */}
+              <div className="p-3 bg-white rounded-xl border border-purple-200 shadow-2xs space-y-2">
+                <span className="text-[11px] font-extrabold text-slate-800 block">
+                  2. مدة الاستماع والعد التنازلي:
+                </span>
+                <div className="flex items-center justify-between gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setDurationSeconds((prev) => Math.max(2, prev - 1))}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-white hover:bg-purple-50 text-purple-700 font-black border border-slate-200 cursor-pointer text-sm shadow-2xs"
+                  >
+                    -
+                  </button>
+                  <span className="text-xs font-black text-purple-900 font-mono">
+                    {durationSeconds} ثوانٍ
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setDurationSeconds((prev) => Math.min(10, prev + 1))}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-white hover:bg-purple-50 text-purple-700 font-black border border-slate-200 cursor-pointer text-sm shadow-2xs"
+                  >
+                    +
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  يظهر عداد تنازلي على زر النطق للطالب: [ 🎙️ جاري الاستماع... ({durationSeconds} ث) ] ليمنح الطالب وقتاً كافياً.
+                </p>
+              </div>
+
+              {/* Control 3: لا يمكن التراجع عن الإجابة */}
+              <div className="p-3 bg-white rounded-xl border border-purple-200 shadow-2xs space-y-2">
+                <span className="text-[11px] font-extrabold text-slate-800 block">
+                  3. خيار التراجع عند الخطأ:
                 </span>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -696,10 +775,10 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                 </p>
               </div>
 
-              {/* Control 2: إظهار / إخفاء الخطأ */}
+              {/* Control 4: إظهار / إخفاء الخطأ */}
               <div className="p-3 bg-white rounded-xl border border-purple-200 shadow-2xs space-y-2">
                 <span className="text-[11px] font-extrabold text-slate-800 block">
-                  2. إظهار / إخفاء الخطأ:
+                  4. إظهار / إخفاء الخطأ:
                 </span>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -808,6 +887,14 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                         <div className="flex flex-wrap items-center gap-1.5 mb-1">
                           <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-900 text-[10px] font-bold">
                             تمرين {ex.exerciseNumber}
+                          </span>
+                          {ex.inputMode === 'voice_only' && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-900 text-[9px] font-bold" title="إدخال صوتي فقط">
+                              🎙️ صوت فقط
+                            </span>
+                          )}
+                          <span className="px-1.5 py-0.5 rounded-md bg-slate-200/80 text-slate-700 text-[9px] font-bold" title="مدة الاستماع والعد التنازلي">
+                            ⏱️ {ex.durationSeconds || 4}ث
                           </span>
                           {ex.lockOnMistake && (
                             <span className="px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-800 text-[9px] font-bold" title="لا يمكن التراجع عند الخطأ">

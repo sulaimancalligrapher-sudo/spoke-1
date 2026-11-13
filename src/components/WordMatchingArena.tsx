@@ -181,22 +181,28 @@ interface ConnectedAttempt {
   const [connections, setConnections] = useState<ConnectedAttempt[]>([]);
   const [incorrectFlashIds, setIncorrectFlashIds] = useState<{ rightId: string; leftId: string } | null>(null);
 
-  // User Interactive Toggles for Answer Behavior (overrides exercise defaults if set)
-  const [userLockOnMistake, setUserLockOnMistake] = useState<boolean | null>(null);
-  const [userShowMistakeFeedback, setUserShowMistakeFeedback] = useState<boolean | null>(null);
+  // Exercise settings defined by teacher (Column 4 in sheet "وصل")
+  const effectiveLockOnMistake = !!activeExercise?.lockOnMistake;
+  const effectiveShowMistakeFeedback = activeExercise?.showMistakeFeedback !== false;
+  const exerciseDuration = typeof activeExercise?.durationSeconds === 'number' && activeExercise.durationSeconds > 0
+    ? activeExercise.durationSeconds
+    : 4;
+  const isVoiceOnlyMode = activeExercise?.inputMode === 'voice_only';
 
-  // Effective settings: User selection takes precedence over exercise default
-  const effectiveLockOnMistake = userLockOnMistake !== null
-    ? userLockOnMistake
-    : !!activeExercise?.lockOnMistake;
-
-  const effectiveShowMistakeFeedback = userShowMistakeFeedback !== null
-    ? userShowMistakeFeedback
-    : activeExercise?.showMistakeFeedback !== false;
+  // SVG Curved Connecting Lines between paired cards
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [svgLines, setSvgLines] = useState<Array<{
+    key: string;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    color: string;
+  }>>([]);
 
   // Helpers to test if card is already connected
-  const isRightConnected = (id: string) => connections.some((c) => c.rightId === id);
-  const isLeftConnected = (id: string) => connections.some((c) => c.leftId === id);
+  const isRightConnected = (id: string) => connections.some((c) => c.rightId === id && (c.isCorrect || effectiveLockOnMistake));
+  const isLeftConnected = (id: string) => connections.some((c) => c.leftId === id && (c.isCorrect || effectiveLockOnMistake));
   const getRightConn = (id: string) => connections.find((c) => c.rightId === id);
   const getLeftConn = (id: string) => connections.find((c) => c.leftId === id);
 
@@ -214,18 +220,94 @@ interface ConnectedAttempt {
   const [activeInputMode, setActiveInputMode] = useState<'mouse' | 'voice'>('mouse');
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
+  const [countdown, setCountdown] = useState<number>(4);
+  const countdownIntervalRef = useRef<any>(null);
+
   const [guidanceBox, setGuidanceBox] = useState<{
     type: 'success' | 'error' | 'recording' | 'info';
     message: string;
   }>({
     type: 'info',
-    message: 'اختر طريقة التوصيل: انقر بالفأرة/اللمس 🖱️ أو اضغط زر تسجيل النطق 🎙️',
+    message: isVoiceOnlyMode
+      ? 'اضغط زر تسجيل النطق 🎙️ وانطق الكلمة المستهدفة بالعمود الأيمن'
+      : 'اختر طريقة التوصيل: انقر بالفأرة/اللمس 🖱️ أو اضغط زر تسجيل النطق 🎙️',
   });
 
   const recordingTimeoutRef = useRef<any>(null);
   const recognizerRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+
+  // Measure and update SVG curved connection lines
+  const updateSvgLines = () => {
+    if (!containerRef.current) return;
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const newLines: typeof svgLines = [];
+
+    connections.forEach((conn) => {
+      const rEl = containerRef.current?.querySelector(`[data-card-id="${conn.rightId}"]`);
+      const lEl = containerRef.current?.querySelector(`[data-card-id="${conn.leftId}"]`);
+      if (rEl && lEl) {
+        const rRect = rEl.getBoundingClientRect();
+        const lRect = lEl.getBoundingClientRect();
+
+        const rCenterX = rRect.left + rRect.width / 2;
+        const lCenterX = lRect.left + lRect.width / 2;
+
+        const x1 = rCenterX > lCenterX ? (rRect.left - containerRect.left) : (rRect.right - containerRect.left);
+        const x2 = rCenterX > lCenterX ? (lRect.right - containerRect.left) : (lRect.left - containerRect.left);
+        const y1 = rRect.top - containerRect.top + rRect.height / 2;
+        const y2 = lRect.top - containerRect.top + lRect.height / 2;
+
+        let color = '#10b981'; // emerald-500
+        if (!conn.isCorrect) {
+          color = effectiveShowMistakeFeedback ? '#ef4444' : '#8b5cf6';
+        }
+
+        newLines.push({
+          key: `${conn.rightId}-${conn.leftId}`,
+          x1,
+          y1,
+          x2,
+          y2,
+          color,
+        });
+      }
+    });
+
+    setSvgLines(newLines);
+  };
+
+  useEffect(() => {
+    updateSvgLines();
+    const t = setTimeout(updateSvgLines, 60);
+    window.addEventListener('resize', updateSvgLines);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('resize', updateSvgLines);
+    };
+  }, [connections, rightItems, leftItems, effectiveShowMistakeFeedback]);
+
+  const clearCountdown = () => {
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+  };
+
+  const startCountdown = (sec: number) => {
+    clearCountdown();
+    setCountdown(sec);
+    let remaining = sec;
+    countdownIntervalRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearCountdown();
+      } else {
+        setCountdown(remaining);
+      }
+    }, 1000);
+  };
 
   // Initialize or re-shuffle when activeExercise changes
   const initExercise = () => {
@@ -253,16 +335,18 @@ interface ConnectedAttempt {
     setSelectedRightId(null);
     setSelectedLeftId(null);
     setConnections([]);
+    setSvgLines([]);
     setIncorrectFlashIds(null);
     setCorrectCount(0);
     setWrongCount(0);
     setIsCompleted(false);
     setSheetSyncSuccess(null);
-    setUserLockOnMistake(null);
-    setUserShowMistakeFeedback(null);
+    setActiveInputMode(activeExercise.inputMode === 'voice_only' ? 'voice' : 'mouse');
     setGuidanceBox({
       type: 'info',
-      message: 'ابدأ التوصيل: انقر بالفأرة واللمس 🖱️ أو اضغط زر تسجيل النطق 🎙️',
+      message: activeExercise.inputMode === 'voice_only'
+        ? 'اضغط زر تسجيل النطق 🎙️ وانطق الكلمة المستهدفة بالعمود الأيمن'
+        : 'ابدأ التوصيل: انقر بالفأرة واللمس 🖱️ أو اضغط زر تسجيل النطق 🎙️',
     });
   };
 
@@ -279,6 +363,7 @@ interface ConnectedAttempt {
 
   // Stop recording safely and revert button to normal state across all browsers
   const stopVoiceRecording = () => {
+    clearCountdown();
     if (recordingTimeoutRef.current) {
       clearTimeout(recordingTimeoutRef.current);
       recordingTimeoutRef.current = null;
@@ -349,6 +434,7 @@ interface ConnectedAttempt {
       };
 
       recorder.onstop = async () => {
+        clearCountdown();
         if (mediaStreamRef.current) {
           try {
             mediaStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -374,19 +460,18 @@ interface ConnectedAttempt {
 
         try {
           const audioBlob = new Blob(chunks, { type: mimeType });
-          const connectedRIds = new Set(connections.map((c) => c.rightId));
-          const connectedLIds = new Set(connections.map((c) => c.leftId));
-          const remainingCandidates = [
-            ...rightItems.filter((i) => !connectedRIds.has(i.id)).map((i) => i.text),
-            ...leftItems.filter((i) => !connectedLIds.has(i.id)).map((i) => i.text),
-          ];
+          // Phase 1 (no right item selected yet): candidates are ONLY available right words!
+          // Phase 2 (right item selected): candidates are ONLY available left words!
+          const remainingCandidates = !selectedRightId
+            ? rightItems.filter((i) => !isRightConnected(i.id)).map((i) => i.text)
+            : leftItems.filter((i) => !isLeftConnected(i.id)).map((i) => i.text);
 
           const text = await transcribeWithInBrowserWhisper(
             audioBlob,
             undefined,
             1,
             undefined,
-            { lessonVocabulary: remainingCandidates, audioDuration: 2.2 }
+            { lessonVocabulary: remainingCandidates, audioDuration: exerciseDuration }
           );
 
           setIsTranscribing(false);
@@ -411,15 +496,16 @@ interface ConnectedAttempt {
       };
 
       recorder.start(100);
+      startCountdown(exerciseDuration);
 
-      // Stop recording automatically after 2.2 seconds for snappy response in Firefox
+      // Stop recording automatically when duration finishes
       recordingTimeoutRef.current = setTimeout(() => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
           try {
             mediaRecorderRef.current.stop();
           } catch {}
         }
-      }, 2200);
+      }, exerciseDuration * 1000);
     } catch (err: any) {
       console.warn('Microphone access error in Firefox/MediaRecorder:', err);
       stopVoiceRecording();
@@ -437,7 +523,7 @@ interface ConnectedAttempt {
     setActiveInputMode('mouse');
     setGuidanceBox({
       type: 'info',
-      message: 'وضع الفأرة واللمس مفعّل: انقر على الكلمة في اليمين ثم مقابلتها في اليسار 🖱️',
+      message: 'وضع الفأرة واللمس مفعّل: انقر على الكلمة في اليمين أولاً ثم مقابلتها في اليسار 🖱️',
     });
   };
 
@@ -462,9 +548,13 @@ interface ConnectedAttempt {
 
     setActiveInputMode('voice');
     setIsListening(true);
+    startCountdown(exerciseDuration);
+
     setGuidanceBox({
       type: 'recording',
-      message: 'استمع لصوتك... انطق أي كلمة ظاهرة أمامك بوضوح 🎙️',
+      message: !selectedRightId
+        ? 'استمع لصوتك... انطق الكلمة المستهدفة من العمود الأيمن أولاً 🎙️'
+        : 'استمع لصوتك... انطق الكلمة المقابلة من العمود الأيسر 🎙️',
     });
 
     const isFirefox = typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent);
@@ -478,7 +568,7 @@ interface ConnectedAttempt {
         recognizer.maxAlternatives = 3;
         recognizer.lang = 'ar-SA';
 
-        // Auto-stop after 3.5 seconds on PC Chrome to guarantee button returns to normal
+        // Auto-stop after exerciseDuration seconds to guarantee button returns to normal
         recordingTimeoutRef.current = setTimeout(() => {
           stopVoiceRecording();
           setGuidanceBox((prev) =>
@@ -489,7 +579,7 @@ interface ConnectedAttempt {
                 }
               : prev
           );
-        }, 3500);
+        }, exerciseDuration * 1000);
 
         recognizer.onresult = (event: any) => {
           stopVoiceRecording();
@@ -533,14 +623,13 @@ interface ConnectedAttempt {
     }
   };
 
-  // Match voice spoken text against cards
+  // Match voice spoken text against cards with strict Right-Column-First rule
   const handleVoiceMatchedWord = (spokenText: string) => {
     const cleanSpoken = removeTashkeel(spokenText).toLowerCase().trim();
     if (!cleanSpoken) return;
 
-    // Case 1: If right item is not yet selected
+    // Phase 1: No Right card is selected yet -> search EXCLUSIVELY in available Right items
     if (!selectedRightId) {
-      // 1. Check in available right items
       const availableRights = rightItems.filter((item) => !isRightConnected(item.id));
       const rightTexts = availableRights.map((i) => i.text);
       const snappedRight = findBestCandidateMatch(cleanSpoken, rightTexts);
@@ -556,42 +645,21 @@ interface ConnectedAttempt {
         playAudioChime('tap');
         setGuidanceBox({
           type: 'success',
-          message: `✓ تم التعرف على: «${matchR.text}» في العمود الأيمن. انطق كلمتها المقابلة أو اخترها بالفأرة!`,
+          message: `✓ تم اختيار: «${matchR.text}» من العمود الأيمن. الآن انطق كلمتها المقابلة أو اخترها بالفأرة!`,
         });
         return;
       }
 
-      // 2. Or maybe student spoke an available left item first
-      const availableLefts = leftItems.filter((item) => !isLeftConnected(item.id));
-      const leftTexts = availableLefts.map((i) => i.text);
-      const snappedLeft = findBestCandidateMatch(cleanSpoken, leftTexts);
-
-      const matchL = availableLefts.find((item) => {
-        if (snappedLeft && item.text === snappedLeft) return true;
-        const cleanItem = removeTashkeel(item.text).toLowerCase().trim();
-        return cleanSpoken.includes(cleanItem) || cleanItem.includes(cleanSpoken);
-      });
-
-      if (matchL) {
-        setSelectedLeftId(matchL.id);
-        playAudioChime('tap');
-        setGuidanceBox({
-          type: 'success',
-          message: `✓ تم التعرف على: «${matchL.text}» في العمود الأيسر. انطق كلمتها المقابلة أو اخترها بالفأرة!`,
-        });
-        return;
-      }
-
-      // No match found
+      // No match found in Right column
       playAudioChime('error');
       setGuidanceBox({
         type: 'error',
-        message: `⚠️ سُمع: «${spokenText}» — لم تتطابق مع الكلمات المتبقية، انطق كلمة أخرى من الكلمات الظاهرة.`,
+        message: `⚠️ سُمع: «${spokenText}» — لم تتطابق مع كلمات العمود الأيمن المتبقية. انطق كلمة من اليمين.`,
       });
       return;
     }
 
-    // Case 2: Right item is already selected -> test match with left column!
+    // Phase 2: Right card IS selected -> search EXCLUSIVELY in available Left items
     const availableLefts = leftItems.filter((item) => !isLeftConnected(item.id));
     const leftTexts = availableLefts.map((i) => i.text);
     const snappedLeft = findBestCandidateMatch(cleanSpoken, leftTexts);
@@ -608,12 +676,13 @@ interface ConnectedAttempt {
       playAudioChime('error');
       setGuidanceBox({
         type: 'error',
-        message: `⚠️ سُمع: «${spokenText}» — لم نجد كلمة مقابلة مطابقة، حاول مجدداً أو اختر بالفأرة.`,
+        message: `⚠️ سُمع: «${spokenText}» — لم نجد كلمة مقابلة مطابقة في العمود الأيسر، حاول مجدداً.`,
       });
     }
   };
 
   // Handle Match Evaluation between selectedRightId and selectedLeftId
+  // Includes Dynamic Re-assignment: if either card was part of a mistake connection, release the mistake and assign the new connection!
   const handleCheckMatch = (rId: string, lId: string) => {
     const rItem = rightItems.find((i) => i.id === rId);
     const lItem = leftItems.find((i) => i.id === lId);
@@ -622,6 +691,14 @@ interface ConnectedAttempt {
     const correctPair = activeExercise?.pairs.find((p) => p.id === rItem.pairId);
     const isCorrect = rItem.pairId === lItem.pairId;
     const correctLeft = correctPair?.leftText || '';
+
+    // Dynamic Re-assignment: release any previous mistake connection involving rId or lId
+    const cleanedConnections = connections.filter((c) => {
+      if (!c.isCorrect && (c.rightId === rId || c.leftId === lId)) {
+        return false; // Free up the previously mistaken card!
+      }
+      return true;
+    });
 
     if (isCorrect) {
       // Correct Match!
@@ -633,7 +710,7 @@ interface ConnectedAttempt {
         leftText: lItem.text,
         correctLeftText: correctLeft,
       };
-      const nextConnections = [...connections, newConn];
+      const nextConnections = [...cleanedConnections, newConn];
       setConnections(nextConnections);
       const nextCorrect = correctCount + 1;
       setCorrectCount(nextCorrect);
@@ -654,7 +731,7 @@ interface ConnectedAttempt {
         });
       }
 
-      // Check if all pairs are solved
+      // Check if all pairs are connected/solved
       if (activeExercise && nextConnections.length >= activeExercise.pairs.length) {
         handleExerciseFinished(nextCorrect, wrongCount, nextConnections);
       }
@@ -663,7 +740,7 @@ interface ConnectedAttempt {
       const shouldLock = effectiveLockOnMistake || !effectiveShowMistakeFeedback;
 
       if (shouldLock) {
-        // Locked as incorrect! Cannot undo!
+        // Locked as incorrect!
         const newConn: ConnectedAttempt = {
           rightId: rId,
           leftId: lId,
@@ -672,7 +749,7 @@ interface ConnectedAttempt {
           leftText: lItem.text,
           correctLeftText: correctLeft,
         };
-        const nextConnections = [...connections, newConn];
+        const nextConnections = [...cleanedConnections, newConn];
         setConnections(nextConnections);
         const nextWrong = wrongCount + 1;
         setWrongCount(nextWrong);
@@ -715,7 +792,7 @@ interface ConnectedAttempt {
     }
   };
 
-  // When exercise finishes, auto-submit to sheet "answers 2"
+  // When exercise finishes, auto-submit to sheet "answers 2" with standard formula
   const handleExerciseFinished = async (
     finalCorrect: number,
     finalWrong: number,
@@ -726,10 +803,21 @@ interface ConnectedAttempt {
     if (!activeExercise || !activeSubject) return;
 
     const totalPairs = activeExercise.pairs.length;
-    const totalAttempts = Math.max(totalPairs, finalCorrect + finalWrong);
-    const percentage = Math.round((finalCorrect / totalAttempts) * 100);
+    let percentage = 0;
+    let formulaString = '';
 
-    // Update completed count
+    if (effectiveLockOnMistake) {
+      // Single attempt mode: (5 كلمات - 4 صحيح - 1 خطأ = 80%)
+      percentage = Math.round((finalCorrect / Math.max(1, totalPairs)) * 100);
+      formulaString = `(${totalPairs} - ${finalCorrect} صحيح - ${finalWrong} خطأ = ${percentage}%)`;
+    } else {
+      // Retry mode: (5 - الصحيح 5 - أخطاء المحاولات 2 = 71%)
+      const totalAttempts = Math.max(totalPairs, finalCorrect + finalWrong);
+      percentage = Math.round((finalCorrect / Math.max(1, totalAttempts)) * 100);
+      formulaString = `(${totalPairs} - الصحيح ${finalCorrect} - أخطاء المحاولات ${finalWrong} = ${percentage}%)`;
+    }
+
+    // Update completed count in subject
     const updatedCompleted = {
       ...completedExercisesInSubject,
       [activeExercise.exerciseNumber]: percentage,
@@ -759,6 +847,8 @@ interface ConnectedAttempt {
           totalExercisesInSubject: totalInSubject,
           completedCountInSubject: completedCount,
           overallPercentage,
+          modeDescription: effectiveLockOnMistake ? 'محاولة واحدة' : 'إعادة المحاولة',
+          summaryString: formulaString,
         });
         if (res.success) {
           setSheetSyncSuccess('تم توثيق إنجازك بنجاح في ورقة answers 2 ✓');
@@ -782,16 +872,26 @@ interface ConnectedAttempt {
     }
 
     setSelectedRightId(item.id);
-
-    // If a left item is already selected, test match!
-    if (selectedLeftId) {
-      handleCheckMatch(item.id, selectedLeftId);
-    }
+    setGuidanceBox({
+      type: 'info',
+      message: `تم اختيار: «${item.text}». الآن اختر كلمتها المقابلة بالعمود الأيسر 👈`,
+    });
   };
 
-  // User click on left column card
+  // User click on left column card - Enforces Right-Column-First rule
   const handleLeftCardClick = (item: ShuffledItem) => {
     if (isLeftConnected(item.id) || isCompleted) return;
+
+    // Enforce Right Column First!
+    if (!selectedRightId) {
+      playAudioChime('error');
+      setGuidanceBox({
+        type: 'error',
+        message: '👈 يرجى اختيار أو نطق الكلمة من العمود الأيمن أولاً!',
+      });
+      return;
+    }
+
     playAudioChime('tap');
 
     if (selectedLeftId === item.id) {
@@ -800,11 +900,7 @@ interface ConnectedAttempt {
     }
 
     setSelectedLeftId(item.id);
-
-    // If a right item is already selected, test match!
-    if (selectedRightId) {
-      handleCheckMatch(selectedRightId, item.id);
-    }
+    handleCheckMatch(selectedRightId, item.id);
   };
 
   // Pagination navigation
@@ -933,59 +1029,51 @@ interface ConnectedAttempt {
           </h2>
         </div>
 
-        {/* Answer Behavior Mode Badges & Quick Toggles */}
-        <div className="flex flex-wrap items-center justify-center gap-2 mb-3">
-          {/* Toggle 1: Lock on Mistake */}
-          <button
-            type="button"
-            onClick={() => setUserLockOnMistake(!effectiveLockOnMistake)}
-            className={`px-3 py-1 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs ${
-              effectiveLockOnMistake
-                ? 'bg-rose-50 border-rose-300 text-rose-800'
-                : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-            }`}
-            title="انقر للتبديل: هل يمكن التراجع عند الخطأ أم محاولة واحدة وتثبيت النتيجة؟"
-          >
-            <span>{effectiveLockOnMistake ? '🔒 لا يمكن التراجع عن الإجابة' : '🔄 إتاحة المحاولة عند الخطأ'}</span>
-          </button>
+        {/* Teacher Configured Behavior Badges */}
+        {(effectiveLockOnMistake || !effectiveShowMistakeFeedback || isVoiceOnlyMode) && (
+          <div className="flex flex-wrap items-center justify-center gap-1.5 mb-2">
+            {effectiveLockOnMistake && (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 border border-rose-200 text-rose-800">
+                🔒 محاولة واحدة بدون تراجع
+              </span>
+            )}
+            {!effectiveShowMistakeFeedback && (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 border border-indigo-200 text-indigo-900">
+                🙈 كشف الخطأ في نهاية التمرين
+              </span>
+            )}
+            {isVoiceOnlyMode && (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 border border-amber-200 text-amber-900">
+                🎙️ إدخال صوتي فقط
+              </span>
+            )}
+          </div>
+        )}
 
-          {/* Toggle 2: Show/Hide Feedback */}
-          <button
-            type="button"
-            onClick={() => setUserShowMistakeFeedback(!effectiveShowMistakeFeedback)}
-            className={`px-3 py-1 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs ${
-              !effectiveShowMistakeFeedback
-                ? 'bg-indigo-50 border-indigo-300 text-indigo-900 ring-2 ring-indigo-200'
-                : 'bg-emerald-50 border-emerald-300 text-emerald-900'
-            }`}
-            title="انقر للتبديل: هل يظهر الخطأ فوراً أم يُخفى حتى نهاية التمرين؟"
-          >
-            <span>{effectiveShowMistakeFeedback ? '👁️ إظهار الخطأ فوراً' : '🙈 الخطأ مخفي حتى النهاية'}</span>
-          </button>
-        </div>
-
-        {/* 2 Dedicated Interaction Buttons: زر تشغيل الفأرة & زر تسجيل النطق */}
+        {/* Interaction Buttons: زر تشغيل الفأرة & زر تسجيل النطق */}
         <div className="flex flex-wrap items-center justify-center gap-3 my-2 w-full max-w-md">
-          {/* Button 1: تشغيل الفأرة */}
-          <button
-            type="button"
-            onClick={handleActivateMouseMode}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer shadow-xs border ${
-              activeInputMode === 'mouse' && !isListening
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
-                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 hover:border-indigo-300'
-            }`}
-          >
-            <MousePointer className="w-4 h-4" />
-            <span>تشغيل الفأرة 🖱️</span>
-          </button>
+          {/* Button 1: تشغيل الفأرة - only rendered if teacher didn't force voice_only */}
+          {!isVoiceOnlyMode && (
+            <button
+              type="button"
+              onClick={handleActivateMouseMode}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer shadow-xs border ${
+                activeInputMode === 'mouse' && !isListening
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 hover:border-indigo-300'
+              }`}
+            >
+              <MousePointer className="w-4 h-4" />
+              <span>تشغيل الفأرة 🖱️</span>
+            </button>
+          )}
 
-          {/* Button 2: تسجيل نطق (يدعم Web Speech API و MediaRecorder + Whisper في فايرفوكس) */}
+          {/* Button 2: تسجيل نطق مع عداد تنازلي رقمي */}
           <button
             type="button"
             onClick={handleStartVoiceRecording}
             disabled={isTranscribing}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer shadow-xs border disabled:cursor-not-allowed ${
+            className={`${isVoiceOnlyMode ? 'w-full max-w-xs' : 'flex-1'} flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer shadow-xs border disabled:cursor-not-allowed ${
               isListening
                 ? 'bg-rose-600 text-white border-rose-600 animate-pulse ring-4 ring-rose-200 shadow-lg shadow-rose-600/30'
                 : isTranscribing
@@ -996,7 +1084,7 @@ interface ConnectedAttempt {
             {isListening ? (
               <>
                 <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
-                <span>جاري الاستماع... 🎙️</span>
+                <span className="font-mono font-bold">جاري الاستماع... ({countdown} ث) 🎙️</span>
               </>
             ) : isTranscribing ? (
               <>
@@ -1012,7 +1100,7 @@ interface ConnectedAttempt {
           </button>
         </div>
 
-        {/* 4. Guidance / Feedback Box placed DIRECTLY UNDER the two buttons */}
+        {/* 4. Guidance / Feedback Box placed DIRECTLY UNDER the buttons */}
         {guidanceBox && (
           <div
             className={`w-full max-w-xl mx-auto mb-4 p-3 rounded-2xl border text-xs sm:text-sm font-bold flex items-center justify-center gap-2 animate-in fade-in duration-200 transition-all ${
@@ -1033,11 +1121,29 @@ interface ConnectedAttempt {
           </div>
         )}
 
-        {/* 3. The Two Columns (Right Words & Left Words) */}
+        {/* 3. The Two Columns with SVG Connecting Curves Overlay */}
         {!isCompleted ? (
-          <div className="grid grid-cols-2 gap-3 sm:gap-6 w-full max-w-2xl my-3">
+          <div ref={containerRef} className="relative grid grid-cols-2 gap-4 sm:gap-8 w-full max-w-2xl my-3">
+            {/* SVG Connecting Curves */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none z-10 overflow-visible">
+              {svgLines.map((line) => (
+                <g key={line.key}>
+                  <circle cx={line.x1} cy={line.y1} r={4} fill={line.color} />
+                  <circle cx={line.x2} cy={line.y2} r={4} fill={line.color} />
+                  <path
+                    d={`M ${line.x1} ${line.y1} C ${(line.x1 + line.x2) / 2} ${line.y1}, ${(line.x1 + line.x2) / 2} ${line.y2}, ${line.x2} ${line.y2}`}
+                    stroke={line.color}
+                    strokeWidth={3}
+                    strokeLinecap="round"
+                    fill="none"
+                    opacity={0.88}
+                  />
+                </g>
+              ))}
+            </svg>
+
             {/* RIGHT COLUMN */}
-            <div className="flex flex-col gap-2.5">
+            <div className="flex flex-col gap-2.5 z-20">
               <span className="text-[11px] font-extrabold text-slate-400 block mb-1">
                 العمود الأيمن
               </span>
@@ -1051,15 +1157,16 @@ interface ConnectedAttempt {
                 return (
                   <button
                     key={item.id}
+                    data-card-id={item.id}
                     onClick={() => handleRightCardClick(item)}
-                    disabled={isMatched}
-                    className={`w-full p-3 sm:p-4 rounded-2xl border-2 font-amiri text-lg sm:text-2xl font-bold transition-all flex items-center justify-between cursor-pointer active:scale-98 select-none ${
+                    disabled={isMatched && (isCorrectMatch || effectiveLockOnMistake)}
+                    className={`w-full p-3 sm:p-4 rounded-2xl border-2 font-amiri text-lg sm:text-2xl font-bold transition-all flex items-center justify-between cursor-pointer active:scale-98 select-none relative ${
                       isMatched
                         ? effectiveShowMistakeFeedback
                           ? isCorrectMatch
-                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-60 cursor-default'
-                            : 'bg-rose-50 border-rose-300 text-rose-900 opacity-70 cursor-default line-through'
-                          : 'bg-purple-50/80 border-purple-200 text-purple-900 opacity-70 cursor-default'
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-70 cursor-default'
+                            : 'bg-rose-50 border-rose-300 text-rose-900 opacity-75'
+                          : 'bg-purple-50/80 border-purple-200 text-purple-900 opacity-75 cursor-default'
                         : isFlashingWrong
                         ? 'bg-rose-50 border-rose-500 text-rose-900'
                         : isSelected
@@ -1085,7 +1192,7 @@ interface ConnectedAttempt {
             </div>
 
             {/* LEFT COLUMN */}
-            <div className="flex flex-col gap-2.5">
+            <div className="flex flex-col gap-2.5 z-20">
               <span className="text-[11px] font-extrabold text-slate-400 block mb-1">
                 العمود الأيسر
               </span>
@@ -1099,15 +1206,16 @@ interface ConnectedAttempt {
                 return (
                   <button
                     key={item.id}
+                    data-card-id={item.id}
                     onClick={() => handleLeftCardClick(item)}
-                    disabled={isMatched}
-                    className={`w-full p-3 sm:p-4 rounded-2xl border-2 font-amiri text-lg sm:text-2xl font-bold transition-all flex items-center justify-between cursor-pointer active:scale-98 select-none ${
+                    disabled={isMatched && (isCorrectMatch || effectiveLockOnMistake)}
+                    className={`w-full p-3 sm:p-4 rounded-2xl border-2 font-amiri text-lg sm:text-2xl font-bold transition-all flex items-center justify-between cursor-pointer active:scale-98 select-none relative ${
                       isMatched
                         ? effectiveShowMistakeFeedback
                           ? isCorrectMatch
-                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-60 cursor-default'
-                            : 'bg-rose-50 border-rose-300 text-rose-900 opacity-70 cursor-default line-through'
-                          : 'bg-purple-50/80 border-purple-200 text-purple-900 opacity-70 cursor-default'
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-70 cursor-default'
+                            : 'bg-rose-50 border-rose-300 text-rose-900 opacity-75'
+                          : 'bg-purple-50/80 border-purple-200 text-purple-900 opacity-75 cursor-default'
                         : isFlashingWrong
                         ? 'bg-rose-50 border-rose-500 text-rose-900'
                         : isSelected
@@ -1150,7 +1258,9 @@ interface ConnectedAttempt {
 
             {/* Official Formula: (إجمالي الكلمات - الصحيح X - الخطأ Y = %Z) */}
             <div className="bg-white p-4 rounded-2xl border border-purple-200/90 shadow-xs font-mono text-base sm:text-lg font-black text-purple-950 tracking-wide dir-ltr select-all">
-              ({totalPairsCount} - الصحيح {correctCount} - الخطأ {wrongCount} = {accuracyPercent}%)
+              {effectiveLockOnMistake
+                ? `(${totalPairsCount} - ${correctCount} صحيح - ${wrongCount} خطأ = ${accuracyPercent}%)`
+                : `(${totalPairsCount} - الصحيح ${correctCount} - أخطاء المحاولات ${wrongCount} = ${accuracyPercent}%)`}
             </div>
 
             {/* Detailed Reveal Breakdown if Feedback was Hidden during exercise */}

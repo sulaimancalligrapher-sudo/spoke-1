@@ -180,6 +180,8 @@ export interface MatchingExercise {
   exerciseNumber: number; // 1, 2, 3...
   questionText: string;
   pairs: MatchingPair[];
+  inputMode?: 'voice_only' | 'both'; // صوت فقط أو كلاهما (فأرة وصوت)
+  durationSeconds?: number; // مدة تسجيل الصوت بالثواني (افتراضياً 4 ثوانٍ)
   lockOnMistake?: boolean; // لا يمكن التراجع عن الإجابة عند الخطأ (تثبيت الخطأ)
   showMistakeFeedback?: boolean; // إظهار الخطأ فوراً (افتراضياً true) أو إخفاؤه حتى النهاية (false)
 }
