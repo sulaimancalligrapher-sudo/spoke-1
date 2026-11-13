@@ -184,6 +184,7 @@ export interface MatchingExercise {
   durationSeconds?: number; // مدة تسجيل الصوت بالثواني (افتراضياً 4 ثوانٍ)
   lockOnMistake?: boolean; // لا يمكن التراجع عن الإجابة عند الخطأ (تثبيت الخطأ)
   showMistakeFeedback?: boolean; // إظهار الخطأ فوراً (افتراضياً true) أو إخفاؤه حتى النهاية (false)
+  allowSmartReassign?: boolean; // فك وتصحيح الخطأ الذكي (السماح بتبديل الإجابة وفك الربط السابق تلقائياً)
 }
 
 export interface MatchingLessonSubject {

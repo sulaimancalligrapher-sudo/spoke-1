@@ -184,6 +184,7 @@ interface ConnectedAttempt {
   // Exercise settings defined by teacher (Column 4 in sheet "وصل")
   const effectiveLockOnMistake = !!activeExercise?.lockOnMistake;
   const effectiveShowMistakeFeedback = activeExercise?.showMistakeFeedback !== false;
+  const effectiveAllowSmartReassign = !!activeExercise?.allowSmartReassign && !effectiveLockOnMistake;
   const exerciseDuration = typeof activeExercise?.durationSeconds === 'number' && activeExercise.durationSeconds > 0
     ? activeExercise.durationSeconds
     : 4;
@@ -200,11 +201,27 @@ interface ConnectedAttempt {
     color: string;
   }>>([]);
 
-  // Helpers to test if card is already connected
-  const isRightConnected = (id: string) => connections.some((c) => c.rightId === id && (c.isCorrect || effectiveLockOnMistake));
-  const isLeftConnected = (id: string) => connections.some((c) => c.leftId === id && (c.isCorrect || effectiveLockOnMistake));
+  // Helpers to test if card is locked from further selection
   const getRightConn = (id: string) => connections.find((c) => c.rightId === id);
   const getLeftConn = (id: string) => connections.find((c) => c.leftId === id);
+  const isRightConnected = (id: string) => {
+    const conn = getRightConn(id);
+    if (!conn) return false;
+    if (effectiveLockOnMistake) return true;
+    if (!effectiveShowMistakeFeedback) {
+      return !effectiveAllowSmartReassign;
+    }
+    return conn.isCorrect;
+  };
+  const isLeftConnected = (id: string) => {
+    const conn = getLeftConn(id);
+    if (!conn) return false;
+    if (effectiveLockOnMistake) return true;
+    if (!effectiveShowMistakeFeedback) {
+      return !effectiveAllowSmartReassign;
+    }
+    return conn.isCorrect;
+  };
 
   // Score tracking for current exercise
   const [correctCount, setCorrectCount] = useState<number>(0);
@@ -682,7 +699,7 @@ interface ConnectedAttempt {
   };
 
   // Handle Match Evaluation between selectedRightId and selectedLeftId
-  // Includes Dynamic Re-assignment: if either card was part of a mistake connection, release the mistake and assign the new connection!
+  // Includes independent Smart Re-assignment (controlled by effectiveAllowSmartReassign)
   const handleCheckMatch = (rId: string, lId: string) => {
     const rItem = rightItems.find((i) => i.id === rId);
     const lItem = leftItems.find((i) => i.id === lId);
@@ -692,13 +709,10 @@ interface ConnectedAttempt {
     const isCorrect = rItem.pairId === lItem.pairId;
     const correctLeft = correctPair?.leftText || '';
 
-    // Dynamic Re-assignment: release any previous mistake connection involving rId or lId
-    const cleanedConnections = connections.filter((c) => {
-      if (!c.isCorrect && (c.rightId === rId || c.leftId === lId)) {
-        return false; // Free up the previously mistaken card!
-      }
-      return true;
-    });
+    // Smart Re-assignment: if enabled by teacher, unlink any previous connection involving rId or lId
+    const cleanedConnections = effectiveAllowSmartReassign
+      ? connections.filter((c) => c.rightId !== rId && c.leftId !== lId)
+      : connections;
 
     if (isCorrect) {
       // Correct Match!
@@ -712,7 +726,7 @@ interface ConnectedAttempt {
       };
       const nextConnections = [...cleanedConnections, newConn];
       setConnections(nextConnections);
-      const nextCorrect = correctCount + 1;
+      const nextCorrect = nextConnections.filter((c) => c.isCorrect).length;
       setCorrectCount(nextCorrect);
       setSelectedRightId(null);
       setSelectedLeftId(null);
@@ -731,16 +745,21 @@ interface ConnectedAttempt {
         });
       }
 
-      // Check if all pairs are connected/solved
-      if (activeExercise && nextConnections.length >= activeExercise.pairs.length) {
-        handleExerciseFinished(nextCorrect, wrongCount, nextConnections);
+      // Check completion
+      if (activeExercise) {
+        const allPairsConnected = nextConnections.length >= activeExercise.pairs.length;
+        const allPairsCorrect = nextCorrect >= activeExercise.pairs.length;
+        if (effectiveLockOnMistake || !effectiveShowMistakeFeedback ? allPairsConnected : allPairsCorrect) {
+          handleExerciseFinished(nextCorrect, wrongCount, nextConnections);
+        }
       }
     } else {
       // Wrong Match!
-      const shouldLock = effectiveLockOnMistake || !effectiveShowMistakeFeedback;
+      // Keep persistent connection line if: locked, hidden feedback, OR smart reassign is active
+      const shouldKeepConnection =
+        effectiveLockOnMistake || !effectiveShowMistakeFeedback || effectiveAllowSmartReassign;
 
-      if (shouldLock) {
-        // Locked as incorrect!
+      if (shouldKeepConnection) {
         const newConn: ConnectedAttempt = {
           rightId: rId,
           leftId: lId,
@@ -751,6 +770,8 @@ interface ConnectedAttempt {
         };
         const nextConnections = [...cleanedConnections, newConn];
         setConnections(nextConnections);
+        const nextCorrect = nextConnections.filter((c) => c.isCorrect).length;
+        setCorrectCount(nextCorrect);
         const nextWrong = wrongCount + 1;
         setWrongCount(nextWrong);
         setSelectedRightId(null);
@@ -760,7 +781,9 @@ interface ConnectedAttempt {
           playAudioChime('error');
           setGuidanceBox({
             type: 'error',
-            message: `❌ إجابة غير صحيحة! تم تثبيت النتيجة ولا يمكن التراجع عنها.`,
+            message: effectiveLockOnMistake
+              ? `❌ إجابة غير صحيحة! تم تثبيت النتيجة ولا يمكن التراجع عنها.`
+              : `❌ إجابة غير صحيحة: «${rItem.text}» لا تطابق «${lItem.text}». يمكنك إعادة التوصيل لتصحيح الخطأ الذكي!`,
           });
         } else {
           playAudioChime('tap');
@@ -770,12 +793,16 @@ interface ConnectedAttempt {
           });
         }
 
-        // Check if all pairs are solved
-        if (activeExercise && nextConnections.length >= activeExercise.pairs.length) {
-          handleExerciseFinished(correctCount, nextWrong, nextConnections);
+        // Check completion (only finish on wrong connection if locked or hidden feedback)
+        if (
+          activeExercise &&
+          (effectiveLockOnMistake || !effectiveShowMistakeFeedback) &&
+          nextConnections.length >= activeExercise.pairs.length
+        ) {
+          handleExerciseFinished(nextCorrect, nextWrong, nextConnections);
         }
       } else {
-        // Standard Retry Mode: Flash error and let student retry
+        // Standard Retry Mode (no smart reassign): Flash error briefly and let student retry
         playAudioChime('error');
         setWrongCount((prev) => prev + 1);
         setIncorrectFlashIds({ rightId: rId, leftId: lId });
@@ -863,6 +890,13 @@ interface ConnectedAttempt {
 
   // User click on right column card
   const handleRightCardClick = (item: ShuffledItem) => {
+    if (isVoiceOnlyMode) {
+      setGuidanceBox({
+        type: 'info',
+        message: 'هذا التمرين بنظام الصوت فقط 🎙️ — استخدم زر «تسجيل نطق» بدلاً من النقر على الكلمات.',
+      });
+      return;
+    }
     if (isRightConnected(item.id) || isCompleted) return;
     playAudioChime('tap');
 
@@ -880,6 +914,13 @@ interface ConnectedAttempt {
 
   // User click on left column card - Enforces Right-Column-First rule
   const handleLeftCardClick = (item: ShuffledItem) => {
+    if (isVoiceOnlyMode) {
+      setGuidanceBox({
+        type: 'info',
+        message: 'هذا التمرين بنظام الصوت فقط 🎙️ — استخدم زر «تسجيل نطق» بدلاً من النقر على الكلمات.',
+      });
+      return;
+    }
     if (isLeftConnected(item.id) || isCompleted) return;
 
     // Enforce Right Column First!
@@ -1030,7 +1071,7 @@ interface ConnectedAttempt {
         </div>
 
         {/* Teacher Configured Behavior Badges */}
-        {(effectiveLockOnMistake || !effectiveShowMistakeFeedback || isVoiceOnlyMode) && (
+        {(effectiveLockOnMistake || !effectiveShowMistakeFeedback || isVoiceOnlyMode || effectiveAllowSmartReassign) && (
           <div className="flex flex-wrap items-center justify-center gap-1.5 mb-2">
             {effectiveLockOnMistake && (
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 border border-rose-200 text-rose-800">
@@ -1042,9 +1083,14 @@ interface ConnectedAttempt {
                 🙈 كشف الخطأ في نهاية التمرين
               </span>
             )}
+            {effectiveAllowSmartReassign && (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 border border-teal-200 text-teal-900">
+                🧠 تبديل الإجابة والتصحيح الذكي متاح
+              </span>
+            )}
             {isVoiceOnlyMode && (
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 border border-amber-200 text-amber-900">
-                🎙️ إدخال صوتي فقط
+                🎙️ إدخال صوتي فقط (النقر معطّل)
               </span>
             )}
           </div>
@@ -1153,24 +1199,29 @@ interface ConnectedAttempt {
                 const isCorrectMatch = conn?.isCorrect;
                 const isSelected = selectedRightId === item.id;
                 const isFlashingWrong = incorrectFlashIds?.rightId === item.id;
+                const isLocked = isRightConnected(item.id);
 
                 return (
                   <button
                     key={item.id}
                     data-card-id={item.id}
                     onClick={() => handleRightCardClick(item)}
-                    disabled={isMatched && (isCorrectMatch || effectiveLockOnMistake)}
-                    className={`w-full p-3 sm:p-4 rounded-2xl border-2 font-amiri text-lg sm:text-2xl font-bold transition-all flex items-center justify-between cursor-pointer active:scale-98 select-none relative ${
+                    disabled={isVoiceOnlyMode || isLocked}
+                    className={`w-full p-3 sm:p-4 rounded-2xl border-2 font-amiri text-lg sm:text-2xl font-bold transition-all flex items-center justify-between select-none relative ${
+                      isVoiceOnlyMode ? 'cursor-default' : 'cursor-pointer active:scale-98'
+                    } ${
                       isMatched
                         ? effectiveShowMistakeFeedback
                           ? isCorrectMatch
-                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-70 cursor-default'
-                            : 'bg-rose-50 border-rose-300 text-rose-900 opacity-75'
-                          : 'bg-purple-50/80 border-purple-200 text-purple-900 opacity-75 cursor-default'
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-75 cursor-default'
+                            : 'bg-rose-50 border-rose-300 text-rose-900 opacity-85'
+                          : 'bg-purple-50/80 border-purple-200 text-purple-900 opacity-85'
                         : isFlashingWrong
                         ? 'bg-rose-50 border-rose-500 text-rose-900'
                         : isSelected
                         ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-600/30 scale-102 ring-4 ring-indigo-200'
+                        : isVoiceOnlyMode
+                        ? 'bg-white border-slate-200 text-slate-800 shadow-2xs'
                         : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-800 shadow-2xs hover:border-indigo-300'
                     }`}
                   >
@@ -1202,24 +1253,29 @@ interface ConnectedAttempt {
                 const isCorrectMatch = conn?.isCorrect;
                 const isSelected = selectedLeftId === item.id;
                 const isFlashingWrong = incorrectFlashIds?.leftId === item.id;
+                const isLocked = isLeftConnected(item.id);
 
                 return (
                   <button
                     key={item.id}
                     data-card-id={item.id}
                     onClick={() => handleLeftCardClick(item)}
-                    disabled={isMatched && (isCorrectMatch || effectiveLockOnMistake)}
-                    className={`w-full p-3 sm:p-4 rounded-2xl border-2 font-amiri text-lg sm:text-2xl font-bold transition-all flex items-center justify-between cursor-pointer active:scale-98 select-none relative ${
+                    disabled={isVoiceOnlyMode || isLocked}
+                    className={`w-full p-3 sm:p-4 rounded-2xl border-2 font-amiri text-lg sm:text-2xl font-bold transition-all flex items-center justify-between select-none relative ${
+                      isVoiceOnlyMode ? 'cursor-default' : 'cursor-pointer active:scale-98'
+                    } ${
                       isMatched
                         ? effectiveShowMistakeFeedback
                           ? isCorrectMatch
-                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-70 cursor-default'
-                            : 'bg-rose-50 border-rose-300 text-rose-900 opacity-75'
-                          : 'bg-purple-50/80 border-purple-200 text-purple-900 opacity-75 cursor-default'
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-75 cursor-default'
+                            : 'bg-rose-50 border-rose-300 text-rose-900 opacity-85'
+                          : 'bg-purple-50/80 border-purple-200 text-purple-900 opacity-85'
                         : isFlashingWrong
                         ? 'bg-rose-50 border-rose-500 text-rose-900'
                         : isSelected
                         ? 'bg-purple-600 border-purple-600 text-white shadow-md shadow-purple-600/30 scale-102 ring-4 ring-purple-200'
+                        : isVoiceOnlyMode
+                        ? 'bg-white border-slate-200 text-slate-800 shadow-2xs'
                         : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-800 shadow-2xs hover:border-purple-300'
                     }`}
                   >

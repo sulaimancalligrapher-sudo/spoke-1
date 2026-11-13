@@ -59,6 +59,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
   const [durationSeconds, setDurationSeconds] = useState<number>(4);
   const [lockOnMistake, setLockOnMistake] = useState<boolean>(false);
   const [showMistakeFeedback, setShowMistakeFeedback] = useState<boolean>(true);
+  const [allowSmartReassign, setAllowSmartReassign] = useState<boolean>(false);
 
   const [statusMessage, setStatusMessage] = useState<{
     success: boolean;
@@ -105,6 +106,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
     setDurationSeconds(typeof ex.durationSeconds === 'number' && ex.durationSeconds > 0 ? ex.durationSeconds : 4);
     setLockOnMistake(!!ex.lockOnMistake);
     setShowMistakeFeedback(ex.showMistakeFeedback !== false);
+    setAllowSmartReassign(!!ex.allowSmartReassign);
     setEditingInfo({
       subjectId: subj.id,
       exerciseId: ex.id,
@@ -130,6 +132,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
     setDurationSeconds(4);
     setLockOnMistake(false);
     setShowMistakeFeedback(true);
+    setAllowSmartReassign(false);
     setStatusMessage(null);
     setSubTab('list');
   };
@@ -188,6 +191,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                   durationSeconds,
                   lockOnMistake,
                   showMistakeFeedback,
+                  allowSmartReassign: lockOnMistake ? false : allowSmartReassign,
                 };
               }
               return ex;
@@ -210,6 +214,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
         durationSeconds,
         lockOnMistake,
         showMistakeFeedback,
+        allowSmartReassign: lockOnMistake ? false : allowSmartReassign,
       };
 
       if (subjectItem) {
@@ -250,6 +255,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
           durationSeconds,
           lockOnMistake,
           showMistakeFeedback,
+          allowSmartReassign: lockOnMistake ? false : allowSmartReassign,
         });
 
         if (sheetRes.success) {
@@ -758,7 +764,10 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setLockOnMistake(true)}
+                    onClick={() => {
+                      setLockOnMistake(true);
+                      setAllowSmartReassign(false);
+                    }}
                     className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
                       lockOnMistake
                         ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
@@ -808,6 +817,45 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                   {showMistakeFeedback
                     ? 'الافتراضي: يظهر التنبيه الصوتي والمرئي فوراً للكلمات الصحيحة والخاطئة.'
                     : 'يتم التوصيل بصمت وهدوء دون إظهار الخطأ، وتظهر الدرجة والأخطاء فقط عند نهاية التمرين بالكامل.'}
+                </p>
+              </div>
+
+              {/* Control 5: فك وتصحيح الخطأ الذكي (تبديل الإجابة) */}
+              <div className="sm:col-span-2 p-3 bg-white rounded-xl border border-purple-200 shadow-2xs space-y-2">
+                <span className="text-[11px] font-extrabold text-slate-800 block">
+                  5. فك وتصحيح الخطأ الذكي (السماح بتبديل الإجابة):
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setAllowSmartReassign(false)}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      !allowSmartReassign
+                        ? 'bg-slate-700 text-white border-slate-700 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    ⏹️ إيقاف التصحيح الذكي
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAllowSmartReassign(true);
+                      setLockOnMistake(false);
+                    }}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      allowSmartReassign && !lockOnMistake
+                        ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🧠 تفعيل فك وتصحيح الخطأ الذكي
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  {allowSmartReassign && !lockOnMistake
+                    ? '✓ مفعّل: تبقى التوصيلات المخطئة (أو البنفسجية عند إخفاء الخطأ) ظاهرة على اللوحة، وإذا أعاد الطالب توصيل أي كلمة منها بكلمة أخرى يُفك الربط السابق تلقائياً وتُصحح الإجابة.'
+                    : 'الافتراضي: عند إظهار الخطأ يختفي الخط الخاطئ فوراً للتحاول مجدداً، وعند إخفاء الخطأ يثبت التوصيل البنفسجي ولا يمكن تبديل الإجابة.'}
                 </p>
               </div>
             </div>
@@ -904,6 +952,11 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                           {ex.showMistakeFeedback === false && (
                             <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-800 text-[9px] font-bold" title="الخطأ مخفي حتى نهاية التمرين">
                               🙈 إخفاء الخطأ
+                            </span>
+                          )}
+                          {ex.allowSmartReassign && !ex.lockOnMistake && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-teal-100 text-teal-900 text-[9px] font-bold" title="فك وتصحيح الخطأ الذكي مفعّل">
+                              🧠 تصحيح ذكي
                             </span>
                           )}
                           <span className="font-amiri text-base font-bold text-slate-800 truncate">

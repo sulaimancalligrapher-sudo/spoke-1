@@ -17,7 +17,7 @@ import { INITIAL_MATCHING_SUBJECTS } from '../data/matchingCurriculum';
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbxrkqZ4alxBXBU8yAxuB3aV5zk6Rz1065ECt5W4y2wMpRrKeSlBAvkkvgjnFhBtvIezJA/exec';
+  'https://script.google.com/macros/s/AKfycbw99HfRH6nTo8VhsCp1rgTKgn3VdIR6rxbQBoU86_Ol4RyL-RXuvL8cb2aWwVks9Jx80A/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -1051,6 +1051,7 @@ export async function fetchMatchingExercisesFromSheets(
               durationSeconds: typeof ex.durationSeconds === 'number' ? ex.durationSeconds : 4,
               lockOnMistake: Boolean(ex.lockOnMistake),
               showMistakeFeedback: ex.showMistakeFeedback !== false,
+              allowSmartReassign: Boolean(ex.allowSmartReassign),
             }))
           : [],
       }));
@@ -1087,12 +1088,14 @@ export function formatExerciseSettingsString(exercise: {
   durationSeconds?: number;
   lockOnMistake?: boolean;
   showMistakeFeedback?: boolean;
+  allowSmartReassign?: boolean;
 }): string {
   const modeStr = exercise.inputMode === 'voice_only' ? 'صوت فقط' : 'فأرة وصوت';
   const lockStr = exercise.lockOnMistake ? 'لا تراجع' : 'إتاحة المحاولة';
   const feedbackStr = exercise.showMistakeFeedback === false ? 'إخفاء الخطأ' : 'إظهار الخطأ';
+  const smartStr = exercise.allowSmartReassign ? 'تصحيح ذكي' : 'بدون تصحيح ذكي';
   const dur = typeof exercise.durationSeconds === 'number' && exercise.durationSeconds > 0 ? exercise.durationSeconds : 4;
-  return `${modeStr} | ${lockStr} | ${feedbackStr} | ${dur} ثواني`;
+  return `${modeStr} | ${lockStr} | ${feedbackStr} | ${smartStr} | ${dur} ثواني`;
 }
 
 /**
@@ -1103,14 +1106,19 @@ export function parseExerciseSettingsString(str?: string): {
   durationSeconds: number;
   lockOnMistake: boolean;
   showMistakeFeedback: boolean;
+  allowSmartReassign: boolean;
 } {
   const s = String(str || '').trim();
   const inputMode: 'voice_only' | 'both' = s.includes('صوت فقط') ? 'voice_only' : 'both';
   const lockOnMistake = s.includes('لا تراجع') || s.includes('قفل');
   const showMistakeFeedback = !s.includes('إخفاء');
+  const allowSmartReassign =
+    (s.includes('تصحيح ذكي') && !s.includes('بدون تصحيح ذكي')) ||
+    s.includes('فك ذكي') ||
+    s.includes('تبديل الإجابة');
   const durMatch = s.match(/(\d+)\s*ثوان/);
   const durationSeconds = durMatch ? parseInt(durMatch[1], 10) : 4;
-  return { inputMode, durationSeconds, lockOnMistake, showMistakeFeedback };
+  return { inputMode, durationSeconds, lockOnMistake, showMistakeFeedback, allowSmartReassign };
 }
 
 /**
@@ -1127,6 +1135,7 @@ export async function saveMatchingExerciseToSheets(
     durationSeconds?: number;
     lockOnMistake?: boolean;
     showMistakeFeedback?: boolean;
+    allowSmartReassign?: boolean;
   }
 ): Promise<{ success: boolean; error?: string; message?: string }> {
   if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
@@ -1274,6 +1283,7 @@ export async function exportAllMatchingCurriculumToSheets(
         durationSeconds: ex.durationSeconds,
         lockOnMistake: ex.lockOnMistake,
         showMistakeFeedback: ex.showMistakeFeedback,
+        allowSmartReassign: ex.allowSmartReassign,
       });
       savedCount++;
     }
@@ -1906,6 +1916,7 @@ function doGet(e) {
                 var inputMode = sStr.indexOf("صوت فقط") !== -1 ? "voice_only" : "both";
                 var lockOnMistake = sStr.indexOf("لا تراجع") !== -1 || sStr.indexOf("قفل") !== -1;
                 var showMistakeFeedback = sStr.indexOf("إخفاء") === -1;
+                var allowSmartReassign = (sStr.indexOf("تصحيح ذكي") !== -1 && sStr.indexOf("بدون تصحيح ذكي") === -1) || sStr.indexOf("فك ذكي") !== -1 || sStr.indexOf("تبديل الإجابة") !== -1;
                 var durMatch = sStr.match(/(\d+)\s*ثوان/);
                 var durationSeconds = durMatch ? parseInt(durMatch[1]) : 4;
                 exercises.push({
@@ -1916,7 +1927,8 @@ function doGet(e) {
                   inputMode: inputMode,
                   durationSeconds: durationSeconds,
                   lockOnMistake: lockOnMistake,
-                  showMistakeFeedback: showMistakeFeedback
+                  showMistakeFeedback: showMistakeFeedback,
+                  allowSmartReassign: allowSmartReassign
                 });
                 exNum++;
               }
