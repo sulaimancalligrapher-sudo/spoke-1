@@ -2482,6 +2482,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             subjects={matchingSubjects || []}
             onUpdateSubjects={onUpdateMatchingSubjects || (() => {})}
             webhookUrl={sheetsConfig.webhookUrl}
+            driveFolderId={sheetsConfig.teacherDriveFolderId || sheetsConfig.driveFolderId}
           />
         )}
 

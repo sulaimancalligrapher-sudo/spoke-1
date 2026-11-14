@@ -9,6 +9,14 @@ import { submitMatchingAnswerToSheet } from '../utils/googleSheets';
 import { removeTashkeel } from '../utils/arabicMatcher';
 import { transcribeWithInBrowserWhisper, findBestCandidateMatch } from '../utils/whisperEngine';
 import {
+  parseQuestionBlocks,
+  parseMatchingCardValue,
+  getCardAdminPreview,
+  getDirectImageUrl,
+  MatchingCardType,
+} from '../utils/matchingMedia';
+import { getAlternativeAudioUrls } from '../utils/mediaUrl';
+import {
   Mic,
   MousePointer,
   Sparkles,
@@ -23,6 +31,11 @@ import {
   Loader2,
   User,
   ArrowRight,
+  ZoomIn,
+  Volume2,
+  Play,
+  Pause,
+  X,
 } from 'lucide-react';
 
 interface WordMatchingArenaProps {
@@ -43,7 +56,10 @@ interface WordMatchingArenaProps {
 
 interface ShuffledItem {
   id: string;
-  text: string;
+  text: string; // Display text (for 'text') OR hidden speech text (for 'image'/'audio')
+  cardType: MatchingCardType;
+  mediaUrl: string;
+  rawText: string;
   pairId: string;
 }
 
@@ -389,6 +405,60 @@ interface ConnectedAttempt {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
+  // Media Audio Playback & Lightbox Image Zoom states
+  const [playingMediaKey, setPlayingMediaKey] = useState<string | null>(null);
+  const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
+  const mediaAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const stopMediaAudio = () => {
+    if (mediaAudioRef.current) {
+      try {
+        mediaAudioRef.current.pause();
+      } catch {}
+      mediaAudioRef.current = null;
+    }
+    setPlayingMediaKey(null);
+  };
+
+  const handlePlayMediaAudio = (key: string, url: string) => {
+    unlockAudioEngine();
+    const clean = (url || '').trim();
+    if (!clean) return;
+
+    if (playingMediaKey === key && mediaAudioRef.current) {
+      stopMediaAudio();
+      return;
+    }
+
+    stopMediaAudio();
+    const candidateUrls = getAlternativeAudioUrls(clean);
+    if (candidateUrls.length === 0) candidateUrls.push(clean);
+
+    setPlayingMediaKey(key);
+    let idx = 0;
+    const tryPlayNext = () => {
+      if (idx >= candidateUrls.length) {
+        setPlayingMediaKey(null);
+        return;
+      }
+      const targetSrc = candidateUrls[idx++];
+      const audio = new Audio(targetSrc);
+      mediaAudioRef.current = audio;
+      audio.onended = () => setPlayingMediaKey(null);
+      audio.onerror = () => tryPlayNext();
+      audio.play().catch(() => tryPlayNext());
+    };
+    tryPlayNext();
+  };
+
+  const getSafeItemLabel = (item: ShuffledItem, revealSpoken = false): string => {
+    if (item.cardType === 'text') return `«${item.text}»`;
+    if (revealSpoken && item.text) {
+      return item.cardType === 'image' ? `🖼️ (${item.text})` : `🔊 (${item.text})`;
+    }
+    return item.cardType === 'image' ? '🖼️ الصورة المختارة' : '🔊 الملف الصوتي';
+  };
+
   // Measure and update SVG curved connection lines
   const updateSvgLines = () => {
     if (!containerRef.current) return;
@@ -463,22 +533,36 @@ interface ConnectedAttempt {
   // Initialize or re-shuffle when activeExercise changes
   const initExercise = () => {
     stopVoiceRecording();
+    stopMediaAudio();
+    setLightboxImageUrl(null);
     if (!activeExercise || !activeExercise.pairs.length) return;
 
     // Shuffle right items
-    const rights: ShuffledItem[] = activeExercise.pairs.map((p, idx) => ({
-      id: `r-${p.id}-${idx}`,
-      text: p.rightText,
-      pairId: p.id,
-    }));
+    const rights: ShuffledItem[] = activeExercise.pairs.map((p, idx) => {
+      const parsed = parseMatchingCardValue(p.rightText);
+      return {
+        id: `r-${p.id}-${idx}`,
+        text: parsed.text,
+        cardType: parsed.type,
+        mediaUrl: parsed.mediaUrl,
+        rawText: p.rightText,
+        pairId: p.id,
+      };
+    });
     const shuffledR = [...rights].sort(() => Math.random() - 0.5);
 
     // Shuffle left items
-    const lefts: ShuffledItem[] = activeExercise.pairs.map((p, idx) => ({
-      id: `l-${p.id}-${idx}`,
-      text: p.leftText,
-      pairId: p.id,
-    }));
+    const lefts: ShuffledItem[] = activeExercise.pairs.map((p, idx) => {
+      const parsed = parseMatchingCardValue(p.leftText);
+      return {
+        id: `l-${p.id}-${idx}`,
+        text: parsed.text,
+        cardType: parsed.type,
+        mediaUrl: parsed.mediaUrl,
+        rawText: p.leftText,
+        pairId: p.id,
+      };
+    });
     const shuffledL = [...lefts].sort(() => Math.random() - 0.5);
 
     setRightItems(shuffledR);
@@ -505,10 +589,11 @@ interface ConnectedAttempt {
     initExercise();
   }, [activeExercise]);
 
-  // Clean up timers & speech recognizer on unmount
+  // Clean up timers, speech recognizer & media audio on unmount
   useEffect(() => {
     return () => {
       stopVoiceRecording();
+      stopMediaAudio();
     };
   }, []);
 
@@ -614,8 +699,8 @@ interface ConnectedAttempt {
           // Phase 1 (no right item selected yet): candidates are ONLY available right words!
           // Phase 2 (right item selected): candidates are ONLY available left words!
           const remainingCandidates = !selectedRightId
-            ? rightItems.filter((i) => !isRightConnected(i.id)).map((i) => i.text)
-            : leftItems.filter((i) => !isLeftConnected(i.id)).map((i) => i.text);
+            ? rightItems.filter((i) => !isRightConnected(i.id)).map((i) => i.text).filter(Boolean)
+            : leftItems.filter((i) => !isLeftConnected(i.id)).map((i) => i.text).filter(Boolean);
 
           const text = await transcribeWithInBrowserWhisper(
             audioBlob,
@@ -783,7 +868,7 @@ interface ConnectedAttempt {
 
     // Phase 1: No Right card is selected yet -> search EXCLUSIVELY in available Right items
     if (!selectedRightId) {
-      const availableRights = rightItems.filter((item) => !isRightConnected(item.id));
+      const availableRights = rightItems.filter((item) => !isRightConnected(item.id) && Boolean(item.text));
       const rightTexts = availableRights.map((i) => i.text);
       const snappedRight = findBestCandidateMatch(cleanSpoken, rightTexts);
 
@@ -798,7 +883,7 @@ interface ConnectedAttempt {
         playAudioChime('tap');
         setGuidanceBox({
           type: 'success',
-          message: `✓ تم اختيار: «${matchR.text}» من العمود الأيمن. الآن انطق كلمتها المقابلة أو اخترها بالفأرة!`,
+          message: `✓ تم اختيار ${getSafeItemLabel(matchR, false)} من العمود الأيمن. الآن انطق ما يقابلها أو اخترها بالفأرة!`,
         });
         return;
       }
@@ -807,13 +892,13 @@ interface ConnectedAttempt {
       playAudioChime('error');
       setGuidanceBox({
         type: 'error',
-        message: `⚠️ سُمع: «${spokenText}» — لم تتطابق مع كلمات العمود الأيمن المتبقية. انطق كلمة من اليمين.`,
+        message: `⚠️ سُمع: «${spokenText}» — لم تتطابق مع عناصر العمود الأيمن المتبقية. انطق من اليمين.`,
       });
       return;
     }
 
     // Phase 2: Right card IS selected -> search EXCLUSIVELY in available Left items
-    const availableLefts = leftItems.filter((item) => !isLeftConnected(item.id));
+    const availableLefts = leftItems.filter((item) => !isLeftConnected(item.id) && Boolean(item.text));
     const leftTexts = availableLefts.map((i) => i.text);
     const snappedLeft = findBestCandidateMatch(cleanSpoken, leftTexts);
 
@@ -829,7 +914,7 @@ interface ConnectedAttempt {
       playAudioChime('error');
       setGuidanceBox({
         type: 'error',
-        message: `⚠️ سُمع: «${spokenText}» — لم نجد كلمة مقابلة مطابقة في العمود الأيسر، حاول مجدداً.`,
+        message: `⚠️ سُمع: «${spokenText}» — لم نجد عنصراً مقابلاً مطابقاً في العمود الأيسر، حاول مجدداً.`,
       });
     }
   };
@@ -856,8 +941,8 @@ interface ConnectedAttempt {
         rightId: rId,
         leftId: lId,
         isCorrect: true,
-        rightText: rItem.text,
-        leftText: lItem.text,
+        rightText: rItem.rawText,
+        leftText: lItem.rawText,
         correctLeftText: correctLeft,
       };
       const nextConnections = [...cleanedConnections, newConn];
@@ -871,13 +956,13 @@ interface ConnectedAttempt {
         playAudioChime('success');
         setGuidanceBox({
           type: 'success',
-          message: `✓ أحسنت! إجابة صحيحة: «${rItem.text}» ⟷ «${lItem.text}»`,
+          message: `✓ أحسنت! إجابة صحيحة: ${getSafeItemLabel(rItem, true)} ⟷ ${getSafeItemLabel(lItem, true)}`,
         });
       } else {
         playAudioChime('tap');
         setGuidanceBox({
           type: 'info',
-          message: `تم التوصيل بنجاح. تابع توصيل الكلمات المتبقية.`,
+          message: `تم التوصيل بنجاح. تابع توصيل العناصر المتبقية.`,
         });
       }
 
@@ -900,8 +985,8 @@ interface ConnectedAttempt {
           rightId: rId,
           leftId: lId,
           isCorrect: false,
-          rightText: rItem.text,
-          leftText: lItem.text,
+          rightText: rItem.rawText,
+          leftText: lItem.rawText,
           correctLeftText: correctLeft,
         };
         const nextConnections = [...cleanedConnections, newConn];
@@ -919,13 +1004,13 @@ interface ConnectedAttempt {
             type: 'error',
             message: effectiveLockOnMistake
               ? `❌ إجابة غير صحيحة! تم تثبيت النتيجة ولا يمكن التراجع عنها.`
-              : `❌ إجابة غير صحيحة: «${rItem.text}» لا تطابق «${lItem.text}». يمكنك إعادة التوصيل لتصحيح الخطأ الذكي!`,
+              : `❌ إجابة غير صحيحة: ${getSafeItemLabel(rItem, false)} لا تطابق ${getSafeItemLabel(lItem, false)}. يمكنك إعادة التوصيل لتصحيح الخطأ الذكي!`,
           });
         } else {
           playAudioChime('tap');
           setGuidanceBox({
             type: 'info',
-            message: `تم التوصيل. تابع توصيل الكلمات المتبقية.`,
+            message: `تم التوصيل. تابع توصيل العناصر المتبقية.`,
           });
         }
 
@@ -944,7 +1029,7 @@ interface ConnectedAttempt {
         setIncorrectFlashIds({ rightId: rId, leftId: lId });
         setGuidanceBox({
           type: 'error',
-          message: `❌ إجابة غير صحيحة: «${rItem.text}» لا تطابق «${lItem.text}»، حاول مجدداً!`,
+          message: `❌ إجابة غير صحيحة: ${getSafeItemLabel(rItem, false)} لا تطابق ${getSafeItemLabel(lItem, false)}، حاول مجدداً!`,
         });
         setTimeout(() => {
           setIncorrectFlashIds(null);
@@ -1045,7 +1130,7 @@ interface ConnectedAttempt {
     setSelectedRightId(item.id);
     setGuidanceBox({
       type: 'info',
-      message: `تم اختيار: «${item.text}». الآن اختر كلمتها المقابلة بالعمود الأيسر 👈`,
+      message: `تم اختيار ${getSafeItemLabel(item, false)}. الآن اختر ما يقابلها بالعمود الأيسر 👈`,
     });
   };
 
@@ -1198,14 +1283,73 @@ interface ConnectedAttempt {
 
       {/* 2. Main Question Card */}
       <div className="bg-white rounded-3xl p-5 sm:p-7 border border-slate-200 shadow-sm flex flex-col items-center text-center relative overflow-hidden">
-        {/* Question Text */}
-        <div className="mb-2">
-          <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600 mb-2">
+        {/* Flexible Ordered Question Blocks (Text, Image, Audio) */}
+        <div className="mb-3 w-full max-w-xl flex flex-col items-center gap-3">
+          <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600">
             سؤال التوصيل
           </span>
-          <h2 className="text-xl sm:text-2xl font-black font-amiri text-slate-900 tracking-wide">
-            {activeExercise.questionText}
-          </h2>
+
+          {parseQuestionBlocks(activeExercise.questionText).map((block, bIdx) => {
+            if (block.type === 'text') {
+              return (
+                <h2
+                  key={`q-text-${bIdx}`}
+                  className="text-xl sm:text-2xl font-black font-amiri text-slate-900 tracking-wide"
+                >
+                  {block.value}
+                </h2>
+              );
+            }
+
+            if (block.type === 'image') {
+              const imgUrl = getDirectImageUrl(block.value);
+              return (
+                <div
+                  key={`q-img-${bIdx}`}
+                  onClick={() => setLightboxImageUrl(imgUrl)}
+                  className="relative group cursor-pointer rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 p-1.5 shadow-2xs hover:border-purple-300 transition-all max-w-xs sm:max-w-sm"
+                  title="اضغط لتكبير الصورة"
+                >
+                  <img
+                    src={imgUrl}
+                    alt="صورة السؤال"
+                    className="max-h-48 w-auto object-contain rounded-xl mx-auto"
+                  />
+                  <span className="absolute bottom-2.5 left-2.5 px-2 py-1 rounded-lg bg-slate-900/75 text-white text-[10px] font-bold flex items-center gap-1 shadow-xs">
+                    <ZoomIn className="w-3 h-3" />
+                    <span>تكبير</span>
+                  </span>
+                </div>
+              );
+            }
+
+            const qAudioKey = `question-audio-${bIdx}`;
+            const isQPlaying = playingMediaKey === qAudioKey;
+            return (
+              <button
+                key={`q-aud-${bIdx}`}
+                type="button"
+                onClick={() => handlePlayMediaAudio(qAudioKey, block.value)}
+                className={`flex items-center gap-2.5 px-5 py-2.5 rounded-2xl text-xs sm:text-sm font-extrabold border transition-all cursor-pointer shadow-xs ${
+                  isQPlaying
+                    ? 'bg-amber-600 text-white border-amber-600 ring-4 ring-amber-200'
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
+                }`}
+              >
+                {isQPlaying ? (
+                  <>
+                    <Pause className="w-4 h-4 fill-current" />
+                    <span>إيقاف صوت السؤال ⏸️</span>
+                  </>
+                ) : (
+                  <>
+                    <Volume2 className="w-4 h-4" />
+                    <span>استمع لصوت السؤال 🔊</span>
+                  </>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Teacher Configured Behavior Badges */}
@@ -1338,22 +1482,31 @@ interface ConnectedAttempt {
                 const isSelected = selectedRightId === item.id;
                 const isFlashingWrong = incorrectFlashIds?.rightId === item.id;
                 const isLocked = isRightConnected(item.id);
+                const imgSrc = item.cardType === 'image' ? getDirectImageUrl(item.mediaUrl) : '';
+                const isCardPlaying = playingMediaKey === item.id;
 
                 return (
-                  <button
+                  <div
                     key={item.id}
+                    role="button"
+                    tabIndex={isVoiceOnlyMode || isLocked ? -1 : 0}
                     data-card-id={item.id}
                     onClick={() => handleRightCardClick(item)}
-                    disabled={isVoiceOnlyMode || isLocked}
-                    className={`w-full p-3 sm:p-4 rounded-2xl border-2 font-amiri text-lg sm:text-2xl font-bold transition-all flex items-center justify-between select-none relative ${
-                      isVoiceOnlyMode ? 'cursor-default' : 'cursor-pointer active:scale-98'
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleRightCardClick(item);
+                      }
+                    }}
+                    className={`w-full p-2.5 sm:p-3.5 rounded-2xl border-2 font-amiri text-lg sm:text-2xl font-bold transition-all flex items-center justify-between gap-2 select-none relative ${
+                      isVoiceOnlyMode || isLocked ? 'cursor-default' : 'cursor-pointer active:scale-98'
                     } ${
                       isMatched
                         ? effectiveShowMistakeFeedback
                           ? isCorrectMatch
-                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-75 cursor-default'
-                            : 'bg-rose-50 border-rose-300 text-rose-900 opacity-85'
-                          : 'bg-purple-50/80 border-purple-200 text-purple-900 opacity-85'
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-80'
+                            : 'bg-rose-50 border-rose-300 text-rose-900 opacity-90'
+                          : 'bg-purple-50/80 border-purple-200 text-purple-900 opacity-90'
                         : isFlashingWrong
                         ? 'bg-rose-50 border-rose-500 text-rose-900'
                         : isSelected
@@ -1363,7 +1516,67 @@ interface ConnectedAttempt {
                         : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-800 shadow-2xs hover:border-indigo-300'
                     }`}
                   >
-                    <span className="truncate">{item.text}</span>
+                    {item.cardType === 'image' ? (
+                      <div className="relative flex-1 flex items-center justify-center">
+                        <img
+                          src={imgSrc}
+                          alt=""
+                          onLoad={updateSvgLines}
+                          onClick={(e) => {
+                            if (isVoiceOnlyMode) {
+                              e.stopPropagation();
+                              setLightboxImageUrl(imgSrc);
+                            }
+                          }}
+                          className={`w-20 h-20 sm:w-24 sm:h-24 object-contain rounded-xl bg-white border border-slate-100 ${
+                            isVoiceOnlyMode ? 'cursor-zoom-in' : ''
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLightboxImageUrl(imgSrc);
+                          }}
+                          className="p-1.5 rounded-lg bg-slate-900/75 hover:bg-slate-900 text-white shadow-xs cursor-pointer shrink-0 mr-1"
+                          title="تكبير الصورة"
+                        >
+                          <ZoomIn className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : item.cardType === 'audio' ? (
+                      <div className="flex-1 flex items-center justify-center">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePlayMediaAudio(item.id, item.mediaUrl);
+                          }}
+                          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-cairo font-extrabold border transition-all cursor-pointer shadow-2xs ${
+                            isCardPlaying
+                              ? 'bg-amber-500 text-white border-amber-500 animate-pulse'
+                              : isSelected
+                              ? 'bg-white text-indigo-800 border-white'
+                              : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
+                          }`}
+                        >
+                          {isCardPlaying ? (
+                            <>
+                              <Pause className="w-4 h-4 fill-current" />
+                              <span>إيقاف</span>
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-4 h-4 fill-current" />
+                              <span>استمع 🔊</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="truncate">{item.text}</span>
+                    )}
+
                     {isMatched && (
                       effectiveShowMistakeFeedback ? (
                         isCorrectMatch ? (
@@ -1375,7 +1588,7 @@ interface ConnectedAttempt {
                         <span className="text-xs text-purple-600 shrink-0 font-sans">🔗</span>
                       )
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -1392,22 +1605,31 @@ interface ConnectedAttempt {
                 const isSelected = selectedLeftId === item.id;
                 const isFlashingWrong = incorrectFlashIds?.leftId === item.id;
                 const isLocked = isLeftConnected(item.id);
+                const imgSrc = item.cardType === 'image' ? getDirectImageUrl(item.mediaUrl) : '';
+                const isCardPlaying = playingMediaKey === item.id;
 
                 return (
-                  <button
+                  <div
                     key={item.id}
+                    role="button"
+                    tabIndex={isVoiceOnlyMode || isLocked ? -1 : 0}
                     data-card-id={item.id}
                     onClick={() => handleLeftCardClick(item)}
-                    disabled={isVoiceOnlyMode || isLocked}
-                    className={`w-full p-3 sm:p-4 rounded-2xl border-2 font-amiri text-lg sm:text-2xl font-bold transition-all flex items-center justify-between select-none relative ${
-                      isVoiceOnlyMode ? 'cursor-default' : 'cursor-pointer active:scale-98'
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleLeftCardClick(item);
+                      }
+                    }}
+                    className={`w-full p-2.5 sm:p-3.5 rounded-2xl border-2 font-amiri text-lg sm:text-2xl font-bold transition-all flex items-center justify-between gap-2 select-none relative ${
+                      isVoiceOnlyMode || isLocked ? 'cursor-default' : 'cursor-pointer active:scale-98'
                     } ${
                       isMatched
                         ? effectiveShowMistakeFeedback
                           ? isCorrectMatch
-                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-75 cursor-default'
-                            : 'bg-rose-50 border-rose-300 text-rose-900 opacity-85'
-                          : 'bg-purple-50/80 border-purple-200 text-purple-900 opacity-85'
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 opacity-80'
+                            : 'bg-rose-50 border-rose-300 text-rose-900 opacity-90'
+                          : 'bg-purple-50/80 border-purple-200 text-purple-900 opacity-90'
                         : isFlashingWrong
                         ? 'bg-rose-50 border-rose-500 text-rose-900'
                         : isSelected
@@ -1417,7 +1639,67 @@ interface ConnectedAttempt {
                         : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-800 shadow-2xs hover:border-purple-300'
                     }`}
                   >
-                    <span className="truncate">{item.text}</span>
+                    {item.cardType === 'image' ? (
+                      <div className="relative flex-1 flex items-center justify-center">
+                        <img
+                          src={imgSrc}
+                          alt=""
+                          onLoad={updateSvgLines}
+                          onClick={(e) => {
+                            if (isVoiceOnlyMode) {
+                              e.stopPropagation();
+                              setLightboxImageUrl(imgSrc);
+                            }
+                          }}
+                          className={`w-20 h-20 sm:w-24 sm:h-24 object-contain rounded-xl bg-white border border-slate-100 ${
+                            isVoiceOnlyMode ? 'cursor-zoom-in' : ''
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLightboxImageUrl(imgSrc);
+                          }}
+                          className="p-1.5 rounded-lg bg-slate-900/75 hover:bg-slate-900 text-white shadow-xs cursor-pointer shrink-0 mr-1"
+                          title="تكبير الصورة"
+                        >
+                          <ZoomIn className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : item.cardType === 'audio' ? (
+                      <div className="flex-1 flex items-center justify-center">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePlayMediaAudio(item.id, item.mediaUrl);
+                          }}
+                          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-cairo font-extrabold border transition-all cursor-pointer shadow-2xs ${
+                            isCardPlaying
+                              ? 'bg-amber-500 text-white border-amber-500 animate-pulse'
+                              : isSelected
+                              ? 'bg-white text-purple-800 border-white'
+                              : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
+                          }`}
+                        >
+                          {isCardPlaying ? (
+                            <>
+                              <Pause className="w-4 h-4 fill-current" />
+                              <span>إيقاف</span>
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-4 h-4 fill-current" />
+                              <span>استمع 🔊</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="truncate">{item.text}</span>
+                    )}
+
                     {isMatched && (
                       effectiveShowMistakeFeedback ? (
                         isCorrectMatch ? (
@@ -1429,7 +1711,7 @@ interface ConnectedAttempt {
                         <span className="text-xs text-purple-600 shrink-0 font-sans">🔗</span>
                       )
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -1480,12 +1762,12 @@ interface ConnectedAttempt {
                           <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
                         )}
                         <span className="font-amiri font-bold text-sm">
-                          {c.rightText} ⟷ {c.leftText}
+                          {getCardAdminPreview(c.rightText)} ⟷ {getCardAdminPreview(c.leftText)}
                         </span>
                       </div>
                       {!c.isCorrect && (
                         <span className="text-[10px] font-bold text-rose-800 bg-white px-2 py-0.5 rounded-md border border-rose-200">
-                          الصواب: {c.correctLeftText}
+                          الصواب: {getCardAdminPreview(c.correctLeftText)}
                         </span>
                       )}
                     </div>
@@ -1556,6 +1838,33 @@ interface ConnectedAttempt {
           </div>
         )}
       </div>
+
+      {/* Image Lightbox Modal for Question & Card Zoom */}
+      {lightboxImageUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setLightboxImageUrl(null)}
+        >
+          <div
+            className="bg-white rounded-3xl p-3 sm:p-4 max-w-2xl w-full relative shadow-2xl border border-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setLightboxImageUrl(null)}
+              className="absolute left-4 top-4 p-2 bg-slate-900/80 hover:bg-slate-900 text-white rounded-full transition-colors cursor-pointer shadow-md"
+              title="إغلاق"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <img
+              src={lightboxImageUrl}
+              alt="تكبير الصورة"
+              className="w-full max-h-[80vh] object-contain rounded-2xl bg-slate-50"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

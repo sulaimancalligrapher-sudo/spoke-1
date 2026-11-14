@@ -5,9 +5,10 @@ import {
   Sparkles,
   BookOpen,
   ArrowRight,
-  ListOrdered,
-  Layers,
+  Image as ImageIcon,
+  Volume2,
 } from 'lucide-react';
+import { getQuestionPlainText, parseQuestionBlocks } from '../utils/matchingMedia';
 
 interface MatchingLessonsModalProps {
   isOpen: boolean;
@@ -124,7 +125,7 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
                       {ex.exerciseNumber}
                     </span>
                     <div>
-                      <div className="flex items-center gap-1.5 mb-0.5">
+                      <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
                         <span className="text-[10px] font-bold text-purple-700">
                           تمرين {ex.exerciseNumber}
                         </span>
@@ -133,9 +134,21 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
                             الحالي
                           </span>
                         )}
+                        {parseQuestionBlocks(ex.questionText).some((b) => b.type === 'image') && (
+                          <span className="px-1.5 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 text-[9px] font-bold rounded-md inline-flex items-center gap-0.5">
+                            <ImageIcon className="w-2.5 h-2.5" />
+                            <span>صورة</span>
+                          </span>
+                        )}
+                        {parseQuestionBlocks(ex.questionText).some((b) => b.type === 'audio') && (
+                          <span className="px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 text-[9px] font-bold rounded-md inline-flex items-center gap-0.5">
+                            <Volume2 className="w-2.5 h-2.5" />
+                            <span>صوت</span>
+                          </span>
+                        )}
                       </div>
                       <h4 className="text-base sm:text-lg font-bold text-slate-900 font-amiri leading-snug">
-                        {ex.questionText}
+                        {getQuestionPlainText(ex.questionText)}
                       </h4>
                     </div>
                   </div>
