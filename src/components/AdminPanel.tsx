@@ -68,6 +68,7 @@ import {
 } from 'lucide-react';
 import { TranslationItem } from '../utils/translations';
 import { TranslationManager } from './TranslationManager';
+import { MatchingTranslationManager } from './MatchingTranslationManager';
 import { MatchingAdminManager } from './MatchingAdminManager';
 import { MatchingLessonSubject } from '../types';
 import {
@@ -171,7 +172,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   matchingSubjects = [],
   onUpdateMatchingSubjects,
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'submissions' | 'sheets' | 'translations'>('lessons');
+  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'submissions' | 'sheets' | 'translations' | 'translations2'>('lessons');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1121,6 +1122,18 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           >
             <Languages className="w-4 h-4 text-indigo-500" />
             <span>إدارة وتخصيص الترجمة</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('translations2')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'translations2'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <Languages className={`w-4 h-4 ${activeTab === 'translations2' ? 'text-white' : 'text-purple-500'}`} />
+            <span>إدارة وتخصيص الترجمة 2</span>
           </button>
         </div>
 
@@ -2472,6 +2485,18 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             geminiApiKey={geminiApiKey}
             webhookUrl={sheetsConfig.webhookUrl}
             curriculum={curriculum}
+            onRefreshFromSheets={onRefreshFromSheets}
+          />
+        )}
+
+        {/* TAB 4B: MATCHING TRANSLATION MANAGEMENT (الترجمة 2) */}
+        {activeTab === 'translations2' && (
+          <MatchingTranslationManager
+            translations={translations || []}
+            onSaveTranslations={onUpdateTranslations || (() => {})}
+            matchingSubjects={matchingSubjects || []}
+            geminiApiKey={geminiApiKey}
+            webhookUrl={sheetsConfig.webhookUrl}
             onRefreshFromSheets={onRefreshFromSheets}
           />
         )}

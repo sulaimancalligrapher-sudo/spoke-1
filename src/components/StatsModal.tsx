@@ -1,7 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { MatchingHistoryItem, PracticeHistoryItem, StudentRegistrant } from '../types';
 import { X, Award, Play, Pause, User, Loader2, Link2, CheckCircle2, Clock } from 'lucide-react';
-import { SupportedLang, TranslationItem, translateEvaluationFeedback } from '../utils/translations';
+import {
+  SupportedLang,
+  TranslationItem,
+  translateEvaluationFeedback,
+  getTranslatedMatchingSubject,
+} from '../utils/translations';
 import { getAlternativeAudioUrls } from '../utils/mediaUrl';
 
 interface StatsModalProps {
@@ -159,7 +164,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
             }`}
           >
             <span>🎙️</span>
-            <span>سجل النطق</span>
+            <span>{tr('stats_tab_pronunciation', 'سجل النطق')}</span>
           </button>
 
           <button
@@ -172,7 +177,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
             }`}
           >
             <span>🔗</span>
-            <span>سجل التوصيل</span>
+            <span>{tr('stats_tab_matching', 'سجل التوصيل')}</span>
           </button>
         </div>
 
@@ -315,7 +320,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
             <div className="grid grid-cols-3 gap-3 mb-5">
               <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3 text-center">
                 <span className="text-[11px] text-slate-400 font-medium block mb-1">
-                  المواضيع المسجلة
+                  {tr('stats_matching_subjects', 'المواضيع المسجلة')}
                 </span>
                 <span className="text-2xl font-bold font-cairo text-slate-800">
                   {totalMatchingSubjects}
@@ -324,7 +329,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
 
               <div className="bg-purple-50/70 border border-purple-200/80 rounded-2xl p-3 text-center">
                 <span className="text-[11px] text-purple-700 font-medium block mb-1">
-                  التمارين المنجزة
+                  {tr('stats_matching_completed', 'التمارين المنجزة')}
                 </span>
                 <span className="text-2xl font-bold font-cairo text-purple-800">
                   {totalMatchingExercises}
@@ -333,7 +338,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
 
               <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-3 text-center">
                 <span className="text-[11px] text-emerald-700 font-medium block mb-1">
-                  معدل الإتقان
+                  {tr('stats_matching_avg', 'معدل الإتقان')}
                 </span>
                 <span className="text-2xl font-bold font-cairo text-emerald-800">
                   {avgMatchingScore}%
@@ -344,7 +349,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
             {/* Matching History List */}
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-xs font-bold text-slate-700">
-                نتائج تمارين وصل الكلمات حسب الموضوع:
+                {tr('stats_matching_history_title', 'نتائج تمارين وصل الكلمات حسب الموضوع:')}
               </h4>
             </div>
 
@@ -353,11 +358,11 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                 isSyncingMatching ? (
                   <div className="text-center py-12 text-slate-500 text-xs flex flex-col items-center justify-center gap-2">
                     <Loader2 className="w-6 h-6 text-purple-500 animate-spin" />
-                    <span>جاري جلب درجات تمرين التوصيل...</span>
+                    <span>{tr('matching_syncing_answers2', 'جاري جلب درجات تمرين التوصيل...')}</span>
                   </div>
                 ) : (
                   <div className="text-center py-12 text-slate-400 text-xs">
-                    لم تكمل أي تمرين وصل كلمات بعد. أتمم تمريناً في «تمرين الوصل» لتظهر نتيجتك هنا!
+                    {tr('stats_matching_empty', 'لم تكمل أي تمرين وصل كلمات بعد. أتمم تمريناً في «تمرين الوصل» لتظهر نتيجتك هنا!')}
                   </div>
                 )
               ) : (
@@ -376,7 +381,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                           </div>
                           <div className="min-w-0">
                             <h5 className="font-extrabold text-slate-900 text-sm truncate">
-                              {subjItem.lessonSubject}
+                              {getTranslatedMatchingSubject(subjItem.lessonSubject, currentLang, translations)}
                             </h5>
                             {subjItem.timestamp && (
                               <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">

@@ -9,6 +9,12 @@ import {
   Volume2,
 } from 'lucide-react';
 import { getQuestionPlainText, parseQuestionBlocks } from '../utils/matchingMedia';
+import {
+  SupportedLang,
+  TranslationItem,
+  getTranslatedMatchingSubject,
+  getTranslatedMatchingQuestionText,
+} from '../utils/translations';
 
 interface MatchingLessonsModalProps {
   isOpen: boolean;
@@ -18,6 +24,9 @@ interface MatchingLessonsModalProps {
   activeExerciseIndex?: number;
   onSelectSubjectExercise: (subjectId: string, exerciseIndex: number) => void;
   onOpenAdminMatching?: () => void;
+  currentLang?: SupportedLang;
+  translations?: TranslationItem[];
+  t?: (id: string, fallback?: string) => string;
 }
 
 export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
@@ -28,7 +37,11 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
   activeExerciseIndex = 0,
   onSelectSubjectExercise,
   onOpenAdminMatching,
+  currentLang = 'ar',
+  translations = [],
+  t,
 }) => {
+  const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>(
     activeSubjectId || subjects[0]?.id || ''
   );
@@ -72,23 +85,20 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-xl sm:text-2xl font-black text-slate-900 font-amiri tracking-wide">
-                تمارين وصل 🔗
+                {tr('matching_modal_title', 'تمارين وصل 🔗')}
               </h2>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-900 border border-purple-200">
-                ورقة وصل
-              </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              اختر موضوع الدرس ثم ابدأ التمرين المطلوب مباشرة
+              {tr('matching_modal_subtitle', 'اختر موضوع الدرس ثم ابدأ التمرين المطلوب مباشرة')}
             </p>
           </div>
         </div>
 
-        {/* 2. تحويل مواضيع الدروس إلى قائمة منسدلة (Dropdown) */}
+        {/* Dropdown Subject Selector */}
         <div className="my-4 bg-slate-50 p-3.5 sm:p-4 rounded-2xl border border-slate-200 space-y-2">
           <label className="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
             <BookOpen className="w-4 h-4 text-purple-600" />
-            <span>اختر موضوع الدرس من القائمة:</span>
+            <span>{tr('matching_modal_choose_subject', 'اختر موضوع الدرس من القائمة:')}</span>
           </label>
           <select
             value={selectedSubjectId}
@@ -97,19 +107,27 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
           >
             {subjects.map((subj) => (
               <option key={subj.id} value={subj.id}>
-                {subj.subjectName} ({subj.exercises.length} تمارين)
+                {getTranslatedMatchingSubject(subj.subjectName, currentLang, translations)} ({subj.exercises.length} {tr('matching_modal_exercises_word', 'تمارين')})
               </option>
             ))}
           </select>
         </div>
 
-        {/* 3. قائمة التمارين في الموضوع المختار (فيها السؤال وزر بدء التمرين بدون عرض الكلمات) */}
+        {/* Exercises List */}
         <div className="flex-1 overflow-y-auto space-y-3 pr-1">
           {currentSubject && currentSubject.exercises.length > 0 ? (
             currentSubject.exercises.map((ex, exIdx) => {
               const isCurrent =
                 currentSubject.id === activeSubjectId &&
                 exIdx === activeExerciseIndex;
+
+              const translatedQuestion = getTranslatedMatchingQuestionText(
+                currentSubject.subjectName,
+                ex.exerciseNumber,
+                getQuestionPlainText(ex.questionText),
+                currentLang,
+                translations
+              );
 
               return (
                 <div
@@ -127,28 +145,28 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
                     <div>
                       <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
                         <span className="text-[10px] font-bold text-purple-700">
-                          تمرين {ex.exerciseNumber}
+                          {tr('matching_modal_exercise_word', 'تمرين')} {ex.exerciseNumber}
                         </span>
                         {isCurrent && (
                           <span className="px-1.5 py-0.2 bg-purple-600 text-white text-[9px] font-bold rounded-md">
-                            الحالي
+                            {tr('matching_modal_current_badge', 'الحالي')}
                           </span>
                         )}
                         {parseQuestionBlocks(ex.questionText).some((b) => b.type === 'image') && (
                           <span className="px-1.5 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 text-[9px] font-bold rounded-md inline-flex items-center gap-0.5">
                             <ImageIcon className="w-2.5 h-2.5" />
-                            <span>صورة</span>
+                            <span>{currentLang === 'ar' ? 'صورة' : currentLang === 'th' ? 'รูปภาพ' : 'Image'}</span>
                           </span>
                         )}
                         {parseQuestionBlocks(ex.questionText).some((b) => b.type === 'audio') && (
                           <span className="px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 text-[9px] font-bold rounded-md inline-flex items-center gap-0.5">
                             <Volume2 className="w-2.5 h-2.5" />
-                            <span>صوت</span>
+                            <span>{currentLang === 'ar' ? 'صوت' : currentLang === 'th' ? 'เสียง' : 'Audio'}</span>
                           </span>
                         )}
                       </div>
                       <h4 className="text-base sm:text-lg font-bold text-slate-900 font-amiri leading-snug">
-                        {getQuestionPlainText(ex.questionText)}
+                        {translatedQuestion}
                       </h4>
                     </div>
                   </div>
@@ -161,7 +179,7 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
                     }}
                     className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0 hover:scale-102 active:scale-98"
                   >
-                    <span>بدء التمرين</span>
+                    <span>{tr('matching_modal_start_btn', 'بدء التمرين')}</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -169,7 +187,7 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
             })
           ) : (
             <div className="text-center py-12 text-slate-400 text-xs">
-              لا توجد تمارين مضافة في هذا الموضوع حالياً.
+              {tr('matching_modal_empty', 'لا توجد تمارين مضافة في هذا الموضوع حالياً.')}
             </div>
           )}
         </div>

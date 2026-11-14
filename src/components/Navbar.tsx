@@ -169,9 +169,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               onClick={onOpenMatchingLessons}
               className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-purple-600/20 cursor-pointer"
-              title="فتح قائمة دروس وتمارين وصل الكلمات (ورقة وصل)"
+              title={tr('nav_matching_lessons', 'دروس الوصل 🔗')}
             >
-              <span>دروس الوصل 🔗</span>
+              <span>{tr('nav_matching_lessons', 'دروس الوصل 🔗')}</span>
             </button>
           )}
 

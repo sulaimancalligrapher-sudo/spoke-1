@@ -52,6 +52,7 @@ import {
   getStoredTranslations,
   saveStoredTranslations,
   getTranslatedString,
+  getTranslatedMatchingSubject,
 } from './utils/translations';
 import {
   Sparkles,
@@ -1054,6 +1055,7 @@ export default function App() {
     setEvaluation(null);
     setRecordedAudioUrl(null);
     setIsCurrentAnswerSubmitted(false);
+    setAppMode('pronunciation');
     setCurrentView('practice');
     setIsLessonsModalOpen(false);
   };
@@ -1368,39 +1370,125 @@ export default function App() {
           </div>
         ) : appMode === 'matching' ? (
           /* ========================================================
-             3. WORD MATCHING ARENA (تمرين وصل الكلمات - ورقة "وصل" و "answers 2")
+             3. WORD MATCHING ARENA (تمرين وصل الكلمات)
              ======================================================== */
           <div className="flex flex-col gap-6 animate-in fade-in duration-300">
-            <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setCurrentView('landing')}
-                  className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer shadow-2xs"
-                  title={currentLang === 'ar' ? 'الصفحة الرئيسية' : currentLang === 'th' ? 'หน้าหลัก' : 'Home'}
-                >
-                  <Home className="w-4 h-4 text-slate-700" />
-                </button>
-                <button
-                  onClick={() => setAppMode('pronunciation')}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                  title="العودة إلى تمرين نطق الكلمات والمخارج الصوتية"
-                >
-                  <span>🎙️</span>
-                  <span>العودة لتمرين النطق</span>
-                </button>
-              </div>
+            {(() => {
+              const resolvedSubject =
+                matchingSubjects.find((s) => s.id === activeMatchingSubjectId) ||
+                matchingSubjects[0] ||
+                null;
+              const resolvedSubjectId = resolvedSubject?.id || '';
+              const totalExercises = resolvedSubject?.exercises.length || 0;
+              const safeExIdx =
+                totalExercises > 0
+                  ? Math.min(Math.max(0, activeMatchingExerciseIdx), totalExercises - 1)
+                  : 0;
+              const activeExNumber =
+                resolvedSubject?.exercises[safeExIdx]?.exerciseNumber || safeExIdx + 1;
 
-              <div className="flex items-center gap-2 text-xs">
-                <span className="px-3 py-1 bg-purple-50 text-purple-800 border border-purple-200 font-extrabold rounded-xl">
-                  🔗 تمرين وصل الكلمات (ورقة وصل)
-                </span>
-              </div>
-            </div>
+              return (
+                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+                  {/* Start Side: Home + Back to Pronunciation + Matching Lessons Modal */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => setCurrentView('landing')}
+                      className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer shadow-2xs"
+                      title={currentLang === 'ar' ? 'الصفحة الرئيسية' : currentLang === 'th' ? 'หน้าหลัก' : 'Home'}
+                    >
+                      <Home className="w-4 h-4 text-slate-700" />
+                    </button>
+
+                    <button
+                      onClick={() => setAppMode('pronunciation')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                      title={t('matching_back_pronunciation', 'العودة إلى تمرين نطق الكلمات')}
+                    >
+                      <span>🎙️</span>
+                      <span>{t('matching_back_pronunciation', 'العودة لتمرين النطق')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsMatchingLessonsModalOpen(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                      title={t('matching_lessons_list_btn', 'قائمة الدروس 📑')}
+                    >
+                      <span>{t('matching_lessons_list_btn', 'قائمة الدروس 📑')}</span>
+                    </button>
+                  </div>
+
+                  {/* End Side: Subject Selector + Exercise Counter / Pagination */}
+                  {resolvedSubject && (
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs">
+                      <div className="px-2.5 py-1 rounded-xl bg-purple-50 text-purple-900 font-bold border border-purple-200/80 flex items-center gap-1.5">
+                        <span className="text-purple-700 font-normal">
+                          {t('matching_subject_label', 'الموضوع:')}
+                        </span>
+                        <select
+                          value={resolvedSubjectId}
+                          onChange={(e) => {
+                            setActiveMatchingSubjectId(e.target.value);
+                            setActiveMatchingExerciseIdx(0);
+                          }}
+                          className="bg-transparent font-bold text-purple-950 focus:outline-hidden cursor-pointer max-w-[170px] truncate"
+                        >
+                          {matchingSubjects.map((subj) => (
+                            <option key={subj.id} value={subj.id}>
+                              {getTranslatedMatchingSubject(subj.subjectName, currentLang, translations)} ({subj.exercises.length})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-xl px-1.5 py-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (safeExIdx > 0) {
+                              setActiveMatchingSubjectId(resolvedSubjectId);
+                              setActiveMatchingExerciseIdx(safeExIdx - 1);
+                            }
+                          }}
+                          disabled={safeExIdx === 0}
+                          className="p-0.5 rounded-lg hover:bg-white disabled:opacity-35 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
+                          title={currentLang === 'ar' ? 'التمرين السابق' : 'Previous'}
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+
+                        <span className="px-1.5 text-slate-800 font-bold whitespace-nowrap">
+                          {t('matching_exercise_label', 'التمرين')} {activeExNumber} {t('matching_of_label', 'من')} {totalExercises}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (safeExIdx < totalExercises - 1) {
+                              setActiveMatchingSubjectId(resolvedSubjectId);
+                              setActiveMatchingExerciseIdx(safeExIdx + 1);
+                            }
+                          }}
+                          disabled={safeExIdx >= totalExercises - 1}
+                          className="p-0.5 rounded-lg hover:bg-white disabled:opacity-35 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
+                          title={currentLang === 'ar' ? 'التمرين التالي' : 'Next'}
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             <WordMatchingArena
               subjects={matchingSubjects}
               currentStudent={currentStudent}
               webhookUrl={sheetsConfig.webhookUrl}
+              currentLang={currentLang}
+              translations={translations}
+              t={t}
               activeSubjectId={activeMatchingSubjectId || matchingSubjects[0]?.id}
               activeExerciseIndex={activeMatchingExerciseIdx}
               onSelectSubjectExercise={(sId, exIdx) => {
@@ -1640,6 +1728,9 @@ export default function App() {
           setIsMatchingLessonsModalOpen(false);
           handleOpenAdmin();
         }}
+        currentLang={currentLang}
+        translations={translations}
+        t={t}
       />
 
       {/* Student Login & Registration Verification Modal */}

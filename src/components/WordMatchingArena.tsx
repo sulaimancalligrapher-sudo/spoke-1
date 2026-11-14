@@ -4,7 +4,11 @@ import {
   MatchingExercise,
   StudentRegistrant,
 } from '../types';
-import { SupportedLang } from '../utils/translations';
+import {
+  SupportedLang,
+  TranslationItem,
+  getTranslatedMatchingQuestionText,
+} from '../utils/translations';
 import { submitMatchingAnswerToSheet } from '../utils/googleSheets';
 import { removeTashkeel } from '../utils/arabicMatcher';
 import { transcribeWithInBrowserWhisper, findBestCandidateMatch } from '../utils/whisperEngine';
@@ -22,12 +26,9 @@ import {
   Sparkles,
   Award,
   RotateCcw,
-  ChevronLeft,
-  ChevronRight,
   CheckCircle2,
   AlertCircle,
   HelpCircle,
-  BookOpen,
   Loader2,
   User,
   ArrowRight,
@@ -43,6 +44,7 @@ interface WordMatchingArenaProps {
   currentStudent: StudentRegistrant | null;
   webhookUrl?: string;
   currentLang?: SupportedLang;
+  translations?: TranslationItem[];
   t?: (id: string, fallback?: string) => string;
   onOpenLogin?: () => void;
   onRequestLogin?: () => void;
@@ -261,6 +263,7 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
   currentStudent,
   webhookUrl,
   currentLang = 'ar',
+  translations = [],
   t,
   onOpenLogin,
   onRequestLogin,
@@ -269,7 +272,6 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
   activeSubjectId,
   activeExerciseIndex = 0,
   onSelectSubjectExercise,
-  onOpenMatchingLessonsModal,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
   const handleTriggerLogin = onRequestLogin || onOpenLogin || (() => {});
@@ -403,16 +405,16 @@ interface ConnectedAttempt {
     const voiceOnly = ex?.inputMode === 'voice_only';
 
     const rules: string[] = [];
-    if (lock) rules.push('🔒 محاولة واحدة بدون تراجع');
-    if (!showMistake) rules.push('🙈 كشف الخطأ في نهاية التمرين');
-    if (smartReassign) rules.push('🧠 تبديل الإجابة والتصحيح الذكي متاح');
-    if (voiceOnly) rules.push('🎙️ إدخال صوتي فقط (النقر معطّل)');
+    if (lock) rules.push(tr('matching_rule_lock', '🔒 محاولة واحدة بدون تراجع'));
+    if (!showMistake) rules.push(tr('matching_rule_hide_mistake', '🙈 كشف الخطأ في نهاية التمرين'));
+    if (smartReassign) rules.push(tr('matching_rule_smart_reassign', '🧠 تبديل الإجابة والتصحيح الذكي متاح'));
+    if (voiceOnly) rules.push(tr('matching_rule_voice_only', '🎙️ إدخال صوتي فقط (النقر معطّل)'));
 
     return {
       type: 'info',
       message: voiceOnly
-        ? 'اضغط زر تسجيل النطق 🎙️ وانطق العنصر المستهدف بالعمود الأيمن'
-        : 'ابدأ التوصيل: انقر بالفأرة واللمس 🖱️ أو اضغط زر تسجيل النطق 🎙️',
+        ? tr('matching_init_voice_only', 'اضغط زر تسجيل النطق 🎙️ وانطق العنصر المستهدف بالعمود الأيمن')
+        : tr('matching_init_both', 'ابدأ التوصيل: انقر بالفأرة واللمس 🖱️ أو اضغط زر تسجيل النطق 🎙️'),
       rules: rules.length > 0 ? rules : undefined,
     };
   };
@@ -607,6 +609,15 @@ interface ConnectedAttempt {
     initExercise();
   }, [activeExercise]);
 
+  // Refresh initial guidance message/rules immediately if language changes before interaction
+  useEffect(() => {
+    if (connections.length === 0 && !isListening && !isTranscribing && !isCompleted) {
+      setGuidanceBox((prev) =>
+        prev.type === 'info' ? getInitialGuidanceForExercise(activeExercise) : prev
+      );
+    }
+  }, [currentLang, translations]);
+
   // Clean up timers, speech recognizer & media audio on unmount
   useEffect(() => {
     return () => {
@@ -709,7 +720,7 @@ interface ConnectedAttempt {
         setIsTranscribing(true);
         setGuidanceBox({
           type: 'recording',
-          message: 'جاري التعرف على الكلمة المنطوقة... ⏳',
+          message: tr('matching_msg_analyzing_speech', 'جاري التعرف على الكلمة المنطوقة... ⏳'),
         });
 
         try {
@@ -736,7 +747,7 @@ interface ConnectedAttempt {
           } else {
             setGuidanceBox({
               type: 'error',
-              message: 'لم يتم التقاط كلمة واضحة، انطق إحدى الكلمات المعروضة وحاول مجدداً.',
+              message: tr('matching_msg_no_speech', 'لم يتم التقاط كلمة واضحة، انطق إحدى الكلمات المعروضة وحاول مجدداً.'),
             });
           }
         } catch (err: any) {
@@ -778,7 +789,7 @@ interface ConnectedAttempt {
     setActiveInputMode('mouse');
     setGuidanceBox({
       type: 'info',
-      message: 'وضع الفأرة واللمس مفعّل: انقر على الكلمة في اليمين أولاً ثم مقابلتها في اليسار 🖱️',
+      message: tr('matching_msg_mouse_active', 'وضع الفأرة واللمس مفعّل: انقر على الكلمة في اليمين أولاً ثم مقابلتها في اليسار 🖱️'),
     });
   };
 
@@ -797,7 +808,7 @@ interface ConnectedAttempt {
       stopVoiceRecording();
       setGuidanceBox({
         type: 'info',
-        message: 'تم إيقاف التسجيل. اضغط تسجيل نطق مجدداً أو استخدم الفأرة.',
+        message: tr('matching_msg_stopped', 'تم إيقاف التسجيل. اضغط تسجيل نطق مجدداً أو استخدم الفأرة.'),
       });
       return;
     }
@@ -809,8 +820,8 @@ interface ConnectedAttempt {
     setGuidanceBox({
       type: 'recording',
       message: !selectedRightId
-        ? 'استمع لصوتك... انطق الكلمة المستهدفة من العمود الأيمن أولاً 🎙️'
-        : 'استمع لصوتك... انطق الكلمة المقابلة من العمود الأيسر 🎙️',
+        ? tr('matching_msg_listen_right', 'استمع لصوتك... انطق الكلمة المستهدفة من العمود الأيمن أولاً 🎙️')
+        : tr('matching_msg_listen_left', 'استمع لصوتك... انطق الكلمة المقابلة من العمود الأيسر 🎙️'),
     });
 
     const isFirefox = typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent);
@@ -974,13 +985,13 @@ interface ConnectedAttempt {
         playAudioChime('success');
         setGuidanceBox({
           type: 'success',
-          message: `✓ أحسنت! إجابة صحيحة: ${getSafeItemLabel(rItem, true)} ⟷ ${getSafeItemLabel(lItem, true)}`,
+          message: `${tr('matching_msg_correct_prefix', '✓ أحسنت! إجابة صحيحة:')} ${getSafeItemLabel(rItem, true)} ⟷ ${getSafeItemLabel(lItem, true)}`,
         });
       } else {
         playAudioChime('tap');
         setGuidanceBox({
           type: 'info',
-          message: `تم التوصيل بنجاح. تابع توصيل العناصر المتبقية.`,
+          message: tr('matching_msg_hidden_next', 'تم التوصيل بنجاح. تابع توصيل العناصر المتبقية.'),
         });
       }
 
@@ -1021,14 +1032,14 @@ interface ConnectedAttempt {
           setGuidanceBox({
             type: 'error',
             message: effectiveLockOnMistake
-              ? `❌ إجابة غير صحيحة! تم تثبيت النتيجة ولا يمكن التراجع عنها.`
-              : `❌ إجابة غير صحيحة: ${getSafeItemLabel(rItem, false)} لا تطابق ${getSafeItemLabel(lItem, false)}. يمكنك إعادة التوصيل لتصحيح الخطأ الذكي!`,
+              ? tr('matching_msg_wrong_locked', '❌ إجابة غير صحيحة! تم تثبيت النتيجة ولا يمكن التراجع عنها.')
+              : tr('matching_msg_wrong_smart', '❌ إجابة غير صحيحة. يمكنك إعادة التوصيل لتصحيح الخطأ الذكي!'),
           });
         } else {
           playAudioChime('tap');
           setGuidanceBox({
             type: 'info',
-            message: `تم التوصيل. تابع توصيل العناصر المتبقية.`,
+            message: tr('matching_msg_hidden_next', 'تم التوصيل بنجاح. تابع توصيل العناصر المتبقية.'),
           });
         }
 
@@ -1047,7 +1058,7 @@ interface ConnectedAttempt {
         setIncorrectFlashIds({ rightId: rId, leftId: lId });
         setGuidanceBox({
           type: 'error',
-          message: `❌ إجابة غير صحيحة: ${getSafeItemLabel(rItem, false)} لا تطابق ${getSafeItemLabel(lItem, false)}، حاول مجدداً!`,
+          message: tr('matching_msg_wrong_retry', '❌ إجابة غير صحيحة، حاول مجدداً!'),
         });
         setTimeout(() => {
           setIncorrectFlashIds(null);
@@ -1133,7 +1144,7 @@ interface ConnectedAttempt {
     if (isVoiceOnlyMode) {
       setGuidanceBox({
         type: 'info',
-        message: 'هذا التمرين بنظام الصوت فقط 🎙️ — استخدم زر «تسجيل نطق» بدلاً من النقر على الكلمات.',
+        message: tr('matching_msg_voice_only_block', 'هذا التمرين بنظام الصوت فقط 🎙️ — استخدم زر «تسجيل نطق» بدلاً من النقر على الكلمات.'),
       });
       return;
     }
@@ -1148,7 +1159,7 @@ interface ConnectedAttempt {
     setSelectedRightId(item.id);
     setGuidanceBox({
       type: 'info',
-      message: `تم اختيار ${getSafeItemLabel(item, false)}. الآن اختر ما يقابلها بالعمود الأيسر 👈`,
+      message: `${tr('matching_msg_right_selected_prefix', 'تم اختيار')} ${getSafeItemLabel(item, false)} — ${tr('matching_msg_right_selected_suffix', 'الآن اختر ما يقابلها بالعمود الأيسر 👈')}`,
     });
   };
 
@@ -1158,7 +1169,7 @@ interface ConnectedAttempt {
     if (isVoiceOnlyMode) {
       setGuidanceBox({
         type: 'info',
-        message: 'هذا التمرين بنظام الصوت فقط 🎙️ — استخدم زر «تسجيل نطق» بدلاً من النقر على الكلمات.',
+        message: tr('matching_msg_voice_only_block', 'هذا التمرين بنظام الصوت فقط 🎙️ — استخدم زر «تسجيل نطق» بدلاً من النقر على الكلمات.'),
       });
       return;
     }
@@ -1169,7 +1180,7 @@ interface ConnectedAttempt {
       playAudioChime('error');
       setGuidanceBox({
         type: 'error',
-        message: '👈 يرجى اختيار أو نطق الكلمة من العمود الأيمن أولاً!',
+        message: tr('matching_msg_pick_right_first', '👈 يرجى اختيار أو نطق الكلمة من العمود الأيمن أولاً!'),
       });
       return;
     }
@@ -1185,7 +1196,7 @@ interface ConnectedAttempt {
     handleCheckMatch(selectedRightId, item.id);
   };
 
-  // Pagination navigation
+  // Pagination navigation (used by Next Exercise button inside completion card)
   const handleNextExercise = () => {
     if (activeSubject && exerciseIndex < activeSubject.exercises.length - 1) {
       const nextIdx = exerciseIndex + 1;
@@ -1196,31 +1207,21 @@ interface ConnectedAttempt {
     }
   };
 
-  const handlePrevExercise = () => {
-    if (exerciseIndex > 0) {
-      const prevIdx = exerciseIndex - 1;
-      setExerciseIndex(prevIdx);
-      if (onSelectSubjectExercise) {
-        onSelectSubjectExercise(selectedSubjectId, prevIdx);
-      }
-    }
-  };
-
   if (!activeSubject || !activeExercise) {
     return (
       <div className="bg-white rounded-3xl p-8 border border-slate-200 text-center max-w-lg mx-auto my-12 shadow-sm">
         <Sparkles className="w-12 h-12 text-purple-500 mx-auto mb-3" />
         <h3 className="text-lg font-bold text-slate-800 mb-2">
-          لا توجد تمارين وصل مضافة حالياً
+          {tr('matching_empty_title', 'لا توجد تمارين وصل مضافة حالياً')}
         </h3>
         <p className="text-xs text-slate-500 mb-4">
-          يمكن للمعلم إضافة تمارين جديدة في ورقة "وصل" أو من خلال لوحة التحكم.
+          {tr('matching_empty_desc', 'يمكن للمعلم إضافة تمارين جديدة من خلال لوحة التحكم.')}
         </p>
         <button
           onClick={handleTriggerPronunciation}
           className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-all"
         >
-          الانتقال لتمرين نطق الكلمات 🎙️
+          {tr('matching_back_pronunciation', 'الانتقال لتمرين نطق الكلمات 🎙️')}
         </button>
       </div>
     );
@@ -1233,88 +1234,29 @@ interface ConnectedAttempt {
 
   return (
     <div className="flex flex-col gap-5 w-full animate-in fade-in duration-300">
-      {/* 1. Header Toolbar: Subject & Exercise Selector + Matching Lessons List trigger */}
-      <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-slate-200/90 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
-        {/* Subject dropdown & Lessons Modal Trigger */}
-        <div className="w-full md:w-auto flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
-            <BookOpen className="w-4 h-4 text-purple-600 shrink-0" />
-            <span>موضوع الدرس:</span>
-          </div>
-
-          <select
-            value={selectedSubjectId}
-            onChange={(e) => {
-              const newSubjId = e.target.value;
-              setSelectedSubjectId(newSubjId);
-              setExerciseIndex(0);
-              if (onSelectSubjectExercise) {
-                onSelectSubjectExercise(newSubjId, 0);
-              }
-            }}
-            className="px-3 py-1.5 bg-slate-50 border border-slate-200 focus:border-purple-500 rounded-xl text-xs sm:text-sm font-bold text-slate-800 cursor-pointer focus:outline-hidden"
-          >
-            {subjects.map((subj) => (
-              <option key={subj.id} value={subj.id}>
-                {subj.subjectName} ({subj.exercises.length} تمارين)
-              </option>
-            ))}
-          </select>
-
-          {onOpenMatchingLessonsModal && (
-            <button
-              type="button"
-              onClick={onOpenMatchingLessonsModal}
-              className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
-              title="استعراض كافة دروس وتمارين الوصل"
-            >
-              <span>قائمة الدروس 📑</span>
-            </button>
-          )}
-        </div>
-
-        {/* Exercise Pagination / Step */}
-        <div className="flex items-center gap-2 w-full md:w-auto justify-between md:justify-end">
-          <button
-            onClick={handlePrevExercise}
-            disabled={exerciseIndex === 0}
-            className="p-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
-            title="التمرين السابق"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-
-          <span className="px-3.5 py-1 rounded-xl bg-purple-50 border border-purple-100 text-purple-900 font-extrabold text-xs">
-            التمرين {activeExercise.exerciseNumber} من {activeSubject.exercises.length}
-          </span>
-
-          <button
-            onClick={handleNextExercise}
-            disabled={exerciseIndex >= activeSubject.exercises.length - 1}
-            className="p-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
-            title="التمرين التالي"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* 2. Main Question Card */}
+      {/* Main Question Card */}
       <div className="bg-white rounded-3xl p-5 sm:p-7 border border-slate-200 shadow-sm flex flex-col items-center text-center relative overflow-hidden">
-        {/* Flexible Ordered Question Blocks (Text, Image, Audio) */}
+        {/* Flexible Ordered Question Blocks (Text translated, Image & Audio untouched) */}
         <div className="mb-3 w-full max-w-xl flex flex-col items-center gap-3">
           <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600">
-            سؤال التوصيل
+            {tr('matching_question_badge', 'سؤال التوصيل')}
           </span>
 
           {parseQuestionBlocks(activeExercise.questionText).map((block, bIdx) => {
             if (block.type === 'text') {
+              const translatedQ = getTranslatedMatchingQuestionText(
+                activeSubject.subjectName,
+                activeExercise.exerciseNumber,
+                block.value,
+                currentLang,
+                translations
+              );
               return (
                 <h2
                   key={`q-text-${bIdx}`}
                   className="text-xl sm:text-2xl font-black font-amiri text-slate-900 tracking-wide"
                 >
-                  {block.value}
+                  {translatedQ}
                 </h2>
               );
             }
@@ -1326,7 +1268,7 @@ interface ConnectedAttempt {
                   key={`q-img-${bIdx}`}
                   onClick={() => setLightboxImageUrl(imgUrl)}
                   className="relative group cursor-pointer rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 p-1.5 shadow-2xs hover:border-purple-300 transition-all max-w-xs sm:max-w-sm"
-                  title="اضغط لتكبير الصورة"
+                  title={tr('matching_zoom_image', 'تكبير الصورة')}
                 >
                   <img
                     src={imgUrl}
@@ -1335,7 +1277,7 @@ interface ConnectedAttempt {
                   />
                   <span className="absolute bottom-2.5 left-2.5 px-2 py-1 rounded-lg bg-slate-900/75 text-white text-[10px] font-bold flex items-center gap-1 shadow-xs">
                     <ZoomIn className="w-3 h-3" />
-                    <span>تكبير</span>
+                    <span>{tr('matching_zoom_image', 'تكبير الصورة')}</span>
                   </span>
                 </div>
               );
@@ -1357,12 +1299,12 @@ interface ConnectedAttempt {
                 {isQPlaying ? (
                   <>
                     <Pause className="w-4 h-4 fill-current" />
-                    <span>إيقاف صوت السؤال ⏸️</span>
+                    <span>{tr('matching_stop_audio', 'إيقاف')} ⏸️</span>
                   </>
                 ) : (
                   <>
                     <Volume2 className="w-4 h-4" />
-                    <span>استمع لصوت السؤال 🔊</span>
+                    <span>{tr('matching_listen_question', 'استمع لصوت السؤال 🔊')}</span>
                   </>
                 )}
               </button>
@@ -1372,7 +1314,6 @@ interface ConnectedAttempt {
 
         {/* Interaction Buttons: زر تشغيل الفأرة & زر تسجيل النطق */}
         <div className="flex flex-wrap items-center justify-center gap-3 my-2 w-full max-w-md">
-          {/* Button 1: تشغيل الفأرة - only rendered if teacher didn't force voice_only */}
           {!isVoiceOnlyMode && (
             <button
               type="button"
@@ -1384,11 +1325,10 @@ interface ConnectedAttempt {
               }`}
             >
               <MousePointer className="w-4 h-4" />
-              <span>تشغيل الفأرة 🖱️</span>
+              <span>{tr('matching_mouse_btn', 'تشغيل الفأرة 🖱️')}</span>
             </button>
           )}
 
-          {/* Button 2: تسجيل نطق مع عداد تنازلي رقمي */}
           <button
             type="button"
             onClick={handleStartVoiceRecording}
@@ -1404,17 +1344,19 @@ interface ConnectedAttempt {
             {isListening ? (
               <>
                 <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
-                <span className="font-mono font-bold">جاري الاستماع... ({countdown} ث) 🎙️</span>
+                <span className="font-mono font-bold">
+                  {tr('matching_listening_btn', 'جاري الاستماع...')} ({countdown}) 🎙️
+                </span>
               </>
             ) : isTranscribing ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
-                <span>جاري التحليل... ⏳</span>
+                <span>{tr('matching_analyzing_btn', 'جاري التحليل... ⏳')}</span>
               </>
             ) : (
               <>
                 <Mic className="w-4 h-4 text-rose-500" />
-                <span>تسجيل نطق 🎙️</span>
+                <span>{tr('matching_record_btn', 'تسجيل نطق 🎙️')}</span>
               </>
             )}
           </button>
@@ -1474,7 +1416,7 @@ interface ConnectedAttempt {
             {/* RIGHT COLUMN */}
             <div className="flex flex-col gap-2.5 z-20">
               <span className="text-[11px] font-extrabold text-slate-400 block mb-1">
-                العمود الأيمن
+                {tr('matching_right_col', 'العمود الأيمن')}
               </span>
               {rightItems.map((item) => {
                 const conn = getRightConn(item.id);
@@ -1597,7 +1539,7 @@ interface ConnectedAttempt {
             {/* LEFT COLUMN */}
             <div className="flex flex-col gap-2.5 z-20">
               <span className="text-[11px] font-extrabold text-slate-400 block mb-1">
-                العمود الأيسر
+                {tr('matching_left_col', 'العمود الأيسر')}
               </span>
               {leftItems.map((item) => {
                 const conn = getLeftConn(item.id);
@@ -1726,10 +1668,10 @@ interface ConnectedAttempt {
 
             <div>
               <span className="text-xs font-bold text-purple-700 bg-purple-100 px-3 py-1 rounded-full">
-                تم إنهاء التوصيل بنجاح!
+                {tr('matching_done_badge', 'تم إنهاء التوصيل بنجاح!')}
               </span>
               <h3 className="text-xl sm:text-2xl font-black font-amiri text-slate-900 mt-2">
-                نتيجة التمرين:
+                {tr('matching_result_title', 'نتيجة التمرين:')}
               </h3>
             </div>
 
@@ -1744,7 +1686,7 @@ interface ConnectedAttempt {
             {!effectiveShowMistakeFeedback && connections.length > 0 && (
               <div className="bg-white/95 p-3.5 rounded-2xl border border-purple-200 text-right space-y-2 shadow-2xs">
                 <span className="text-xs font-extrabold text-slate-800 block border-b border-slate-100 pb-1.5">
-                  كشف الإجابات والتوصيلات:
+                  {tr('matching_reveal_title', 'كشف الإجابات والتوصيلات:')}
                 </span>
                 <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                   {connections.map((c, idx) => (
@@ -1768,7 +1710,7 @@ interface ConnectedAttempt {
                       </div>
                       {!c.isCorrect && (
                         <span className="text-[10px] font-bold text-rose-800 bg-white px-2 py-0.5 rounded-md border border-rose-200">
-                          الصواب: {getCardAdminPreview(c.correctLeftText)}
+                          {tr('matching_correct_answer_label', 'الصواب:')} {getCardAdminPreview(c.correctLeftText)}
                         </span>
                       )}
                     </div>
@@ -1782,28 +1724,28 @@ interface ConnectedAttempt {
               {currentStudent ? (
                 <div className="flex items-center justify-center gap-1.5 font-bold text-slate-700">
                   <User className="w-3.5 h-3.5 text-purple-600" />
-                  <span>المشترك: {currentStudent.name} (ID: {currentStudent.id})</span>
+                  <span>{currentStudent.name} (ID: {currentStudent.id})</span>
                 </div>
               ) : null}
 
               {isSubmitting ? (
                 <div className="flex items-center justify-center gap-1.5 text-purple-700 font-bold">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>جاري توثيق النتيجة في ورقة answers 2...</span>
+                  <span>{tr('matching_syncing_answers2', 'جاري توثيق النتيجة في السجل الإلكتروني...')}</span>
                 </div>
               ) : sheetSyncSuccess ? (
                 <div className="flex items-center justify-center gap-1.5 text-emerald-700 font-bold">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>{sheetSyncSuccess}</span>
+                  <span>{tr('matching_synced_success', sheetSyncSuccess)}</span>
                 </div>
               ) : !currentStudent ? (
                 <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-xl text-amber-900 text-[11px] space-y-1.5">
-                  <p>سجّل دخولك لتوثيق نتائجك تلقائياً في ورقة answers 2 باسمك ورقمك</p>
+                  <p>{tr('matching_login_prompt', 'سجّل دخولك لتوثيق نتائجك تلقائياً باسمك ورقمك')}</p>
                   <button
                     onClick={handleTriggerLogin}
                     className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-all shadow-2xs"
                   >
-                    دخول الطالب
+                    {tr('nav_student_login', 'دخول الطالب')}
                   </button>
                 </div>
               ) : null}
@@ -1816,7 +1758,7 @@ interface ConnectedAttempt {
                 className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>إعادة التمرين</span>
+                <span>{tr('matching_retry_btn', 'إعادة التمرين')}</span>
               </button>
 
               {exerciseIndex < activeSubject.exercises.length - 1 ? (
@@ -1824,7 +1766,7 @@ interface ConnectedAttempt {
                   onClick={handleNextExercise}
                   className="flex items-center gap-1.5 px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-purple-600/20 cursor-pointer"
                 >
-                  <span>التمرين التالي</span>
+                  <span>{tr('matching_next_btn', 'التمرين التالي')}</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               ) : (
@@ -1832,7 +1774,7 @@ interface ConnectedAttempt {
                   onClick={handleTriggerPronunciation}
                   className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
                 >
-                  <span>الانتقال لتمرين النطق 🎙️</span>
+                  <span>{tr('matching_back_pronunciation', 'الانتقال لتمرين النطق')} 🎙️</span>
                 </button>
               )}
             </div>

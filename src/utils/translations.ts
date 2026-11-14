@@ -2,7 +2,7 @@ export type SupportedLang = 'ar' | 'th' | 'en';
 
 export interface TranslationItem {
   id: string; // unique key e.g. 'home_title'
-  category: 'home' | 'lessons' | 'practice'; // 1- نافذة التسجيل والرئيسية | 2- صفحة الدروس | 3- تسجيل الصوت والنتائج
+  category: 'home' | 'lessons' | 'practice' | 'matching'; // 1- نافذة التسجيل والرئيسية | 2- صفحة الدروس | 3- تسجيل الصوت والنتائج | 4- تمرين وصل الكلمات (2)
   categoryLabel: string;
   ar: string; // النص العربي الأصلي
   th: string; // الترجمة التايلاندية
@@ -1039,7 +1039,564 @@ export const DEFAULT_TRANSLATIONS: TranslationItem[] = [
     th: 'ตรวจพบ:',
     en: 'Detected:',
   },
+  // ==========================================
+  // الموضع الرابع: تمرين وصل الكلمات (matching - الترجمة 2)
+  // ==========================================
+  {
+    id: 'nav_matching_lessons',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'دروس الوصل 🔗',
+    th: 'บทเรียนจับคู่คำ 🔗',
+    en: 'Matching Lessons 🔗',
+  },
+  {
+    id: 'matching_back_pronunciation',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'العودة لتمرين النطق',
+    th: 'กลับสู่แบบฝึกหัดออกเสียง',
+    en: 'Back to Pronunciation',
+  },
+  {
+    id: 'matching_subject_label',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'الموضوع:',
+    th: 'หัวข้อ:',
+    en: 'Subject:',
+  },
+  {
+    id: 'matching_lessons_list_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'قائمة الدروس 📑',
+    th: 'รายการบทเรียน 📑',
+    en: 'Lessons List 📑',
+  },
+  {
+    id: 'matching_exercise_label',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'التمرين',
+    th: 'ข้อที่',
+    en: 'Exercise',
+  },
+  {
+    id: 'matching_of_label',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'من',
+    th: 'จาก',
+    en: 'of',
+  },
+  {
+    id: 'matching_question_badge',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'سؤال التوصيل',
+    th: 'คำถามจับคู่คำ',
+    en: 'Matching Question',
+  },
+  {
+    id: 'matching_listen_question',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'استمع لصوت السؤال 🔊',
+    th: 'ฟังเสียงคำถาม 🔊',
+    en: 'Listen to Question 🔊',
+  },
+  {
+    id: 'matching_stop_audio',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'إيقاف',
+    th: 'หยุด',
+    en: 'Stop',
+  },
+  {
+    id: 'matching_listen_card',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'استمع 🔊',
+    th: 'ฟัง 🔊',
+    en: 'Listen 🔊',
+  },
+  {
+    id: 'matching_zoom_image',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تكبير الصورة',
+    th: 'ขยายรูปภาพ',
+    en: 'Zoom image',
+  },
+  {
+    id: 'matching_mouse_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تشغيل الفأرة 🖱️',
+    th: 'ใช้เมาส์/สัมผัส 🖱️',
+    en: 'Mouse / Touch 🖱️',
+  },
+  {
+    id: 'matching_record_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تسجيل نطق 🎙️',
+    th: 'บันทึกเสียงพูด 🎙️',
+    en: 'Record Voice 🎙️',
+  },
+  {
+    id: 'matching_listening_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'جاري الاستماع...',
+    th: 'กำลังฟัง...',
+    en: 'Listening...',
+  },
+  {
+    id: 'matching_analyzing_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'جاري التحليل... ⏳',
+    th: 'กำลังวิเคราะห์... ⏳',
+    en: 'Analyzing... ⏳',
+  },
+  {
+    id: 'matching_right_col',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'العمود الأيمن',
+    th: 'คอลัมน์ขวา',
+    en: 'Right Column',
+  },
+  {
+    id: 'matching_left_col',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'العمود الأيسر',
+    th: 'คอลัมน์ซ้าย',
+    en: 'Left Column',
+  },
+  {
+    id: 'matching_init_voice_only',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'اضغط زر تسجيل النطق 🎙️ وانطق العنصر المستهدف بالعمود الأيمن',
+    th: 'กดปุ่มบันทึกเสียง 🎙️ แล้วออกเสียงคำเป้าหมายในคอลัมน์ขวา',
+    en: 'Press Record Voice 🎙️ and pronounce the target item in the right column',
+  },
+  {
+    id: 'matching_init_both',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'ابدأ التوصيل: انقر بالفأرة واللمس 🖱️ أو اضغط زر تسجيل النطق 🎙️',
+    th: 'เริ่มจับคู่: คลิก/แตะ 🖱️ หรือกดปุ่มบันทึกเสียง 🎙️',
+    en: 'Start matching: click/tap 🖱️ or press Record Voice 🎙️',
+  },
+  {
+    id: 'matching_rule_lock',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '🔒 محاولة واحدة بدون تراجع',
+    th: '🔒 ตอบได้ครั้งเดียว ไม่สามารถแก้ไขได้',
+    en: '🔒 Single attempt (no undo)',
+  },
+  {
+    id: 'matching_rule_hide_mistake',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '🙈 كشف الخطأ في نهاية التمرين',
+    th: '🙈 แสดงเฉลยเมื่อจบแบบฝึกหัด',
+    en: '🙈 Reveal mistakes at the end',
+  },
+  {
+    id: 'matching_rule_smart_reassign',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '🧠 تبديل الإجابة والتصحيح الذكي متاح',
+    th: '🧠 สามารถเปลี่ยนคำตอบและแก้ไขอัจฉริยะได้',
+    en: '🧠 Smart answer swap enabled',
+  },
+  {
+    id: 'matching_rule_voice_only',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '🎙️ إدخال صوتي فقط (النقر معطّل)',
+    th: '🎙️ ใช้เสียงเท่านั้น (ปิดการคลิก)',
+    en: '🎙️ Voice input only (clicks disabled)',
+  },
+  {
+    id: 'matching_msg_mouse_active',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'وضع الفأرة واللمس مفعّل: انقر على الكلمة في اليمين أولاً ثم مقابلتها في اليسار 🖱️',
+    th: 'โหมดเมาส์/สัมผัสเปิดอยู่: เลือกคำทางขวาแล้วเลือกคำคู่ทางซ้าย 🖱️',
+    en: 'Mouse/touch active: tap the right item first, then its match on the left 🖱️',
+  },
+  {
+    id: 'matching_msg_voice_only_block',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'هذا التمرين بنظام الصوت فقط 🎙️ — استخدم زر «تسجيل نطق» بدلاً من النقر على الكلمات.',
+    th: 'แบบฝึกหัดนี้ใช้เสียงเท่านั้น 🎙️ กรุณากดปุ่มบันทึกเสียงแทนการคลิก',
+    en: 'This exercise is voice-only 🎙️ — use Record Voice instead of clicking.',
+  },
+  {
+    id: 'matching_msg_pick_right_first',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '👈 يرجى اختيار أو نطق الكلمة من العمود الأيمن أولاً!',
+    th: '👈 กรุณาเลือกหรือออกเสียงคำจากคอลัมน์ขวาก่อน!',
+    en: '👈 Please select or pronounce an item from the right column first!',
+  },
+  {
+    id: 'matching_msg_right_selected_prefix',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تم اختيار',
+    th: 'เลือกแล้ว:',
+    en: 'Selected:',
+  },
+  {
+    id: 'matching_msg_right_selected_suffix',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'الآن اختر ما يقابلها بالعمود الأيسر 👈',
+    th: 'ตอนนี้เลือกคำคู่ในคอลัมน์ซ้าย 👈',
+    en: 'Now select its match in the left column 👈',
+  },
+  {
+    id: 'matching_msg_correct_prefix',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '✓ أحسنت! إجابة صحيحة:',
+    th: '✓ ยอดเยี่ยม! คำตอบถูกต้อง:',
+    en: '✓ Well done! Correct match:',
+  },
+  {
+    id: 'matching_msg_hidden_next',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تم التوصيل بنجاح. تابع توصيل العناصر المتبقية.',
+    th: 'จับคู่สำเร็จ กรุณาจับคู่รายการที่เหลือต่อ',
+    en: 'Connected! Continue matching the remaining items.',
+  },
+  {
+    id: 'matching_msg_wrong_locked',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '❌ إجابة غير صحيحة! تم تثبيت النتيجة ولا يمكن التراجع عنها.',
+    th: '❌ คำตอบไม่ถูกต้อง! บันทึกผลแล้วไม่สามารถแก้ไขได้',
+    en: '❌ Incorrect! Answer locked and cannot be undone.',
+  },
+  {
+    id: 'matching_msg_wrong_smart',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '❌ إجابة غير صحيحة. يمكنك إعادة التوصيل لتصحيح الخطأ الذكي!',
+    th: '❌ คำตอบไม่ถูกต้อง คุณสามารถจับคู่ใหม่เพื่อแก้ไขได้!',
+    en: '❌ Incorrect match. You can re-link to correct your answer!',
+  },
+  {
+    id: 'matching_msg_wrong_retry',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '❌ إجابة غير صحيحة، حاول مجدداً!',
+    th: '❌ คำตอบไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง!',
+    en: '❌ Incorrect match, please try again!',
+  },
+  {
+    id: 'matching_msg_listen_right',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'استمع لصوتك... انطق الكلمة المستهدفة من العمود الأيمن أولاً 🎙️',
+    th: 'กำลังฟัง... ออกเสียงคำเป้าหมายจากคอลัมน์ขวาก่อน 🎙️',
+    en: 'Listening... pronounce the target word from the right column first 🎙️',
+  },
+  {
+    id: 'matching_msg_listen_left',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'استمع لصوتك... انطق الكلمة المقابلة من العمود الأيسر 🎙️',
+    th: 'กำลังฟัง... ออกเสียงคำคู่จากคอลัมน์ซ้าย 🎙️',
+    en: 'Listening... pronounce the matching word from the left column 🎙️',
+  },
+  {
+    id: 'matching_msg_analyzing_speech',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'جاري التعرف على الكلمة المنطوقة... ⏳',
+    th: 'กำลังประมวลผลคำที่ออกเสียง... ⏳',
+    en: 'Recognizing spoken word... ⏳',
+  },
+  {
+    id: 'matching_msg_no_speech',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'لم يتم التقاط كلمة واضحة، انطق إحدى الكلمات المعروضة وحاول مجدداً.',
+    th: 'ไม่ได้ยินคำที่ชัดเจน กรุณาออกเสียงคำที่แสดงและลองใหม่',
+    en: 'No clear word detected. Please pronounce one of the items and retry.',
+  },
+  {
+    id: 'matching_msg_stopped',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تم إيقاف التسجيل. اضغط تسجيل نطق مجدداً أو استخدم الفأرة.',
+    th: 'หยุดบันทึกแล้ว กดบันทึกเสียงอีกครั้งหรือใช้เมาส์',
+    en: 'Recording stopped. Press Record Voice again or use mouse.',
+  },
+  {
+    id: 'matching_done_badge',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تم إنهاء التوصيل بنجاح!',
+    th: 'จับคู่คำเสร็จสมบูรณ์!',
+    en: 'Matching Completed!',
+  },
+  {
+    id: 'matching_result_title',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'نتيجة التمرين:',
+    th: 'ผลลัพธ์แบบฝึกหัด:',
+    en: 'Exercise Result:',
+  },
+  {
+    id: 'matching_reveal_title',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'كشف الإجابات والتوصيلات:',
+    th: 'เฉลยและรายละเอียดการจับคู่:',
+    en: 'Answers & Connections Reveal:',
+  },
+  {
+    id: 'matching_correct_answer_label',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'الصواب:',
+    th: 'คำตอบที่ถูก:',
+    en: 'Correct:',
+  },
+  {
+    id: 'matching_syncing_answers2',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'جاري توثيق النتيجة في السجل الإلكتروني...',
+    th: 'กำลังบันทึกผลลัพธ์...',
+    en: 'Saving result to electronic log...',
+  },
+  {
+    id: 'matching_synced_success',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تم توثيق إنجازك بنجاح ✓',
+    th: 'บันทึกความสำเร็จเรียบร้อยแล้ว ✓',
+    en: 'Achievement saved successfully ✓',
+  },
+  {
+    id: 'matching_login_prompt',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'سجّل دخولك لتوثيق نتائجك تلقائياً باسمك ورقمك',
+    th: 'เข้าสู่ระบบเพื่อบันทึกคะแนนของคุณโดยอัตโนมัติ',
+    en: 'Log in to save your scores automatically under your name & ID',
+  },
+  {
+    id: 'matching_retry_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'إعادة التمرين',
+    th: 'ทำแบบฝึกหัดซ้ำ',
+    en: 'Retry Exercise',
+  },
+  {
+    id: 'matching_next_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'التمرين التالي',
+    th: 'แบบฝึกหัดถัดไป',
+    en: 'Next Exercise',
+  },
+  {
+    id: 'matching_empty_title',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'لا توجد تمارين وصل مضافة حالياً',
+    th: 'ยังไม่มีแบบฝึกหัดจับคู่คำในขณะนี้',
+    en: 'No matching exercises added yet',
+  },
+  {
+    id: 'matching_empty_desc',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'يمكن للمعلم إضافة تمارين جديدة من خلال لوحة التحكم.',
+    th: 'ผู้สอนสามารถเพิ่มแบบฝึกหัดใหม่ได้จากแผงควบคุม',
+    en: 'Teachers can add new exercises from the Admin Panel.',
+  },
+  {
+    id: 'matching_modal_title',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تمارين وصل 🔗',
+    th: 'แบบฝึกหัดจับคู่คำ 🔗',
+    en: 'Matching Exercises 🔗',
+  },
+  {
+    id: 'matching_modal_subtitle',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'اختر موضوع الدرس ثم ابدأ التمرين المطلوب مباشرة',
+    th: 'เลือกหัวข้อบทเรียนแล้วเริ่มทำแบบฝึกหัดที่ต้องการได้ทันที',
+    en: 'Select a lesson subject and start the desired exercise directly',
+  },
+  {
+    id: 'matching_modal_choose_subject',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'اختر موضوع الدرس من القائمة:',
+    th: 'เลือกหัวข้อบทเรียนจากรายการ:',
+    en: 'Select lesson subject:',
+  },
+  {
+    id: 'matching_modal_start_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'بدء التمرين',
+    th: 'เริ่มทำแบบฝึกหัด',
+    en: 'Start Exercise',
+  },
+  {
+    id: 'matching_modal_current_badge',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'الحالي',
+    th: 'ปัจจุบัน',
+    en: 'Current',
+  },
+  {
+    id: 'matching_modal_exercise_word',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تمرين',
+    th: 'ข้อที่',
+    en: 'Exercise',
+  },
+  {
+    id: 'matching_modal_exercises_word',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تمارين',
+    th: 'แบบฝึกหัด',
+    en: 'exercises',
+  },
+  {
+    id: 'matching_modal_empty',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'لا توجد تمارين مضافة في هذا الموضوع حالياً.',
+    th: 'ยังไม่มีแบบฝึกหัดในหัวข้อนี้ในขณะนี้',
+    en: 'No exercises added in this subject yet.',
+  },
+  {
+    id: 'stats_tab_pronunciation',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'سجل النطق',
+    th: 'บันทึกการออกเสียง',
+    en: 'Pronunciation Log',
+  },
+  {
+    id: 'stats_tab_matching',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'سجل التوصيل',
+    th: 'บันทึกการจับคู่คำ',
+    en: 'Matching Log',
+  },
+  {
+    id: 'stats_matching_subjects',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'المواضيع المسجلة',
+    th: 'หัวข้อที่บันทึกไว้',
+    en: 'Recorded Subjects',
+  },
+  {
+    id: 'stats_matching_completed',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'التمارين المنجزة',
+    th: 'แบบฝึกหัดที่เสร็จสิ้น',
+    en: 'Completed Exercises',
+  },
+  {
+    id: 'stats_matching_avg',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'معدل الإتقان',
+    th: 'อัตราความแม่นยำเฉลี่ย',
+    en: 'Mastery Rate',
+  },
+  {
+    id: 'stats_matching_history_title',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'نتائج تمارين وصل الكلمات حسب الموضوع:',
+    th: 'ผลแบบฝึกหัดจับคู่คำตามหัวข้อ:',
+    en: 'Word Matching Results by Subject:',
+  },
+  {
+    id: 'stats_matching_empty',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'لم تكمل أي تمرين وصل كلمات بعد. أتمم تمريناً في «تمرين الوصل» لتظهر نتيجتك هنا!',
+    th: 'คุณยังไม่ได้ทำแบบฝึกหัดจับคู่คำ กรุณาทำแบบฝึกหัดเพื่อดูผลลัพธ์ที่นี่!',
+    en: 'No matching exercises completed yet. Complete an exercise to see your results here!',
+  },
 ];
+
+export function getMatchingSubjectTranslationId(subjectName: string): string {
+  return `matching_subj_${(subjectName || '').trim()}`;
+}
+
+export function getMatchingQuestionTranslationId(subjectName: string, exerciseNumber: number): string {
+  return `matching_q_${(subjectName || '').trim()}_${exerciseNumber}`;
+}
+
+export function getTranslatedMatchingSubject(
+  subjectName: string,
+  lang: SupportedLang,
+  items: TranslationItem[] = []
+): string {
+  const clean = (subjectName || '').trim();
+  if (!clean) return '';
+  const id = getMatchingSubjectTranslationId(clean);
+  const found = items.find((i) => i.id === id);
+  if (!found) return clean;
+  if (lang === 'ar') return found.ar?.trim() ? found.ar.trim() : clean;
+  if (lang === 'th') return found.th?.trim() ? found.th.trim() : clean;
+  if (lang === 'en') return found.en?.trim() ? found.en.trim() : clean;
+  return clean;
+}
+
+export function getTranslatedMatchingQuestionText(
+  subjectName: string,
+  exerciseNumber: number,
+  fallbackPlainText: string,
+  lang: SupportedLang,
+  items: TranslationItem[] = []
+): string {
+  const clean = (fallbackPlainText || '').trim();
+  if (!clean) return '';
+  const id = getMatchingQuestionTranslationId(subjectName, exerciseNumber);
+  const found = items.find((i) => i.id === id);
+  if (!found) return clean;
+  if (lang === 'ar') return found.ar?.trim() ? found.ar.trim() : clean;
+  if (lang === 'th') return found.th?.trim() ? found.th.trim() : clean;
+  if (lang === 'en') return found.en?.trim() ? found.en.trim() : clean;
+  return clean;
+}
 
 const STORAGE_KEY_LANG = 'faseeh_active_lang';
 const STORAGE_KEY_TRANSLATIONS = 'faseeh_custom_translations_v1';
