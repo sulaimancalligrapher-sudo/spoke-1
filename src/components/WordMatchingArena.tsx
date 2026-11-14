@@ -390,15 +390,38 @@ interface ConnectedAttempt {
   const [countdown, setCountdown] = useState<number>(4);
   const countdownIntervalRef = useRef<any>(null);
 
+  const getInitialGuidanceForExercise = (
+    ex: MatchingExercise | null
+  ): {
+    type: 'success' | 'error' | 'recording' | 'info';
+    message: string;
+    rules?: string[];
+  } => {
+    const lock = !!ex?.lockOnMistake;
+    const showMistake = ex?.showMistakeFeedback !== false;
+    const smartReassign = !!ex?.allowSmartReassign && !lock;
+    const voiceOnly = ex?.inputMode === 'voice_only';
+
+    const rules: string[] = [];
+    if (lock) rules.push('🔒 محاولة واحدة بدون تراجع');
+    if (!showMistake) rules.push('🙈 كشف الخطأ في نهاية التمرين');
+    if (smartReassign) rules.push('🧠 تبديل الإجابة والتصحيح الذكي متاح');
+    if (voiceOnly) rules.push('🎙️ إدخال صوتي فقط (النقر معطّل)');
+
+    return {
+      type: 'info',
+      message: voiceOnly
+        ? 'اضغط زر تسجيل النطق 🎙️ وانطق العنصر المستهدف بالعمود الأيمن'
+        : 'ابدأ التوصيل: انقر بالفأرة واللمس 🖱️ أو اضغط زر تسجيل النطق 🎙️',
+      rules: rules.length > 0 ? rules : undefined,
+    };
+  };
+
   const [guidanceBox, setGuidanceBox] = useState<{
     type: 'success' | 'error' | 'recording' | 'info';
     message: string;
-  }>({
-    type: 'info',
-    message: isVoiceOnlyMode
-      ? 'اضغط زر تسجيل النطق 🎙️ وانطق الكلمة المستهدفة بالعمود الأيمن'
-      : 'اختر طريقة التوصيل: انقر بالفأرة/اللمس 🖱️ أو اضغط زر تسجيل النطق 🎙️',
-  });
+    rules?: string[];
+  }>(() => getInitialGuidanceForExercise(activeExercise));
 
   const recordingTimeoutRef = useRef<any>(null);
   const recognizerRef = useRef<any>(null);
@@ -577,12 +600,7 @@ interface ConnectedAttempt {
     setIsCompleted(false);
     setSheetSyncSuccess(null);
     setActiveInputMode(activeExercise.inputMode === 'voice_only' ? 'voice' : 'mouse');
-    setGuidanceBox({
-      type: 'info',
-      message: activeExercise.inputMode === 'voice_only'
-        ? 'اضغط زر تسجيل النطق 🎙️ وانطق الكلمة المستهدفة بالعمود الأيمن'
-        : 'ابدأ التوصيل: انقر بالفأرة واللمس 🖱️ أو اضغط زر تسجيل النطق 🎙️',
-    });
+    setGuidanceBox(getInitialGuidanceForExercise(activeExercise));
   };
 
   useEffect(() => {
@@ -1352,32 +1370,6 @@ interface ConnectedAttempt {
           })}
         </div>
 
-        {/* Teacher Configured Behavior Badges */}
-        {(effectiveLockOnMistake || !effectiveShowMistakeFeedback || isVoiceOnlyMode || effectiveAllowSmartReassign) && (
-          <div className="flex flex-wrap items-center justify-center gap-1.5 mb-2">
-            {effectiveLockOnMistake && (
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 border border-rose-200 text-rose-800">
-                🔒 محاولة واحدة بدون تراجع
-              </span>
-            )}
-            {!effectiveShowMistakeFeedback && (
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 border border-indigo-200 text-indigo-900">
-                🙈 كشف الخطأ في نهاية التمرين
-              </span>
-            )}
-            {effectiveAllowSmartReassign && (
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 border border-teal-200 text-teal-900">
-                🧠 تبديل الإجابة والتصحيح الذكي متاح
-              </span>
-            )}
-            {isVoiceOnlyMode && (
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 border border-amber-200 text-amber-900">
-                🎙️ إدخال صوتي فقط (النقر معطّل)
-              </span>
-            )}
-          </div>
-        )}
-
         {/* Interaction Buttons: زر تشغيل الفأرة & زر تسجيل النطق */}
         <div className="flex flex-wrap items-center justify-center gap-3 my-2 w-full max-w-md">
           {/* Button 1: تشغيل الفأرة - only rendered if teacher didn't force voice_only */}
@@ -1428,10 +1420,10 @@ interface ConnectedAttempt {
           </button>
         </div>
 
-        {/* 4. Guidance / Feedback Box placed DIRECTLY UNDER the buttons */}
+        {/* 4. Unified Guidance / Feedback Box placed DIRECTLY UNDER the buttons */}
         {guidanceBox && (
           <div
-            className={`w-full max-w-xl mx-auto mb-4 p-3 rounded-2xl border text-xs sm:text-sm font-bold flex items-center justify-center gap-2 animate-in fade-in duration-200 transition-all ${
+            className={`w-full max-w-xl mx-auto mb-4 p-3 rounded-2xl border text-xs sm:text-sm font-bold flex flex-col items-center justify-center gap-1.5 animate-in fade-in duration-200 transition-all ${
               guidanceBox.type === 'success'
                 ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
                 : guidanceBox.type === 'error'
@@ -1441,11 +1433,20 @@ interface ConnectedAttempt {
                 : 'bg-slate-50 text-slate-700 border-slate-200'
             }`}
           >
-            {guidanceBox.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
-            {guidanceBox.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
-            {guidanceBox.type === 'recording' && <Loader2 className="w-4 h-4 text-amber-600 animate-spin shrink-0" />}
-            {guidanceBox.type === 'info' && <HelpCircle className="w-4 h-4 text-indigo-600 shrink-0" />}
-            <span>{guidanceBox.message}</span>
+            <div className="flex items-center justify-center gap-2">
+              {guidanceBox.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+              {guidanceBox.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+              {guidanceBox.type === 'recording' && <Loader2 className="w-4 h-4 text-amber-600 animate-spin shrink-0" />}
+              {guidanceBox.type === 'info' && <HelpCircle className="w-4 h-4 text-indigo-600 shrink-0" />}
+              <span>{guidanceBox.message}</span>
+            </div>
+            {guidanceBox.rules && guidanceBox.rules.length > 0 && (
+              <div className="w-full pt-1.5 mt-0.5 border-t border-slate-200/80 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] font-semibold text-slate-600">
+                {guidanceBox.rules.map((rule, rIdx) => (
+                  <span key={rIdx}>{rule}</span>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
