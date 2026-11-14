@@ -19,7 +19,7 @@ import { INITIAL_MATCHING_SUBJECTS } from '../data/matchingCurriculum';
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbyjxiotp1iXfp0eQwxoOL618FC8_Y2x2hVeK2ASL885F5olN1zcKJKr1yQdXsWa_tDY5Q/exec';
+  'https://script.google.com/macros/s/AKfycbz7pJ8u1OaRVLBvTVSRQxAQ3E5dNWFbBudi7qcFF7QjuKqgLRbcEb_zyYCPFnGUmiRkvQ/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -874,6 +874,78 @@ export async function fetchStudentSubmissionsFromSheet(
   return resultList.sort((a, b) => b.timestamp - a.timestamp);
 }
 
+export function normalizeArabicDigits(str: string): string {
+  return String(str || '')
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)));
+}
+
+/**
+ * Extract accurate percentage (0-100) from answers 2 formulaString or raw value.
+ * Handles formats like:
+ * - "(5 - 4 صحيح - 1 خطأ = 80%)"
+ * - "(5 - الصحيح 5 - أخطاء المحاولات 2 = 71%)"
+ * - "%80", "80٪", "80 %", "= 80", Arabic digits "٨٠٪", or Google Sheets decimal "0.8"
+ */
+export function extractPercentageFromMatchingText(text: string, rawPct?: unknown): number {
+  const normalized = normalizeArabicDigits(text || '');
+
+  // 1. Direct match like "80%", "80 %", "80٪"
+  const afterPct = normalized.match(/(\d+(?:\.\d+)?)\s*[%٪]/);
+  if (afterPct) {
+    return Math.min(100, Math.max(0, Math.round(parseFloat(afterPct[1]))));
+  }
+
+  // 2. Prefix match like "%80" or "٪80" (common in RTL sheets)
+  const beforePct = normalized.match(/[%٪]\s*(\d+(?:\.\d+)?)/);
+  if (beforePct) {
+    return Math.min(100, Math.max(0, Math.round(parseFloat(beforePct[1]))));
+  }
+
+  // 3. Equals / rate label match like "= 80" or "النسبة: 80"
+  const eqMatch = normalized.match(/(?:=|النسبة(?:\s*التراكمية)?\s*:?)\s*(\d+(?:\.\d+)?)/);
+  if (eqMatch) {
+    const val = parseFloat(eqMatch[1]);
+    if (val > 0 && val <= 1 && eqMatch[1].includes('.')) {
+      return Math.round(val * 100);
+    }
+    return Math.min(100, Math.max(0, Math.round(val)));
+  }
+
+  // 4. Compute from "X صحيح" and total or "Y خطأ"
+  const correctMatch = normalized.match(/(\d+)\s*صحيح|صحيح\s*(\d+)|الصحيح\s*(\d+)/);
+  const wrongMatch = normalized.match(/(\d+)\s*خطأ|خطأ\s*(\d+)|الخطأ\s*(\d+)|أخطاء\s*المحاولات\s*(\d+)/);
+  if (correctMatch) {
+    const c = parseInt(correctMatch[1] || correctMatch[2] || correctMatch[3], 10);
+    const w = wrongMatch
+      ? parseInt(wrongMatch[1] || wrongMatch[2] || wrongMatch[3] || wrongMatch[4], 10)
+      : 0;
+    const firstNumMatch = normalized.match(/^\s*\(?\s*(\d+)/);
+    const totalPairs = firstNumMatch ? parseInt(firstNumMatch[1], 10) : c + w;
+    const denom = Math.max(1, c + w > totalPairs ? c + w : totalPairs);
+    if (denom > 0) {
+      return Math.min(100, Math.max(0, Math.round((c / denom) * 100)));
+    }
+  }
+
+  // 5. Fallback to raw numeric percentage (supports decimal ratio like 0.8 from Google Sheets)
+  if (typeof rawPct === 'number' && !isNaN(rawPct)) {
+    if (rawPct > 0 && rawPct <= 1) return Math.round(rawPct * 100);
+    return Math.min(100, Math.max(0, Math.round(rawPct)));
+  }
+  if (typeof rawPct === 'string' && rawPct.trim()) {
+    const parsed = parseFloat(normalizeArabicDigits(rawPct));
+    if (!isNaN(parsed)) {
+      if (parsed > 0 && parsed <= 1 && !rawPct.includes('%') && !rawPct.includes('٪')) {
+        return Math.round(parsed * 100);
+      }
+      return Math.min(100, Math.max(0, Math.round(parsed)));
+    }
+  }
+
+  return 0;
+}
+
 /**
  * Fetch student matching exercise history from sheet "answers 2" and merge with local cache
  */
@@ -917,11 +989,14 @@ export async function fetchStudentMatchingHistory(
           if (!subj) continue;
           const exercises: MatchingExerciseHistoryEntry[] = Array.isArray(item.exercises)
             ? item.exercises
-                .map((ex: any) => ({
-                  exerciseNumber: Number(ex.exerciseNumber) || 1,
-                  formulaString: String(ex.formulaString || '').trim(),
-                  percentage: typeof ex.percentage === 'number' ? ex.percentage : parseInt(ex.percentage) || 0,
-                }))
+                .map((ex: any) => {
+                  const formulaStr = String(ex.formulaString || '').trim();
+                  return {
+                    exerciseNumber: Number(ex.exerciseNumber) || 1,
+                    formulaString: formulaStr,
+                    percentage: extractPercentageFromMatchingText(formulaStr, ex.percentage),
+                  };
+                })
                 .sort((a: MatchingExerciseHistoryEntry, b: MatchingExerciseHistoryEntry) => a.exerciseNumber - b.exerciseNumber)
             : [];
           mergedMap.set(subj, {
@@ -950,14 +1025,21 @@ export async function fetchStudentMatchingHistory(
         for (const localItem of localItems) {
           const subj = (localItem.lessonSubject || '').trim();
           if (!subj) continue;
+          const normalizedLocalExercises = (localItem.exercises || []).map((ex) => ({
+            ...ex,
+            percentage: extractPercentageFromMatchingText(ex.formulaString, ex.percentage),
+          }));
           const existing = mergedMap.get(subj);
           if (!existing) {
-            mergedMap.set(subj, localItem);
+            mergedMap.set(subj, {
+              ...localItem,
+              exercises: normalizedLocalExercises,
+            });
           } else {
             // Merge any locally saved exercises that aren't in the sheet row yet
             const exMap = new Map<number, MatchingExerciseHistoryEntry>();
             for (const ex of existing.exercises) exMap.set(ex.exerciseNumber, ex);
-            for (const ex of localItem.exercises || []) {
+            for (const ex of normalizedLocalExercises) {
               if (!exMap.has(ex.exerciseNumber)) {
                 exMap.set(ex.exerciseNumber, ex);
               }
@@ -1973,10 +2055,17 @@ function doGet(e) {
           if (isMatch && rowSubj) {
             var exercisesArr = [];
             for (var c = 5; c < row.length; c++) {
-              var cellStr = String(row[c] || "").trim();
+              var cellRaw = row[c];
+              var cellStr = String(cellRaw || "").trim();
               if (cellStr) {
-                var pctMatch = cellStr.match(/(\d+)\s*%/);
-                var pctVal = pctMatch ? parseInt(pctMatch[1]) : 0;
+                var normCell = cellStr.replace(/[٠-٩]/g, function(d) { return String("٠١٢٣٤٥٦٧٨٩".indexOf(d)); });
+                var pctMatch = normCell.match(/(\d+(?:\.\d+)?)\s*[%٪]/) || normCell.match(/[%٪]\s*(\d+(?:\.\d+)?)/) || normCell.match(/=\s*(\d+(?:\.\d+)?)/);
+                var pctVal = 0;
+                if (pctMatch) {
+                  pctVal = Math.round(parseFloat(pctMatch[1]));
+                } else if (typeof cellRaw === "number" && cellRaw > 0 && cellRaw <= 1) {
+                  pctVal = Math.round(cellRaw * 100);
+                }
                 exercisesArr.push({
                   exerciseNumber: (c - 5) + 1,
                   formulaString: cellStr,

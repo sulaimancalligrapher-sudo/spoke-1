@@ -1554,6 +1554,78 @@ export const DEFAULT_TRANSLATIONS: TranslationItem[] = [
     th: 'คุณยังไม่ได้ทำแบบฝึกหัดจับคู่คำ กรุณาทำแบบฝึกหัดเพื่อดูผลลัพธ์ที่นี่!',
     en: 'No matching exercises completed yet. Complete an exercise to see your results here!',
   },
+  {
+    id: 'stats_matching_verified_sheet',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '(موثق في ورقة answers 2)',
+    th: '(บันทึกในชีต answers 2 แล้ว)',
+    en: '(Recorded in answers 2 sheet)',
+  },
+  {
+    id: 'stats_matching_syncing',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'جاري مزامنة درجات تمرين التوصيل...',
+    th: 'กำลังซิงค์คะแนนจับคู่คำ...',
+    en: 'Syncing word matching scores...',
+  },
+  {
+    id: 'stats_matching_status_completed',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'مكتمل',
+    th: 'เสร็จสมบูรณ์',
+    en: 'Completed',
+  },
+  {
+    id: 'stats_matching_status_in_progress',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'جاري الإنجاز',
+    th: 'กำลังดำเนินการ',
+    en: 'In Progress',
+  },
+  {
+    id: 'stats_matching_rate_label',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'النسبة:',
+    th: 'คะแนน:',
+    en: 'Score:',
+  },
+  {
+    id: 'stats_matching_cumulative_rate_label',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'النسبة التراكمية:',
+    th: 'คะแนนสะสม:',
+    en: 'Cumulative Score:',
+  },
+  {
+    id: 'stats_matching_correct_word',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'صحيح',
+    th: 'ถูก',
+    en: 'Correct',
+  },
+  {
+    id: 'stats_matching_wrong_word',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'خطأ',
+    th: 'ผิด',
+    en: 'Wrong',
+  },
+  {
+    id: 'stats_matching_attempt_errors_word',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'أخطاء المحاولات',
+    th: 'ผิดพลาดในการลอง',
+    en: 'Attempt Errors',
+  },
 ];
 
 export function getMatchingSubjectTranslationId(subjectName: string): string {
@@ -1596,6 +1668,96 @@ export function getTranslatedMatchingQuestionText(
   if (lang === 'th') return found.th?.trim() ? found.th.trim() : clean;
   if (lang === 'en') return found.en?.trim() ? found.en.trim() : clean;
   return clean;
+}
+
+/**
+ * Translate dynamic answers 2 completionStatus strings, e.g.:
+ * "مكتمل (2 من 3 تمارين) - النسبة: 85%"
+ * "جاري الإنجاز (1 من 3 تمارين) - النسبة التراكمية: 80%"
+ */
+export function translateMatchingCompletionStatus(
+  statusStr: string,
+  lang: SupportedLang,
+  items: TranslationItem[] = []
+): string {
+  const clean = (statusStr || '').trim();
+  if (!clean || lang === 'ar') return clean;
+
+  const lookup = (id: string, fallback: string) => {
+    const found = items.find((i) => i.id === id) || DEFAULT_TRANSLATIONS.find((d) => d.id === id);
+    if (!found) return fallback;
+    const val = lang === 'th' ? found.th : found.en;
+    return val && val.trim() ? val.trim() : fallback;
+  };
+
+  let out = clean
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/٪/g, '%');
+
+  const completedLabel = lookup('stats_matching_status_completed', lang === 'th' ? 'เสร็จสมบูรณ์' : 'Completed');
+  const inProgressLabel = lookup('stats_matching_status_in_progress', lang === 'th' ? 'กำลังดำเนินการ' : 'In Progress');
+  const ofWord = lookup('matching_of_label', lang === 'th' ? 'จาก' : 'of');
+  const exercisesWord = lookup('matching_modal_exercises_word', lang === 'th' ? 'แบบฝึกหัด' : 'exercises');
+  const exerciseWord = lookup('matching_modal_exercise_word', lang === 'th' ? 'ข้อ' : 'exercise');
+  const cumulativeLabel = lookup(
+    'stats_matching_cumulative_rate_label',
+    lang === 'th' ? 'คะแนนสะสม:' : 'Cumulative Score:'
+  );
+  const rateLabel = lookup('stats_matching_rate_label', lang === 'th' ? 'คะแนน:' : 'Score:');
+
+  out = out
+    .replace(/غير مكتمل/g, lang === 'th' ? 'ยังไม่สมบูรณ์' : 'Incomplete')
+    .replace(/جاري الإنجاز/g, inProgressLabel)
+    .replace(/تم إنجاز/g, completedLabel)
+    .replace(/مكتمل/g, completedLabel)
+    .replace(/(\d+)\s*من\s*(\d+)\s*تمارين/g, `$1 ${ofWord} $2 ${exercisesWord}`)
+    .replace(/(\d+)\s*من\s*(\d+)\s*تمرين/g, `$1 ${ofWord} $2 ${exerciseWord}`)
+    .replace(/(\d+)\s*من\s*(\d+)/g, `$1 ${ofWord} $2`)
+    .replace(/النسبة التراكمية\s*:?/g, cumulativeLabel)
+    .replace(/النسبة\s*:?/g, rateLabel);
+
+  return out;
+}
+
+/**
+ * Translate dynamic answers 2 formulaString, e.g.:
+ * "(5 - 4 صحيح - 1 خطأ = 80%)"
+ * "(5 - الصحيح 5 - أخطاء المحاولات 2 = 71%)"
+ */
+export function translateMatchingFormulaString(
+  formulaStr: string,
+  lang: SupportedLang,
+  items: TranslationItem[] = []
+): string {
+  const clean = (formulaStr || '').trim();
+  if (!clean || lang === 'ar') return clean;
+
+  const lookup = (id: string, fallback: string) => {
+    const found = items.find((i) => i.id === id) || DEFAULT_TRANSLATIONS.find((d) => d.id === id);
+    if (!found) return fallback;
+    const val = lang === 'th' ? found.th : found.en;
+    return val && val.trim() ? val.trim() : fallback;
+  };
+
+  const correctWord = lookup('stats_matching_correct_word', lang === 'th' ? 'ถูก' : 'Correct');
+  const wrongWord = lookup('stats_matching_wrong_word', lang === 'th' ? 'ผิด' : 'Wrong');
+  const attemptErrWord = lookup(
+    'stats_matching_attempt_errors_word',
+    lang === 'th' ? 'ผิดพลาดในการลอง' : 'Attempt Errors'
+  );
+
+  let out = clean
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/٪/g, '%');
+
+  out = out
+    .replace(/أخطاء المحاولات/g, attemptErrWord)
+    .replace(/الصحيح/g, correctWord)
+    .replace(/صحيح/g, correctWord)
+    .replace(/الخطأ/g, wrongWord)
+    .replace(/خطأ/g, wrongWord);
+
+  return out;
 }
 
 const STORAGE_KEY_LANG = 'faseeh_active_lang';

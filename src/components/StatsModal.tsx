@@ -6,7 +6,10 @@ import {
   TranslationItem,
   translateEvaluationFeedback,
   getTranslatedMatchingSubject,
+  translateMatchingCompletionStatus,
+  translateMatchingFormulaString,
 } from '../utils/translations';
+import { extractPercentageFromMatchingText } from '../utils/googleSheets';
 import { getAlternativeAudioUrls } from '../utils/mediaUrl';
 
 interface StatsModalProps {
@@ -59,15 +62,27 @@ export const StatsModal: React.FC<StatsModalProps> = ({
       : 0;
   const masteredCount = history.filter((h) => h.score >= 85).length;
 
-  // Matching stats
+  // Matching stats: resolve each exercise percentage robustly from formulaString / raw percentage
   const totalMatchingSubjects = matchingHistory.length;
-  const allMatchingExercises = matchingHistory.flatMap((m) => m.exercises || []);
+  const allMatchingExercises = matchingHistory.flatMap((m) =>
+    (m.exercises || []).map((ex) => ({
+      ...ex,
+      resolvedPercentage: extractPercentageFromMatchingText(ex.formulaString, ex.percentage),
+    }))
+  );
   const totalMatchingExercises = allMatchingExercises.length;
   const avgMatchingScore =
     totalMatchingExercises > 0
       ? Math.round(
-          allMatchingExercises.reduce((acc, ex) => acc + (ex.percentage || 0), 0) /
+          allMatchingExercises.reduce((acc, ex) => acc + ex.resolvedPercentage, 0) /
             totalMatchingExercises
+        )
+      : totalMatchingSubjects > 0
+      ? Math.round(
+          matchingHistory.reduce(
+            (acc, m) => acc + extractPercentageFromMatchingText(m.completionStatus || '', 0),
+            0
+          ) / totalMatchingSubjects
         )
       : 0;
 
@@ -140,7 +155,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                 </span>
                 <span className="text-[10px] text-emerald-600 font-normal">
                   {activeTab === 'matching'
-                    ? '(موثق في السجل الإلكتروني)'
+                    ? tr('stats_matching_verified_sheet', '(موثق في ورقة answers 2)')
                     : tr('stats_verified_in_sheet', '(موثق في ورقة answers 1)')}
                 </span>
               </div>
@@ -312,7 +327,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
             {isSyncingMatching && (
               <div className="mb-4 py-2 px-3 bg-purple-50/90 border border-purple-200 rounded-xl flex items-center justify-center gap-2 text-xs font-bold text-purple-900 animate-pulse">
                 <Loader2 className="w-4 h-4 text-purple-600 animate-spin shrink-0" />
-                <span>جاري مزامنة درجات تمرين التوصيل...</span>
+                <span>{tr('stats_matching_syncing', 'جاري مزامنة درجات تمرين التوصيل...')}</span>
               </div>
             )}
 
@@ -401,7 +416,13 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                             }`}
                           >
                             {isDoneAll && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
-                            <span>{subjItem.completionStatus}</span>
+                            <span>
+                              {translateMatchingCompletionStatus(
+                                subjItem.completionStatus,
+                                currentLang,
+                                translations
+                              )}
+                            </span>
                           </span>
                         )}
                       </div>
@@ -409,36 +430,47 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                       {/* Exercises List */}
                       {subjItem.exercises && subjItem.exercises.length > 0 && (
                         <div className="space-y-1.5 pt-1 border-t border-slate-200/70">
-                          {subjItem.exercises.map((ex) => (
-                            <div
-                              key={`${subjItem.lessonSubject}-ex-${ex.exerciseNumber}`}
-                              className="flex items-center justify-between gap-2 px-2.5 py-2 bg-white rounded-xl border border-slate-200/70"
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-bold text-[11px] shrink-0">
-                                  تمرين {ex.exerciseNumber}
-                                </span>
+                          {subjItem.exercises.map((ex) => {
+                            const resolvedPct = extractPercentageFromMatchingText(
+                              ex.formulaString,
+                              ex.percentage
+                            );
+                            const translatedFormula = translateMatchingFormulaString(
+                              ex.formulaString,
+                              currentLang,
+                              translations
+                            );
+                            return (
+                              <div
+                                key={`${subjItem.lessonSubject}-ex-${ex.exerciseNumber}`}
+                                className="flex items-center justify-between gap-2 px-2.5 py-2 bg-white rounded-xl border border-slate-200/70"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-bold text-[11px] shrink-0">
+                                    {tr('matching_modal_exercise_word', 'تمرين')} {ex.exerciseNumber}
+                                  </span>
+                                  <span
+                                    className="text-[11px] text-slate-700 font-semibold truncate"
+                                    dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
+                                    title={translatedFormula}
+                                  >
+                                    {translatedFormula}
+                                  </span>
+                                </div>
                                 <span
-                                  className="text-[11px] text-slate-700 font-semibold truncate"
-                                  dir="rtl"
-                                  title={ex.formulaString}
+                                  className={`px-2 py-0.5 rounded-lg font-extrabold text-[11px] shrink-0 ${
+                                    resolvedPct >= 85
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : resolvedPct >= 70
+                                      ? 'bg-sky-100 text-sky-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                  }`}
                                 >
-                                  {ex.formulaString}
+                                  {resolvedPct}%
                                 </span>
                               </div>
-                              <span
-                                className={`px-2 py-0.5 rounded-lg font-extrabold text-[11px] shrink-0 ${
-                                  ex.percentage >= 85
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : ex.percentage >= 70
-                                    ? 'bg-sky-100 text-sky-800'
-                                    : 'bg-amber-100 text-amber-800'
-                                }`}
-                              >
-                                {ex.percentage}%
-                              </span>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>

@@ -1256,7 +1256,22 @@ export default function App() {
         currentLang={currentLang}
         onSelectLang={handleSelectLang}
         t={t}
-        onOpenMatchingLessons={() => setIsMatchingLessonsModalOpen(true)}
+        onOpenMatchingLessons={() => {
+          if (currentStudent && sheetsConfig.webhookUrl) {
+            fetchStudentMatchingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+              .then((mh) => {
+                if (mh) setMatchingHistory(mh);
+              })
+              .catch(() => {});
+          } else {
+            fetchStudentMatchingHistory('', '', '')
+              .then((mh) => {
+                if (mh) setMatchingHistory(mh);
+              })
+              .catch(() => {});
+          }
+          setIsMatchingLessonsModalOpen(true);
+        }}
         currentMode={appMode}
         onSelectMode={(mode) => {
           setAppMode(mode);
@@ -1410,7 +1425,22 @@ export default function App() {
 
                     <button
                       type="button"
-                      onClick={() => setIsMatchingLessonsModalOpen(true)}
+                      onClick={() => {
+                        if (currentStudent && sheetsConfig.webhookUrl) {
+                          fetchStudentMatchingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+                            .then((mh) => {
+                              if (mh) setMatchingHistory(mh);
+                            })
+                            .catch(() => {});
+                        } else {
+                          fetchStudentMatchingHistory('', '', '')
+                            .then((mh) => {
+                              if (mh) setMatchingHistory(mh);
+                            })
+                            .catch(() => {});
+                        }
+                        setIsMatchingLessonsModalOpen(true);
+                      }}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
                       title={t('matching_lessons_list_btn', 'قائمة الدروس 📑')}
                     >
@@ -1728,6 +1758,7 @@ export default function App() {
           setIsMatchingLessonsModalOpen(false);
           handleOpenAdmin();
         }}
+        matchingHistory={matchingHistory}
         currentLang={currentLang}
         translations={translations}
         t={t}

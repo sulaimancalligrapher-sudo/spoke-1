@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { MatchingLessonSubject } from '../types';
+import { MatchingHistoryItem, MatchingLessonSubject } from '../types';
 import {
   X,
   Sparkles,
   BookOpen,
-  ArrowRight,
+  ChevronLeft,
   Image as ImageIcon,
   Volume2,
 } from 'lucide-react';
@@ -15,6 +15,7 @@ import {
   getTranslatedMatchingSubject,
   getTranslatedMatchingQuestionText,
 } from '../utils/translations';
+import { extractPercentageFromMatchingText } from '../utils/googleSheets';
 
 interface MatchingLessonsModalProps {
   isOpen: boolean;
@@ -24,6 +25,7 @@ interface MatchingLessonsModalProps {
   activeExerciseIndex?: number;
   onSelectSubjectExercise: (subjectId: string, exerciseIndex: number) => void;
   onOpenAdminMatching?: () => void;
+  matchingHistory?: MatchingHistoryItem[];
   currentLang?: SupportedLang;
   translations?: TranslationItem[];
   t?: (id: string, fallback?: string) => string;
@@ -37,6 +39,7 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
   activeExerciseIndex = 0,
   onSelectSubjectExercise,
   onOpenAdminMatching,
+  matchingHistory = [],
   currentLang = 'ar',
   translations = [],
   t,
@@ -63,6 +66,25 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
     );
   }, [subjects, selectedSubjectId]);
 
+  // Map exerciseNumber -> recorded score percentage for the selected subject
+  const subjectScoresMap = useMemo(() => {
+    const map: Record<number, number> = {};
+    if (!currentSubject || !matchingHistory.length) return map;
+    const cleanSubj = (currentSubject.subjectName || '').trim();
+    const record = matchingHistory.find(
+      (h) => (h.lessonSubject || '').trim() === cleanSubj
+    );
+    if (record && Array.isArray(record.exercises)) {
+      record.exercises.forEach((ex) => {
+        map[ex.exerciseNumber] = extractPercentageFromMatchingText(
+          ex.formulaString,
+          ex.percentage
+        );
+      });
+    }
+    return map;
+  }, [currentSubject, matchingHistory]);
+
   if (!isOpen) return null;
 
   return (
@@ -72,12 +94,12 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
         <button
           onClick={onClose}
           className="absolute left-5 top-5 p-2 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
-          title="إغلاق"
+          title={tr('btn_close', 'إغلاق')}
         >
           <X className="w-5 h-5" />
         </button>
 
-        {/* Modal Header: 1. تحويل نص إلى تمارين وصل */}
+        {/* Modal Header */}
         <div className="flex items-center gap-3.5 pb-4 border-b border-slate-100">
           <div className="w-11 h-11 rounded-2xl bg-linear-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center font-bold shadow-md shadow-purple-600/20 shrink-0">
             <Sparkles className="w-6 h-6 text-purple-100" />
@@ -113,8 +135,8 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
           </select>
         </div>
 
-        {/* Exercises List */}
-        <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+        {/* Exercises List: Full-card clickable items with recorded score badges */}
+        <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
           {currentSubject && currentSubject.exercises.length > 0 ? (
             currentSubject.exercises.map((ex, exIdx) => {
               const isCurrent =
@@ -129,20 +151,27 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
                 translations
               );
 
+              const score = subjectScoresMap[ex.exerciseNumber];
+
               return (
-                <div
+                <button
                   key={ex.id || exIdx}
-                  className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 ${
+                  type="button"
+                  onClick={() => {
+                    onSelectSubjectExercise(currentSubject.id, exIdx);
+                    onClose();
+                  }}
+                  className={`w-full text-right p-4 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
                     isCurrent
-                      ? 'bg-purple-50/80 border-purple-300 ring-2 ring-purple-300/60 shadow-xs'
-                      : 'bg-white border-slate-200/90 hover:border-purple-300 hover:shadow-xs'
+                      ? 'bg-purple-50/90 border-purple-400 ring-2 ring-purple-300/60 shadow-sm'
+                      : 'bg-white hover:bg-slate-50 border-slate-200/90 hover:border-purple-300 shadow-2xs'
                   }`}
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <span className="w-9 h-9 rounded-xl bg-purple-100 text-purple-900 font-extrabold text-xs flex items-center justify-center shrink-0">
                       {ex.exerciseNumber}
                     </span>
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
                         <span className="text-[10px] font-bold text-purple-700">
                           {tr('matching_modal_exercise_word', 'تمرين')} {ex.exerciseNumber}
@@ -171,18 +200,24 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelectSubjectExercise(currentSubject.id, exIdx);
-                      onClose();
-                    }}
-                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0 hover:scale-102 active:scale-98"
-                  >
-                    <span>{tr('matching_modal_start_btn', 'بدء التمرين')}</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {score !== undefined ? (
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                          score >= 85
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : score >= 70
+                            ? 'bg-sky-100 text-sky-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {score}%
+                      </span>
+                    ) : (
+                      <ChevronLeft className="w-4 h-4 text-slate-400" />
+                    )}
+                  </div>
+                </button>
               );
             })
           ) : (
@@ -211,7 +246,7 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
             onClick={onClose}
             className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer mr-auto"
           >
-            إغلاق
+            {tr('btn_close', 'إغلاق')}
           </button>
         </div>
       </div>

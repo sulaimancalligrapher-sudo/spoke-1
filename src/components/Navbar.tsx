@@ -43,7 +43,6 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({
   streak,
-  totalPracticed,
   onOpenStats,
   onOpenSettings,
   onOpenGuide,
@@ -202,20 +201,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
 
-          {/* Stats Button: ONLY DISPLAYED IF STUDENT IS LOGGED IN */}
+          {/* Stats Button: Icon-only (without text or counter) */}
           {currentStudent && (
             <button
               onClick={onOpenStats}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold transition-all cursor-pointer relative shadow-2xs group"
-              title={tr('nav_eval_history', 'سجل التقييمات والإنجاز للطالب')}
+              className="p-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl transition-all cursor-pointer relative shadow-2xs group flex items-center justify-center"
+              title={tr('nav_eval_history', 'سجل التقييمات والإنجاز')}
+              aria-label={tr('nav_eval_history', 'سجل التقييمات والإنجاز')}
             >
               <Award className="w-4 h-4 text-amber-600 shrink-0" />
-              <span className="hidden sm:inline">{tr('nav_eval_history', 'سجل التقييمات والإنجاز')}</span>
-              {totalPracticed > 0 && (
-                <span className="px-1.5 py-0.2 bg-amber-600 text-white text-[10px] font-bold rounded-full">
-                  {totalPracticed}
-                </span>
-              )}
             </button>
           )}
 
