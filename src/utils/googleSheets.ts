@@ -12,14 +12,20 @@ import {
   MatchingPair,
   MatchingHistoryItem,
   MatchingExerciseHistoryEntry,
+  DictationLessonSubject,
+  DictationExercise,
+  DictationHistoryItem,
+  DictationExerciseHistoryEntry,
 } from '../types';
 import { removeTashkeel } from './arabicMatcher';
 import { INITIAL_MATCHING_SUBJECTS } from '../data/matchingCurriculum';
+import { INITIAL_DICTATION_SUBJECTS } from '../data/dictationCurriculum';
+import { formatDictationSettingsString, parseDictationSettingsString } from './dictationUtils';
 
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwQ5mmzuw0cWB1vdQsQidWqa_bj8OPbJVZE7pJRunje4IbNaUeN-UFPJ04eKg_voFNF8g/exec';
+  'https://script.google.com/macros/s/AKfycbzEeTOdI7vI7ISya739KsbXQ_wFvzh6W5c1VGZGng0QTLYsPzB7NqXOyL-BmcZKyVRqmA/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -1547,6 +1553,416 @@ export async function exportAllMatchingCurriculumToSheets(
   };
 }
 
+export const STORAGE_KEY_DICTATION_CURRICULUM = 'faseeh_dictation_curriculum';
+
+/**
+ * Fetch dictation exercises from sheet "كلمات"
+ */
+export async function fetchDictationExercisesFromSheets(
+  webhookUrl?: string
+): Promise<{ success: boolean; subjects: DictationLessonSubject[]; error?: string }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    try {
+      const cached = localStorage.getItem(STORAGE_KEY_DICTATION_CURRICULUM);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return { success: true, subjects: parsed };
+        }
+      }
+    } catch {}
+    return { success: true, subjects: INITIAL_DICTATION_SUBJECTS };
+  }
+
+  try {
+    const cleanUrl = webhookUrl.trim();
+    const targetUrl = cleanUrl.includes('?')
+      ? `${cleanUrl}&action=get_dictation&_t=${Date.now()}`
+      : `${cleanUrl}?action=get_dictation&_t=${Date.now()}`;
+
+    let res: any = null;
+    try {
+      const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+      if (proxyRes.ok) {
+        res = await proxyRes.json().catch(() => null);
+      }
+    } catch (proxyErr) {
+      console.warn('Proxy GET dictation failed, trying direct:', proxyErr);
+    }
+
+    if (!res || !res.subjects) {
+      try {
+        const directRes = await fetch(targetUrl, {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+        });
+        if (directRes.ok) {
+          res = await directRes.json().catch(() => null);
+        }
+      } catch (directErr) {
+        console.warn('Direct GET dictation failed:', directErr);
+      }
+    }
+
+    if (res && res.success && Array.isArray(res.subjects) && res.subjects.length > 0) {
+      const normalizedSubjects: DictationLessonSubject[] = res.subjects.map((s: any, sIdx: number) => ({
+        id: s.id || `dict-subj-${sIdx + 1}`,
+        subjectName: String(s.subjectName || s.subject || `الموضوع ${sIdx + 1}`).trim(),
+        exercises: Array.isArray(s.exercises)
+          ? s.exercises.map((ex: any, eIdx: number) => {
+              const parsedSet = parseDictationSettingsString(ex.settingsString || ex.settings || '');
+              return {
+                id: ex.id || `dict-ex-${eIdx + 1}`,
+                exerciseNumber: ex.exerciseNumber || eIdx + 1,
+                questionText: String(ex.questionText || `رتب الحروف أو الكلمات ${eIdx + 1}`).trim(),
+                scrambledPool: String(ex.scrambledPool || '').trim(),
+                correctAnswer: String(ex.correctAnswer || '').trim(),
+                settingsString: String(ex.settingsString || ex.settings || '').trim(),
+                durationSeconds:
+                  typeof ex.durationSeconds === 'number' ? ex.durationSeconds : parsedSet.durationSeconds,
+                allowRetry: ex.allowRetry !== undefined ? Boolean(ex.allowRetry) : parsedSet.allowRetry,
+              };
+            })
+          : [],
+      }));
+
+      try {
+        localStorage.setItem(STORAGE_KEY_DICTATION_CURRICULUM, JSON.stringify(normalizedSubjects));
+      } catch {}
+      return { success: true, subjects: normalizedSubjects };
+    }
+  } catch (err: any) {
+    console.warn('Failed to fetch dictation exercises from sheets:', err);
+  }
+
+  try {
+    const cached = localStorage.getItem(STORAGE_KEY_DICTATION_CURRICULUM);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return { success: true, subjects: parsed };
+      }
+    }
+  } catch {}
+
+  return { success: true, subjects: INITIAL_DICTATION_SUBJECTS };
+}
+
+/**
+ * Save or update a single dictation exercise in sheet "كلمات"
+ */
+export async function saveDictationExerciseToSheets(
+  webhookUrl: string,
+  payload: {
+    subjectName: string;
+    exerciseNumber: number;
+    questionText: string;
+    scrambledPool: string;
+    correctAnswer: string;
+    durationSeconds?: number;
+    allowRetry?: boolean;
+  }
+): Promise<{ success: boolean; error?: string; message?: string }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, error: 'رابط Google Sheets Webhook غير متوفر' };
+  }
+
+  const settingsString = formatDictationSettingsString(payload);
+  const postPayload = {
+    action: 'save_dictation_exercise',
+    sheetName: 'كلمات',
+    subjectName: payload.subjectName.trim(),
+    subject: payload.subjectName.trim(),
+    exerciseNumber: payload.exerciseNumber,
+    exerciseIndex: payload.exerciseNumber,
+    questionText: payload.questionText.trim(),
+    scrambledPool: payload.scrambledPool.trim(),
+    correctAnswer: payload.correctAnswer.trim(),
+    settingsString,
+    settings: settingsString,
+  };
+
+  const res = await callGoogleSheetsPost(webhookUrl, postPayload);
+  return {
+    success: res.success,
+    error: res.error,
+    message: res.success ? 'تم حفظ التمرين بنجاح في ورقة "كلمات"!' : res.error,
+  };
+}
+
+/**
+ * Bulk export all dictation exercises to sheet "كلمات" (4 columns per exercise)
+ */
+export async function exportAllDictationCurriculumToSheets(
+  webhookUrl: string,
+  subjects: DictationLessonSubject[]
+): Promise<{ success: boolean; message: string; count: number }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'رابط Google Sheets Webhook غير متوفر', count: 0 };
+  }
+
+  const formattedSubjects = subjects.map((subj) => ({
+    subjectName: subj.subjectName,
+    exercises: subj.exercises.map((ex) => ({
+      exerciseNumber: ex.exerciseNumber,
+      questionText: ex.questionText,
+      scrambledPool: ex.scrambledPool,
+      correctAnswer: ex.correctAnswer,
+      settingsString: ex.settingsString || formatDictationSettingsString(ex),
+    })),
+  }));
+
+  const totalExercises = subjects.reduce((sum, s) => sum + s.exercises.length, 0);
+
+  const bulkRes = await callGoogleSheetsPost(webhookUrl, {
+    action: 'export_dictation_curriculum',
+    sheetName: 'كلمات',
+    subjects: formattedSubjects,
+  });
+
+  if (bulkRes.success) {
+    return {
+      success: true,
+      message: `تم تصدير ${subjects.length} مواضيع و ${totalExercises} تمارين إملاء بنجاح إلى ورقة "كلمات"!`,
+      count: totalExercises,
+    };
+  }
+
+  let savedCount = 0;
+  for (const subj of subjects) {
+    for (const ex of subj.exercises) {
+      await saveDictationExerciseToSheets(webhookUrl, {
+        subjectName: subj.subjectName,
+        exerciseNumber: ex.exerciseNumber,
+        questionText: ex.questionText,
+        scrambledPool: ex.scrambledPool,
+        correctAnswer: ex.correctAnswer,
+        durationSeconds: ex.durationSeconds,
+        allowRetry: ex.allowRetry,
+      });
+      savedCount++;
+    }
+  }
+
+  return {
+    success: true,
+    message: `تم تصدير ${subjects.length} مواضيع و ${savedCount} تمارين إملاء إلى ورقة "كلمات"!`,
+    count: savedCount,
+  };
+}
+
+/**
+ * Submit student dictation answer to sheet "answers 3" + local cache
+ */
+export async function submitDictationAnswerToSheet(
+  webhookUrl: string,
+  payload: {
+    studentId: string;
+    studentName: string;
+    subjectName: string;
+    exerciseNumber: number;
+    wrongAttempts: number;
+    percentage: number;
+    totalExercisesInSubject: number;
+    completedCountInSubject: number;
+    overallPercentage: number;
+    summaryString?: string;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  const summaryString =
+    payload.summaryString ||
+    (payload.wrongAttempts > 0
+      ? `(صحيح - أخطاء التحقق ${payload.wrongAttempts} = ${payload.percentage}%)`
+      : `(صحيح من أول محاولة = ${payload.percentage}%)`);
+
+  const completionStatus =
+    payload.completedCountInSubject >= payload.totalExercisesInSubject
+      ? `مكتمل (${payload.completedCountInSubject} من ${payload.totalExercisesInSubject} تمارين) - النسبة: ${payload.overallPercentage}%`
+      : `جاري الإنجاز (${payload.completedCountInSubject} من ${payload.totalExercisesInSubject} تمارين) - النسبة التراكمية: ${payload.overallPercentage}%`;
+
+  const timestampStr = new Date().toLocaleString('ar-SA');
+
+  try {
+    const cleanId = (payload.studentId || '').trim();
+    const cacheKey = cleanId ? `faseeh_dictation_sub_${cleanId}` : 'faseeh_dictation_sub_guest';
+    const raw = localStorage.getItem(cacheKey);
+    const list: DictationHistoryItem[] = raw ? JSON.parse(raw) : [];
+    const safeList = Array.isArray(list) ? list : [];
+    const subjName = payload.subjectName.trim();
+    const existingIdx = safeList.findIndex((item) => item.lessonSubject === subjName);
+    const newEntry: DictationExerciseHistoryEntry = {
+      exerciseNumber: payload.exerciseNumber,
+      formulaString: summaryString,
+      percentage: payload.percentage,
+    };
+
+    if (existingIdx >= 0) {
+      const existing = safeList[existingIdx];
+      const filteredEx = (existing.exercises || []).filter(
+        (ex) => ex.exerciseNumber !== payload.exerciseNumber
+      );
+      filteredEx.push(newEntry);
+      filteredEx.sort((a, b) => a.exerciseNumber - b.exerciseNumber);
+      safeList[existingIdx] = {
+        ...existing,
+        timestamp: timestampStr,
+        completionStatus,
+        exercises: filteredEx,
+      };
+    } else {
+      safeList.unshift({
+        id: `local-ans3-${Date.now()}`,
+        timestamp: timestampStr,
+        studentId: cleanId,
+        studentName: payload.studentName,
+        lessonSubject: subjName,
+        completionStatus,
+        exercises: [newEntry],
+      });
+    }
+    localStorage.setItem(cacheKey, JSON.stringify(safeList));
+  } catch {}
+
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, error: 'رابط Google Sheets Webhook غير متوفر' };
+  }
+
+  const postPayload = {
+    action: 'submit_dictation_answer',
+    sheetName: 'answers 3',
+    studentId: payload.studentId,
+    studentName: payload.studentName,
+    subjectName: payload.subjectName,
+    lessonSubject: payload.subjectName,
+    exerciseNumber: payload.exerciseNumber,
+    exerciseIndex: payload.exerciseNumber,
+    resultFormula: summaryString,
+    summaryString,
+    completionStatus,
+    percentage: payload.percentage,
+    timestamp: timestampStr,
+  };
+
+  const res = await callGoogleSheetsPost(webhookUrl, postPayload);
+  return {
+    success: res.success,
+    error: res.error,
+  };
+}
+
+/**
+ * Fetch student dictation history from sheet "answers 3" and merge with local cache
+ */
+export async function fetchStudentDictationHistory(
+  webhookUrl: string,
+  studentId: string,
+  studentName: string
+): Promise<DictationHistoryItem[]> {
+  const cleanId = (studentId || '').trim();
+  const cleanName = (studentName || '').trim();
+  const mergedMap = new Map<string, DictationHistoryItem>();
+
+  if (webhookUrl && webhookUrl.trim().startsWith('http') && (cleanId || cleanName)) {
+    try {
+      const cleanUrl = webhookUrl.trim();
+      const separator = cleanUrl.includes('?') ? '&' : '?';
+      const targetUrl = `${cleanUrl}${separator}action=get_student_dictation_history&studentId=${encodeURIComponent(
+        cleanId
+      )}&studentName=${encodeURIComponent(cleanName)}&_t=${Date.now()}`;
+
+      let data: any = null;
+      try {
+        const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+        if (proxyRes.ok) data = await proxyRes.json().catch(() => null);
+      } catch {}
+
+      if (!data || !Array.isArray(data.dictationHistory)) {
+        try {
+          const directRes = await fetch(targetUrl, {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+          });
+          if (directRes.ok) data = await directRes.json().catch(() => null);
+        } catch {}
+      }
+
+      if (data && Array.isArray(data.dictationHistory)) {
+        for (const item of data.dictationHistory) {
+          const subj = String(item.lessonSubject || item.subjectName || '').trim();
+          if (!subj) continue;
+          const exercises: DictationExerciseHistoryEntry[] = Array.isArray(item.exercises)
+            ? item.exercises
+                .map((ex: any) => {
+                  const formulaStr = String(ex.formulaString || '').trim();
+                  return {
+                    exerciseNumber: Number(ex.exerciseNumber) || 1,
+                    formulaString: formulaStr,
+                    percentage: extractPercentageFromMatchingText(formulaStr, ex.percentage),
+                  };
+                })
+                .sort(
+                  (a: DictationExerciseHistoryEntry, b: DictationExerciseHistoryEntry) =>
+                    a.exerciseNumber - b.exerciseNumber
+                )
+            : [];
+          mergedMap.set(subj, {
+            id: item.id || `ans3-${subj}`,
+            timestamp: String(item.timestamp || '').trim(),
+            studentId: String(item.studentId || cleanId).trim(),
+            studentName: String(item.studentName || cleanName).trim(),
+            lessonSubject: subj,
+            completionStatus: String(item.completionStatus || '').trim(),
+            exercises,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Error fetching student dictation history from Google Sheets:', e);
+    }
+  }
+
+  try {
+    const cacheKey = cleanId ? `faseeh_dictation_sub_${cleanId}` : 'faseeh_dictation_sub_guest';
+    const rawCache = localStorage.getItem(cacheKey);
+    if (rawCache) {
+      const localItems: DictationHistoryItem[] = JSON.parse(rawCache);
+      if (Array.isArray(localItems)) {
+        for (const localItem of localItems) {
+          const subj = (localItem.lessonSubject || '').trim();
+          if (!subj) continue;
+          const normalizedLocalExercises = (localItem.exercises || []).map((ex) => ({
+            ...ex,
+            percentage: extractPercentageFromMatchingText(ex.formulaString, ex.percentage),
+          }));
+          const existing = mergedMap.get(subj);
+          if (!existing) {
+            mergedMap.set(subj, {
+              ...localItem,
+              exercises: normalizedLocalExercises,
+            });
+          } else {
+            const exMap = new Map<number, DictationExerciseHistoryEntry>();
+            for (const ex of existing.exercises) exMap.set(ex.exerciseNumber, ex);
+            for (const ex of normalizedLocalExercises) {
+              if (!exMap.has(ex.exerciseNumber)) {
+                exMap.set(ex.exerciseNumber, ex);
+              }
+            }
+            existing.exercises = Array.from(exMap.values()).sort(
+              (a, b) => a.exerciseNumber - b.exerciseNumber
+            );
+            if (!existing.completionStatus && localItem.completionStatus) {
+              existing.completionStatus = localItem.completionStatus;
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+
+  return Array.from(mergedMap.values());
+}
+
 /**
  * Complete Google Apps Script Template Code
  * Supports:
@@ -1985,6 +2401,57 @@ function getAnswers2Sheet(ss) {
   return sheet;
 }
 
+// دالة مساعدة لإنشاء أو استرجاع ورقة أسئلة التمرين الثالث "كلمات" (4 أعمدة لكل تمرين)
+function getWordsSheet(ss) {
+  var sheet = ss.getSheetByName("كلمات");
+  if (!sheet) {
+    var all = ss.getSheets();
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].getName().trim() === "كلمات") {
+        sheet = all[i];
+        break;
+      }
+    }
+    if (!sheet) {
+      sheet = ss.insertSheet("كلمات");
+      var headers = ["موضوع الدرس"];
+      for (var ex = 1; ex <= 10; ex++) {
+        headers.push("السؤال " + ex);
+        headers.push("الحروف والكلمات المشتتة " + ex);
+        headers.push("الإجابة الصحيحة " + ex);
+        headers.push("الإعدادات " + ex);
+      }
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.getRange(1, 1, 1, headers.length).setBackground("#0f766e").setFontColor("#ffffff").setFontWeight("bold");
+    }
+  }
+  return sheet;
+}
+
+// دالة مساعدة لإنشاء أو استرجاع ورقة إجابات التمرين الثالث "answers 3"
+function getAnswers3Sheet(ss) {
+  var sheet = ss.getSheetByName("answers 3");
+  if (!sheet) {
+    var all = ss.getSheets();
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].getName().trim().toLowerCase() === "answers 3") {
+        sheet = all[i];
+        break;
+      }
+    }
+    if (!sheet) {
+      sheet = ss.insertSheet("answers 3");
+      var headers = ["وقت الإرسال", "ID المشترك", "اسم المشترك", "موضوع الدرس", "حالة الإنجاز"];
+      for (var ex = 1; ex <= 20; ex++) {
+        headers.push("تمرين " + ex);
+      }
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.getRange(1, 1, 1, headers.length).setBackground("#115e59").setFontColor("#ffffff").setFontWeight("bold");
+    }
+  }
+  return sheet;
+}
+
 // 1. GET: جلب الدروس، أو بيانات ورقة الرئيسية، أو المشتركين، أو سجل إجابات الطالب من answers 1
 function doGet(e) {
   try {
@@ -2110,6 +2577,67 @@ function doGet(e) {
         studentId: qId,
         studentName: qName,
         matchingHistory: matchingList
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (ب-3) إذا كان الطلب جلب سجل درجات تمرين الإملاء لطالب معين من ورقة "answers 3"
+    if (e && e.parameter && e.parameter.action === "get_student_dictation_history") {
+      var a3Sheet = getAnswers3Sheet(ss);
+      var qId = String(e.parameter.studentId || "").trim();
+      var qName = String(e.parameter.studentName || "").trim();
+      var lastR = a3Sheet.getLastRow();
+      var lastC = Math.max(6, a3Sheet.getLastColumn());
+      var dictList = [];
+
+      if (lastR > 1) {
+        var dataRows = a3Sheet.getRange(2, 1, lastR - 1, lastC).getValues();
+        for (var r = 0; r < dataRows.length; r++) {
+          var row = dataRows[r];
+          var rowTime = String(row[0] || "").trim();
+          var rowId = String(row[1] || "").trim();
+          var rowName = String(row[2] || "").trim();
+          var rowSubj = String(row[3] || "").trim();
+          var rowStatus = String(row[4] || "").trim();
+
+          var isMatch = (qId && rowId === qId) || (qName && rowName === qName);
+          if (isMatch && rowSubj) {
+            var exercisesArr = [];
+            for (var c = 5; c < row.length; c++) {
+              var cellRaw = row[c];
+              var cellStr = String(cellRaw || "").trim();
+              if (cellStr) {
+                var normCell = cellStr.replace(/[٠-٩]/g, function(d) { return String("٠١٢٣٤٥٦٧٨٩".indexOf(d)); });
+                var pctMatch = normCell.match(/(\d+(?:\.\d+)?)\s*[%٪]/) || normCell.match(/[%٪]\s*(\d+(?:\.\d+)?)/) || normCell.match(/=\s*(\d+(?:\.\d+)?)/);
+                var pctVal = 0;
+                if (pctMatch) {
+                  pctVal = Math.round(parseFloat(pctMatch[1]));
+                } else if (typeof cellRaw === "number" && cellRaw > 0 && cellRaw <= 1) {
+                  pctVal = Math.round(cellRaw * 100);
+                }
+                exercisesArr.push({
+                  exerciseNumber: (c - 5) + 1,
+                  formulaString: cellStr,
+                  percentage: pctVal
+                });
+              }
+            }
+            dictList.push({
+              id: "ans3-r" + (r + 2),
+              timestamp: rowTime,
+              studentId: rowId || qId,
+              studentName: rowName || qName,
+              lessonSubject: rowSubj,
+              completionStatus: rowStatus,
+              exercises: exercisesArr
+            });
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        studentId: qId,
+        studentName: qName,
+        dictationHistory: dictList
       })).setMimeType(ContentService.MimeType.JSON);
     }
     
@@ -2259,6 +2787,57 @@ function doGet(e) {
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         subjects: subjectsList
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (ج-5) إذا كان الطلب جلب أسئلة التمرين الثالث من ورقة "كلمات" (4 أعمدة لكل تمرين)
+    if (e && e.parameter && e.parameter.action === "get_dictation") {
+      var wSheet = getWordsSheet(ss);
+      var lastR = wSheet.getLastRow();
+      var lastC = Math.max(5, wSheet.getLastColumn());
+      var dictSubjects = [];
+      if (lastR > 1) {
+        var rows = wSheet.getRange(2, 1, lastR - 1, lastC).getValues();
+        for (var r = 0; r < rows.length; r++) {
+          var row = rows[r];
+          var subjName = String(row[0] || "").trim();
+          if (subjName) {
+            var exercises = [];
+            var exNum = 1;
+            for (var c = 1; c < row.length; c += 4) {
+              var qText = String(row[c] || "").trim();
+              var poolStr = String(row[c + 1] || "").trim();
+              var ansStr = String(row[c + 2] || "").trim();
+              var setStr = String(row[c + 3] || "").trim();
+              if (qText || poolStr || ansStr || setStr) {
+                var allowRetry = setStr.indexOf("منع الإعادة") === -1 && setStr.indexOf("لا إعادة") === -1 && setStr.indexOf("no_retry") === -1;
+                var durMatch = setStr.match(/(\\d+)\\s*ثوان/);
+                var durationSeconds = durMatch ? parseInt(durMatch[1]) : 5;
+                exercises.push({
+                  id: "dict-ex-" + (r + 2) + "-" + exNum,
+                  exerciseNumber: exNum,
+                  questionText: qText || ("تمرين إملاء " + exNum),
+                  scrambledPool: poolStr,
+                  correctAnswer: ansStr,
+                  settingsString: setStr,
+                  durationSeconds: durationSeconds,
+                  allowRetry: allowRetry
+                });
+                exNum++;
+              }
+            }
+            dictSubjects.push({
+              id: "dict-subj-" + (r + 1),
+              subjectName: subjName,
+              subject: subjName,
+              exercises: exercises
+            });
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        subjects: dictSubjects
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -2594,6 +3173,147 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         message: "تم تسجيل إجابة تمرين الوصل في ورقة (answers 2) بنجاح"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-و) تصدير كافة مواضيع وتمارين الإملاء دفعة واحدة إلى ورقة "كلمات" (4 أعمدة لكل تمرين)
+    if (data.action === "export_dictation_curriculum") {
+      var wSheet = getWordsSheet(ss);
+      var subjectsArr = data.subjects || [];
+      if (!Array.isArray(subjectsArr)) subjectsArr = [];
+
+      var maxEx = 10;
+      for (var s = 0; s < subjectsArr.length; s++) {
+        if (subjectsArr[s].exercises && subjectsArr[s].exercises.length > maxEx) {
+          maxEx = subjectsArr[s].exercises.length;
+        }
+      }
+
+      var headers = ["موضوع الدرس"];
+      for (var ex = 1; ex <= maxEx; ex++) {
+        headers.push("السؤال " + ex);
+        headers.push("الحروف والكلمات المشتتة " + ex);
+        headers.push("الإجابة الصحيحة " + ex);
+        headers.push("الإعدادات " + ex);
+      }
+
+      wSheet.clearContents();
+      wSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      wSheet.getRange(1, 1, 1, headers.length).setBackground("#0f766e").setFontColor("#ffffff").setFontWeight("bold");
+
+      var dataRows = [];
+      var totalExCount = 0;
+      for (var i = 0; i < subjectsArr.length; i++) {
+        var subj = subjectsArr[i];
+        var row = [String(subj.subjectName || "").trim()];
+        var exercises = subj.exercises || [];
+        for (var e = 0; e < maxEx; e++) {
+          if (e < exercises.length) {
+            var exItem = exercises[e];
+            row.push(String(exItem.questionText || "").trim());
+            row.push(String(exItem.scrambledPool || "").trim());
+            row.push(String(exItem.correctAnswer || "").trim());
+            row.push(String(exItem.settingsString || "").trim());
+            totalExCount++;
+          } else {
+            row.push("", "", "", "");
+          }
+        }
+        dataRows.push(row);
+      }
+
+      if (dataRows.length > 0) {
+        wSheet.getRange(2, 1, dataRows.length, headers.length).setValues(dataRows);
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        message: "تم تصدير " + subjectsArr.length + " مواضيع و " + totalExCount + " تمارين بنجاح إلى ورقة (كلمات)",
+        count: totalExCount
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-و-2) حفظ أو تحديث تمرين إملاء واحد في ورقة "كلمات" (4 أعمدة لكل تمرين)
+    if (data.action === "save_dictation_exercise") {
+      var wSheet = getWordsSheet(ss);
+      var subjName = String(data.subjectName || data.subject || "").trim();
+      var exIdx = parseInt(data.exerciseNumber || data.exerciseIndex || 1);
+      var qText = String(data.questionText || "").trim();
+      var poolStr = String(data.scrambledPool || "").trim();
+      var ansStr = String(data.correctAnswer || "").trim();
+      var setStr = String(data.settingsString || data.settings || "").trim();
+
+      var lastR = wSheet.getLastRow();
+      var targetRow = -1;
+      if (lastR > 1) {
+        var sVals = wSheet.getRange(2, 1, lastR - 1, 1).getValues();
+        for (var i = 0; i < sVals.length; i++) {
+          if (String(sVals[i][0] || "").trim() === subjName) {
+            targetRow = i + 2;
+            break;
+          }
+        }
+      }
+      if (targetRow === -1) {
+        targetRow = lastR + 1;
+        wSheet.getRange(targetRow, 1).setValue(subjName);
+      }
+
+      var startCol = 2 + (exIdx - 1) * 4;
+      wSheet.getRange(targetRow, startCol, 1, 4).setValues([[qText, poolStr, ansStr, setStr]]);
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        message: "تم حفظ التمرين في ورقة (كلمات) بنجاح"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-ز) تسجيل نتائج إجابة تمرين الإملاء في ورقة "answers 3"
+    if (data.action === "submit_dictation_answer") {
+      var a3Sheet = getAnswers3Sheet(ss);
+      var timestamp = data.timestamp || new Date().toLocaleString("ar-SA");
+      var sId = String(data.studentId || "").trim();
+      var sName = String(data.studentName || "").trim();
+      var subj = String(data.lessonSubject || data.subjectName || data.subject || "").trim();
+      var exIdx = parseInt(data.exerciseIndex || data.exerciseNumber || 1);
+      var formula = String(data.resultFormula || data.summaryString || "").trim();
+      var compStatus = String(data.completionStatus || "").trim();
+
+      var lastR = a3Sheet.getLastRow();
+      var foundRow = -1;
+      if (lastR > 1) {
+        var rows = a3Sheet.getRange(2, 2, lastR - 1, 3).getValues();
+        for (var r = 0; r < rows.length; r++) {
+          var rId = String(rows[r][0] || "").trim();
+          var rName = String(rows[r][1] || "").trim();
+          var rSubj = String(rows[r][2] || "").trim();
+          if ((sId && rId === sId && rSubj === subj) || (rName === sName && rSubj === subj)) {
+            foundRow = r + 2;
+            break;
+          }
+        }
+      }
+
+      var exCol = 6 + (exIdx - 1);
+      if (foundRow > 0) {
+        a3Sheet.getRange(foundRow, 1).setValue(timestamp);
+        if (sId) a3Sheet.getRange(foundRow, 2).setValue(sId);
+        if (sName) a3Sheet.getRange(foundRow, 3).setValue(sName);
+        if (subj) a3Sheet.getRange(foundRow, 4).setValue(subj);
+        if (compStatus) a3Sheet.getRange(foundRow, 5).setValue(compStatus);
+        a3Sheet.getRange(foundRow, exCol).setValue(formula);
+      } else {
+        var newRow = [timestamp, sId, sName, subj, compStatus];
+        while (newRow.length < 5 + exIdx) {
+          newRow.push("");
+        }
+        newRow[5 + (exIdx - 1)] = formula;
+        a3Sheet.appendRow(newRow);
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        message: "تم تسجيل إجابة تمرين الإملاء في ورقة (answers 3) بنجاح"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 

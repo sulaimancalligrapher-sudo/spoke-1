@@ -70,7 +70,8 @@ import { TranslationItem } from '../utils/translations';
 import { TranslationManager } from './TranslationManager';
 import { MatchingTranslationManager } from './MatchingTranslationManager';
 import { MatchingAdminManager } from './MatchingAdminManager';
-import { MatchingLessonSubject } from '../types';
+import { DictationAdminManager } from './DictationAdminManager';
+import { MatchingLessonSubject, DictationLessonSubject } from '../types';
 import {
   getDailyQuotaStatus,
   resetDailyQuota,
@@ -126,6 +127,8 @@ interface AdminPanelProps {
   onRefreshFromSheets?: () => Promise<void>;
   matchingSubjects?: MatchingLessonSubject[];
   onUpdateMatchingSubjects?: (subjects: MatchingLessonSubject[]) => void;
+  dictationSubjects?: DictationLessonSubject[];
+  onUpdateDictationSubjects?: (subjects: DictationLessonSubject[]) => void;
 }
 
 const TASHKEEL_BUTTONS = [
@@ -171,8 +174,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onRefreshFromSheets,
   matchingSubjects = [],
   onUpdateMatchingSubjects,
+  dictationSubjects = [],
+  onUpdateDictationSubjects,
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'submissions' | 'sheets' | 'translations' | 'translations2'>('lessons');
+  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'submissions' | 'sheets' | 'translations' | 'translations2'>('lessons');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1084,6 +1089,18 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           >
             <Sparkles className="w-4 h-4 text-purple-400" />
             <span>تمرين الوصل (وصل)</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('dictation')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'dictation'
+                ? 'bg-teal-600 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-teal-400" />
+            <span>تمرين الإملاء (كلمات)</span>
           </button>
 
           <button
@@ -2567,6 +2584,16 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           <MatchingAdminManager
             subjects={matchingSubjects || []}
             onUpdateSubjects={onUpdateMatchingSubjects || (() => {})}
+            webhookUrl={sheetsConfig.webhookUrl}
+            driveFolderId={sheetsConfig.teacherDriveFolderId || sheetsConfig.driveFolderId}
+          />
+        )}
+
+        {/* TAB 6: DICTATION EXERCISES MANAGEMENT (كلمات) */}
+        {activeTab === 'dictation' && (
+          <DictationAdminManager
+            subjects={dictationSubjects || []}
+            onUpdateSubjects={onUpdateDictationSubjects || (() => {})}
             webhookUrl={sheetsConfig.webhookUrl}
             driveFolderId={sheetsConfig.teacherDriveFolderId || sheetsConfig.driveFolderId}
           />

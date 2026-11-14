@@ -37,8 +37,9 @@ interface NavbarProps {
   onSelectLang?: (lang: SupportedLang) => void;
   t?: (id: string, fallback?: string) => string;
   onOpenMatchingLessons?: () => void;
-  currentMode?: 'pronunciation' | 'matching';
-  onSelectMode?: (mode: 'pronunciation' | 'matching') => void;
+  onOpenDictationLessons?: () => void;
+  currentMode?: 'pronunciation' | 'matching' | 'dictation';
+  onSelectMode?: (mode: 'pronunciation' | 'matching' | 'dictation') => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -63,6 +64,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectLang,
   t,
   onOpenMatchingLessons,
+  onOpenDictationLessons,
   currentMode = 'pronunciation',
   onSelectMode,
 }) => {
@@ -171,6 +173,17 @@ export const Navbar: React.FC<NavbarProps> = ({
               title={tr('nav_matching_lessons', 'دروس الوصل 🔗')}
             >
               <span>{tr('nav_matching_lessons', 'دروس الوصل 🔗')}</span>
+            </button>
+          )}
+
+          {/* Dedicated Dictation Lessons Button (تمرين الإملاء - ورقة كلمات) */}
+          {onOpenDictationLessons && (
+            <button
+              onClick={onOpenDictationLessons}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-3.5 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-teal-600/20 cursor-pointer"
+              title={tr('nav_dictation_lessons', 'دروس الإملاء 📝')}
+            >
+              <span>{tr('nav_dictation_lessons', 'دروس الإملاء 📝')}</span>
             </button>
           )}
 

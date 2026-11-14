@@ -2,7 +2,7 @@ export type SupportedLang = 'ar' | 'th' | 'en';
 
 export interface TranslationItem {
   id: string; // unique key e.g. 'home_title'
-  category: 'home' | 'lessons' | 'practice' | 'matching'; // 1- نافذة التسجيل والرئيسية | 2- صفحة الدروس | 3- تسجيل الصوت والنتائج | 4- تمرين وصل الكلمات (2)
+  category: 'home' | 'lessons' | 'practice' | 'matching' | 'dictation'; // 1- نافذة التسجيل والرئيسية | 2- صفحة الدروس | 3- تسجيل الصوت والنتائج | 4- تمرين وصل الكلمات (2) | 5- تمرين الإملاء (3)
   categoryLabel: string;
   ar: string; // النص العربي الأصلي
   th: string; // الترجمة التايلاندية
@@ -1730,6 +1730,129 @@ export const DEFAULT_TRANSLATIONS: TranslationItem[] = [
     th: '🔒 บันทึกคะแนนแล้ว ครูผู้สอนไม่อนุญาตให้ทำซ้ำ',
     en: '🔒 Score recorded; retrying is disabled by the teacher.',
   },
+  // ==========================================
+  // الموضع الخامس: تمرين الإملاء وترتيب الكلمات (dictation - كلمات)
+  // ==========================================
+  {
+    id: 'nav_dictation_lessons',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'دروس الإملاء 📝',
+    th: 'บทเรียนเขียนตามคำบอก 📝',
+    en: 'Dictation Lessons 📝',
+  },
+  {
+    id: 'dictation_modal_title',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تمارين الإملاء وتكوين الكلمات 📝',
+    th: 'แบบฝึกหัดเรียงอักษรและคำ 📝',
+    en: 'Dictation & Word Building 📝',
+  },
+  {
+    id: 'dictation_modal_subtitle',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'اختر موضوع الدرس ثم ابدأ بترتيب الحروف أو إكمال الكلمات',
+    th: 'เลือกหัวข้อบทเรียน แล้วเริ่มเรียงอักษรหรือเติมคำให้สมบูรณ์',
+    en: 'Choose a lesson subject to order letters/words or fill blanks',
+  },
+  {
+    id: 'dictation_question_badge',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تمرين الإملاء والتركيب',
+    th: 'แบบฝึกหัดเรียงคำและสะกดคำ',
+    en: 'Dictation & Spelling',
+  },
+  {
+    id: 'dictation_pool_title',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'الحروف والكلمات المشتتة (انقر أو انطق للاختيار):',
+    th: 'ตัวอักษรและคำที่สลับไว้ (แตะหรือออกเสียงเพื่อเลือก):',
+    en: 'Scrambled Letters / Words (Click or speak to select):',
+  },
+  {
+    id: 'dictation_box_title',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'مربع التكوين والترتيب:',
+    th: 'ช่องเรียงคำและประกอบคำตอบ:',
+    en: 'Answer Composition Box:',
+  },
+  {
+    id: 'dictation_box_empty_hint',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'اضغط على البطاقات أعلاه لترتيب إجابتك هنا...',
+    th: 'แตะการ์ดด้านบนเพื่อเรียงคำตอบของคุณที่นี่...',
+    en: 'Tap the tiles above to assemble your answer here...',
+  },
+  {
+    id: 'dictation_check_btn',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تحقق',
+    th: 'ตรวจสอบ',
+    en: 'Check',
+  },
+  {
+    id: 'dictation_undo_btn',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تراجع',
+    th: 'ย้อนกลับ',
+    en: 'Undo',
+  },
+  {
+    id: 'dictation_clear_btn',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'مسح',
+    th: 'ล้างทั้งหมด',
+    en: 'Clear',
+  },
+  {
+    id: 'stats_tab_dictation',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'سجل الإملاء',
+    th: 'ประวัติสะกดคำ',
+    en: 'Dictation Log',
+  },
+  {
+    id: 'stats_dictation_verified_sheet',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '(موثق في ورقة answers 3)',
+    th: '(บันทึกในชีต answers 3 แล้ว)',
+    en: '(Recorded in answers 3 sheet)',
+  },
+  {
+    id: 'stats_dictation_syncing',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'جاري مزامنة درجات تمرين الإملاء...',
+    th: 'กำลังซิงค์คะแนนแบบฝึกหัดสะกดคำ...',
+    en: 'Syncing dictation scores...',
+  },
+  {
+    id: 'stats_dictation_history_title',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'نتائج تمارين الإملاء وترتيب الكلمات حسب الموضوع:',
+    th: 'ผลแบบฝึกหัดสะกดคำและเรียงคำตามหัวข้อ:',
+    en: 'Dictation Exercise Results by Subject:',
+  },
+  {
+    id: 'stats_dictation_empty',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'لم تكمل أي تمرين إملاء بعد. أتمم تمريناً في «دروس الإملاء» لتظهر نتيجتك هنا!',
+    th: 'คุณยังไม่ได้ทำแบบฝึกหัดสะกดคำ กรุณาทำแบบฝึกหัดเพื่อดูผลลัพธ์ที่นี่!',
+    en: 'No dictation exercises completed yet. Complete an exercise in Dictation Lessons to see results here!',
+  },
 ];
 
 export function getMatchingSubjectTranslationId(subjectName: string): string {
@@ -1855,6 +1978,8 @@ export function translateMatchingFormulaString(
     .replace(/٪/g, '%');
 
   out = out
+    .replace(/صحيح من أول محاولة/g, lang === 'th' ? 'ถูกในครั้งแรก' : 'Correct on first try')
+    .replace(/أخطاء التحقق/g, lang === 'th' ? 'ตรวจสอบผิด' : 'Check errors')
     .replace(/أخطاء المحاولات/g, attemptErrWord)
     .replace(/الصحيح/g, correctWord)
     .replace(/صحيح/g, correctWord)

@@ -11,6 +11,8 @@ import {
   HomeBrandConfig,
   MatchingLessonSubject,
   MatchingHistoryItem,
+  DictationLessonSubject,
+  DictationHistoryItem,
 } from './types';
 import {
   ALL_CURRICULUM,
@@ -18,16 +20,19 @@ import {
   INITIAL_LESSON_SUBJECTS,
 } from './data/arabicCurriculum';
 import { INITIAL_MATCHING_SUBJECTS } from './data/matchingCurriculum';
+import { INITIAL_DICTATION_SUBJECTS } from './data/dictationCurriculum';
 import { Navbar } from './components/Navbar';
 import { PracticeCard } from './components/PracticeCard';
 import { EvaluationCard } from './components/EvaluationCard';
 import { WordMatchingArena } from './components/WordMatchingArena';
+import { DictationArena } from './components/DictationArena';
 import { StatsModal } from './components/StatsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { GuideModal } from './components/GuideModal';
 import { AdminPanel } from './components/AdminPanel';
 import { LessonsModal } from './components/LessonsModal';
 import { MatchingLessonsModal } from './components/MatchingLessonsModal';
+import { DictationLessonsModal } from './components/DictationLessonsModal';
 import { StudentLoginModal } from './components/StudentLoginModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { SocialIcon, getSocialBrandClasses } from './components/SocialIcon';
@@ -36,10 +41,13 @@ import {
   fetchHomeConfigFromSheets,
   fetchStudentSubmissionsFromSheet,
   fetchStudentMatchingHistory,
+  fetchStudentDictationHistory,
   fetchTranslationsFromSheets,
   saveTranslationsToSheets,
   fetchMatchingExercisesFromSheets,
+  fetchDictationExercisesFromSheets,
   STORAGE_KEY_MATCHING_CURRICULUM,
+  STORAGE_KEY_DICTATION_CURRICULUM,
   DEFAULT_WEBHOOK_URL,
   DEFAULT_DRIVE_AUDIO_FOLDER_ID,
   STUDENT_AUDIO_DRIVE_FOLDER_ID,
@@ -120,8 +128,8 @@ export default function App() {
   // Main UI Mode: 'landing' (الرئيسية التعريفية) or 'practice' (صفحة التدريب والتسجيل)
   const [currentView, setCurrentView] = useState<'landing' | 'practice'>('landing');
 
-  // Exercise Mode: 'pronunciation' (تمرين نطق الكلمات) or 'matching' (تمرين وصل الكلمات)
-  const [appMode, setAppMode] = useState<'pronunciation' | 'matching'>('pronunciation');
+  // Exercise Mode: 'pronunciation', 'matching', or 'dictation'
+  const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation'>('pronunciation');
 
   // Matching Exercises Curriculum (Sheet: "وصل")
   const [matchingSubjects, setMatchingSubjects] = useState<MatchingLessonSubject[]>(() => {
@@ -135,10 +143,25 @@ export default function App() {
     return INITIAL_MATCHING_SUBJECTS;
   });
 
+  // Dictation Exercises Curriculum (Sheet: "كلمات")
+  const [dictationSubjects, setDictationSubjects] = useState<DictationLessonSubject[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_DICTATION_CURRICULUM);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return INITIAL_DICTATION_SUBJECTS;
+  });
+
   const [isLessonsModalOpen, setIsLessonsModalOpen] = useState(false);
   const [isMatchingLessonsModalOpen, setIsMatchingLessonsModalOpen] = useState(false);
+  const [isDictationLessonsModalOpen, setIsDictationLessonsModalOpen] = useState(false);
   const [activeMatchingSubjectId, setActiveMatchingSubjectId] = useState<string>('');
   const [activeMatchingExerciseIdx, setActiveMatchingExerciseIdx] = useState<number>(0);
+  const [activeDictationSubjectId, setActiveDictationSubjectId] = useState<string>('');
+  const [activeDictationExerciseIdx, setActiveDictationExerciseIdx] = useState<number>(0);
 
   // Modals & Registration
   const [isStatsOpen, setIsStatsOpen] = useState(false);
@@ -167,6 +190,10 @@ export default function App() {
   const [matchingHistory, setMatchingHistory] = useState<MatchingHistoryItem[]>([]);
   const [isSyncingMatching, setIsSyncingMatching] = useState(false);
 
+  // Student Dictation Exercise History (from sheet "answers 3")
+  const [dictationHistory, setDictationHistory] = useState<DictationHistoryItem[]>([]);
+  const [isSyncingDictation, setIsSyncingDictation] = useState(false);
+
   // Scores map: wordId -> score
   const [scoresMap, setScoresMap] = useState<Record<string, number>>({});
   // Practice History
@@ -176,6 +203,7 @@ export default function App() {
   const [isCurrentAnswerSubmitted, setIsCurrentAnswerSubmitted] = useState(false);
   const [pronunciationRetryNonce, setPronunciationRetryNonce] = useState(0);
   const [matchingRetryNonce, setMatchingRetryNonce] = useState(0);
+  const [dictationRetryNonce, setDictationRetryNonce] = useState(0);
 
   // Google Sheets Config (Defaulted to verified Webhook URL for seamless cross-device sync)
   const [sheetsConfig, setSheetsConfig] = useState<GoogleSheetsConfig>({
@@ -279,11 +307,12 @@ export default function App() {
       return;
     }
 
-    const [currRes, homeCfg, transRes, matchRes] = await Promise.all([
+    const [currRes, homeCfg, transRes, matchRes, dictRes] = await Promise.all([
       fetchCurriculumFromSheets(url),
       fetchHomeConfigFromSheets(url),
       fetchTranslationsFromSheets(url),
       fetchMatchingExercisesFromSheets(url),
+      fetchDictationExercisesFromSheets(url),
     ]);
 
     // 1. Update curriculum from sheet "الدروس"
@@ -335,6 +364,14 @@ export default function App() {
       setMatchingSubjects(matchRes.subjects);
       try {
         localStorage.setItem(STORAGE_KEY_MATCHING_CURRICULUM, JSON.stringify(matchRes.subjects));
+      } catch {}
+    }
+
+    // 5. Update dictation curriculum from sheet "كلمات"
+    if (dictRes && dictRes.success && dictRes.subjects && dictRes.subjects.length > 0) {
+      setDictationSubjects(dictRes.subjects);
+      try {
+        localStorage.setItem(STORAGE_KEY_DICTATION_CURRICULUM, JSON.stringify(dictRes.subjects));
       } catch {}
     }
   };
@@ -675,6 +712,20 @@ export default function App() {
           .catch((err) => {
             console.warn('Auto-fetch matching notice:', err);
           });
+
+        // Auto-fetch dictation exercises from sheet "كلمات"
+        fetchDictationExercisesFromSheets(activeConfig.webhookUrl)
+          .then((dRes) => {
+            if (dRes && dRes.success && dRes.subjects && dRes.subjects.length > 0) {
+              setDictationSubjects(dRes.subjects);
+              try {
+                localStorage.setItem(STORAGE_KEY_DICTATION_CURRICULUM, JSON.stringify(dRes.subjects));
+              } catch {}
+            }
+          })
+          .catch((err) => {
+            console.warn('Auto-fetch dictation notice:', err);
+          });
       }
 
       const savedSubmissions = localStorage.getItem(STORAGE_KEY_SUBMISSIONS);
@@ -699,12 +750,22 @@ export default function App() {
                 if (mh && mh.length > 0) setMatchingHistory(mh);
               })
               .catch(() => {});
+            fetchStudentDictationHistory(activeConfig.webhookUrl, parsed.id, parsed.name)
+              .then((dh) => {
+                if (dh && dh.length > 0) setDictationHistory(dh);
+              })
+              .catch(() => {});
           }
         } catch (e) {}
       } else {
         fetchStudentMatchingHistory('', '', '')
           .then((mh) => {
             if (mh && mh.length > 0) setMatchingHistory(mh);
+          })
+          .catch(() => {});
+        fetchStudentDictationHistory('', '', '')
+          .then((dh) => {
+            if (dh && dh.length > 0) setDictationHistory(dh);
           })
           .catch(() => {});
       }
@@ -764,6 +825,14 @@ export default function App() {
         })
         .catch(() => {})
         .finally(() => setIsSyncingMatching(false));
+
+      setIsSyncingDictation(true);
+      fetchStudentDictationHistory(sheetsConfig.webhookUrl, student.id, student.name)
+        .then((dh) => {
+          if (dh) setDictationHistory(dh);
+        })
+        .catch(() => {})
+        .finally(() => setIsSyncingDictation(false));
     }
   };
 
@@ -771,6 +840,7 @@ export default function App() {
     setCurrentStudent(null);
     setStudentHistory([]);
     setMatchingHistory([]);
+    setDictationHistory([]);
     try {
       localStorage.removeItem(STORAGE_KEY_STUDENT);
     } catch (e) {}
@@ -1183,6 +1253,13 @@ export default function App() {
           onRefreshFromSheets={handleRefreshAllFromSheets}
           matchingSubjects={matchingSubjects}
           onUpdateMatchingSubjects={setMatchingSubjects}
+          dictationSubjects={dictationSubjects}
+          onUpdateDictationSubjects={(next) => {
+            setDictationSubjects(next);
+            try {
+              localStorage.setItem(STORAGE_KEY_DICTATION_CURRICULUM, JSON.stringify(next));
+            } catch {}
+          }}
         />
 
         <SettingsModal
@@ -1236,10 +1313,23 @@ export default function App() {
               })
               .catch(() => {})
               .finally(() => setIsSyncingMatching(false));
+
+            setIsSyncingDictation(true);
+            fetchStudentDictationHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+              .then((dh) => {
+                if (dh) setDictationHistory(dh);
+              })
+              .catch(() => {})
+              .finally(() => setIsSyncingDictation(false));
           } else {
             fetchStudentMatchingHistory('', '', '')
               .then((mh) => {
                 if (mh) setMatchingHistory(mh);
+              })
+              .catch(() => {});
+            fetchStudentDictationHistory('', '', '')
+              .then((dh) => {
+                if (dh) setDictationHistory(dh);
               })
               .catch(() => {});
           }
@@ -1276,6 +1366,22 @@ export default function App() {
               .catch(() => {});
           }
           setIsMatchingLessonsModalOpen(true);
+        }}
+        onOpenDictationLessons={() => {
+          if (currentStudent && sheetsConfig.webhookUrl) {
+            fetchStudentDictationHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+              .then((dh) => {
+                if (dh) setDictationHistory(dh);
+              })
+              .catch(() => {});
+          } else {
+            fetchStudentDictationHistory('', '', '')
+              .then((dh) => {
+                if (dh) setDictationHistory(dh);
+              })
+              .catch(() => {});
+          }
+          setIsDictationLessonsModalOpen(true);
         }}
         currentMode={appMode}
         onSelectMode={(mode) => {
@@ -1578,6 +1684,193 @@ export default function App() {
               }}
             />
           </div>
+        ) : appMode === 'dictation' ? (
+          /* ========================================================
+             4. DICTATION & WORD BUILDING ARENA (تمرين الإملاء - كلمات)
+             ======================================================== */
+          <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+            {(() => {
+              const resolvedSubject =
+                dictationSubjects.find((s) => s.id === activeDictationSubjectId) ||
+                dictationSubjects[0] ||
+                null;
+              const resolvedSubjectId = resolvedSubject?.id || '';
+              const totalExercises = resolvedSubject?.exercises.length || 0;
+              const safeExIdx =
+                totalExercises > 0
+                  ? Math.min(Math.max(0, activeDictationExerciseIdx), totalExercises - 1)
+                  : 0;
+              const activeExNumber =
+                resolvedSubject?.exercises[safeExIdx]?.exerciseNumber || safeExIdx + 1;
+
+              return (
+                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => setCurrentView('landing')}
+                      className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer shadow-2xs"
+                      title={currentLang === 'ar' ? 'الصفحة الرئيسية' : currentLang === 'th' ? 'หน้าหลัก' : 'Home'}
+                    >
+                      <Home className="w-4 h-4 text-slate-700" />
+                    </button>
+
+                    <button
+                      onClick={() => setAppMode('pronunciation')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                      title={t('matching_back_pronunciation', 'العودة لتمرين النطق')}
+                    >
+                      <span>🎙️</span>
+                      <span>{t('matching_back_pronunciation', 'العودة لتمرين النطق')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (currentStudent && sheetsConfig.webhookUrl) {
+                          fetchStudentDictationHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+                            .then((dh) => {
+                              if (dh) setDictationHistory(dh);
+                            })
+                            .catch(() => {});
+                        } else {
+                          fetchStudentDictationHistory('', '', '')
+                            .then((dh) => {
+                              if (dh) setDictationHistory(dh);
+                            })
+                            .catch(() => {});
+                        }
+                        setIsDictationLessonsModalOpen(true);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                      title={t('dictation_lessons_list_btn', 'قائمة الدروس 📝')}
+                    >
+                      <span>{t('dictation_lessons_list_btn', 'قائمة الدروس 📝')}</span>
+                    </button>
+                  </div>
+
+                  {resolvedSubject && (
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs">
+                      <div className="px-2.5 py-1 rounded-xl bg-teal-50 text-teal-900 font-bold border border-teal-200/80 flex items-center gap-1.5">
+                        <span className="text-teal-700 font-normal">
+                          {t('matching_subject_label', 'الموضوع:')}
+                        </span>
+                        <select
+                          value={resolvedSubjectId}
+                          onChange={(e) => {
+                            setActiveDictationSubjectId(e.target.value);
+                            setActiveDictationExerciseIdx(0);
+                          }}
+                          className="bg-transparent font-bold text-teal-950 focus:outline-hidden cursor-pointer max-w-[170px] truncate"
+                        >
+                          {dictationSubjects.map((subj) => (
+                            <option key={subj.id} value={subj.id}>
+                              {getTranslatedMatchingSubject(subj.subjectName, currentLang, translations)} ({subj.exercises.length})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-xl px-1.5 py-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (safeExIdx > 0) {
+                              setActiveDictationSubjectId(resolvedSubjectId);
+                              setActiveDictationExerciseIdx(safeExIdx - 1);
+                            }
+                          }}
+                          disabled={safeExIdx === 0}
+                          className="p-0.5 rounded-lg hover:bg-white disabled:opacity-35 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
+                          title={currentLang === 'ar' ? 'التمرين السابق' : 'Previous'}
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+
+                        <span className="px-1.5 text-slate-800 font-bold whitespace-nowrap">
+                          {t('matching_exercise_label', 'التمرين')} {activeExNumber} {t('matching_of_label', 'من')} {totalExercises}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (safeExIdx < totalExercises - 1) {
+                              setActiveDictationSubjectId(resolvedSubjectId);
+                              setActiveDictationExerciseIdx(safeExIdx + 1);
+                            }
+                          }}
+                          disabled={safeExIdx >= totalExercises - 1}
+                          className="p-0.5 rounded-lg hover:bg-white disabled:opacity-35 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
+                          title={currentLang === 'ar' ? 'التمرين التالي' : 'Next'}
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <DictationArena
+              subjects={dictationSubjects}
+              currentStudent={currentStudent}
+              webhookUrl={sheetsConfig.webhookUrl}
+              currentLang={currentLang}
+              translations={translations}
+              t={t}
+              activeSubjectId={activeDictationSubjectId || dictationSubjects[0]?.id}
+              activeExerciseIndex={activeDictationExerciseIdx}
+              onSelectSubjectExercise={(sId, exIdx) => {
+                setActiveDictationSubjectId(sId);
+                setActiveDictationExerciseIdx(exIdx);
+              }}
+              onBackToPronunciation={() => setAppMode('pronunciation')}
+              onRequestLogin={() => setIsLoginModalOpen(true)}
+              dictationHistory={dictationHistory}
+              retryNonce={dictationRetryNonce}
+              onDictationSubmitted={(submitted) => {
+                if (!submitted) return;
+                const ts = new Date().toLocaleString('ar-SA');
+                setDictationHistory((prev) => {
+                  const cleanSubj = submitted.subjectName.trim();
+                  const existingIdx = prev.findIndex((item) => (item.lessonSubject || '').trim() === cleanSubj);
+                  const newEntry = {
+                    exerciseNumber: submitted.exerciseNumber,
+                    formulaString: submitted.formulaString,
+                    percentage: submitted.percentage,
+                  };
+                  if (existingIdx >= 0) {
+                    const next = [...prev];
+                    const existing = next[existingIdx];
+                    const filteredEx = (existing.exercises || []).filter(
+                      (e) => e.exerciseNumber !== submitted.exerciseNumber
+                    );
+                    filteredEx.push(newEntry);
+                    filteredEx.sort((a, b) => a.exerciseNumber - b.exerciseNumber);
+                    next[existingIdx] = {
+                      ...existing,
+                      timestamp: ts,
+                      completionStatus: submitted.completionStatus,
+                      exercises: filteredEx,
+                    };
+                    return next;
+                  }
+                  return [
+                    {
+                      id: `local-ans3-${Date.now()}`,
+                      timestamp: ts,
+                      studentId: currentStudent?.id || '',
+                      studentName: currentStudent?.name || '',
+                      lessonSubject: cleanSubj,
+                      completionStatus: submitted.completionStatus,
+                      exercises: [newEntry],
+                    },
+                    ...prev,
+                  ];
+                });
+              }}
+            />
+          </div>
         ) : (
           /* ========================================================
              2. PRACTICE & RECORDING ARENA (صفحة الدرس والتسجيل)
@@ -1786,11 +2079,19 @@ export default function App() {
         onClose={() => setIsStatsOpen(false)}
         history={currentStudent ? studentHistory : history}
         matchingHistory={matchingHistory}
+        dictationHistory={dictationHistory}
         onClearHistory={handleClearHistory}
         currentStudent={currentStudent}
         isSyncingFromSheets={isSyncingAnswers1}
         isSyncingMatching={isSyncingMatching}
-        defaultTab={appMode === 'matching' ? 'matching' : 'pronunciation'}
+        isSyncingDictation={isSyncingDictation}
+        defaultTab={
+          appMode === 'dictation'
+            ? 'dictation'
+            : appMode === 'matching'
+            ? 'matching'
+            : 'pronunciation'
+        }
         currentLang={currentLang}
         translations={translations}
         t={t}
@@ -1849,6 +2150,31 @@ export default function App() {
         matchingHistory={matchingHistory}
         currentLang={currentLang}
         translations={translations}
+        t={t}
+      />
+
+      {/* Dictation Lessons Selector Modal (ورقة كلمات) */}
+      <DictationLessonsModal
+        isOpen={isDictationLessonsModalOpen}
+        onClose={() => setIsDictationLessonsModalOpen(false)}
+        subjects={dictationSubjects}
+        activeSubjectId={activeDictationSubjectId || dictationSubjects[0]?.id}
+        activeExerciseIndex={activeDictationExerciseIdx}
+        onSelectSubjectExercise={(subjId, exIdx, isRetry) => {
+          setActiveDictationSubjectId(subjId);
+          setActiveDictationExerciseIdx(exIdx);
+          if (isRetry) {
+            setDictationRetryNonce((n) => n + 1);
+          }
+          setAppMode('dictation');
+          setCurrentView('practice');
+        }}
+        onOpenAdminDictation={() => {
+          setIsDictationLessonsModalOpen(false);
+          handleOpenAdmin();
+        }}
+        dictationHistory={dictationHistory}
+        currentLang={currentLang}
         t={t}
       />
 
