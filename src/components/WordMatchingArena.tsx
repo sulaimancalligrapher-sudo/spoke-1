@@ -47,63 +47,197 @@ interface ShuffledItem {
   pairId: string;
 }
 
-// Cross-browser safe audio synthesizer (Safari, Chrome, Firefox, iOS, Android)
+// Cross-browser safe audio synthesizer (Firefox, Chrome, Safari, iOS, Android)
 let sharedAudioCtx: AudioContext | null = null;
-function playAudioChime(type: 'success' | 'error' | 'tap') {
+const cachedWavUris: Partial<Record<'success' | 'error' | 'tap', string>> = {};
+
+function buildWavDataUri(
+  durationSec: number,
+  sampleGenerator: (t: number) => number
+): string {
+  const sampleRate = 22050;
+  const numSamples = Math.max(1, Math.floor(sampleRate * durationSec));
+  const dataSize = numSamples * 2;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true); // PCM chunk size
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, 1, true); // Mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // Byte rate
+  view.setUint16(32, 2, true); // Block align
+  view.setUint16(34, 16, true); // Bits per sample
+  writeString(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / sampleRate;
+    const clamped = Math.max(-1, Math.min(1, sampleGenerator(t)));
+    view.setInt16(44 + i * 2, Math.round(clamped * 32767), true);
+  }
+
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return `data:audio/wav;base64,${btoa(binary)}`;
+}
+
+function getChimeWavUri(type: 'success' | 'error' | 'tap'): string {
+  if (cachedWavUris[type]) return cachedWavUris[type]!;
+
+  let uri = '';
+  if (type === 'success') {
+    // Rising C5 -> E5 -> G5 triad chime
+    const notes = [
+      { freq: 523.25, start: 0 },
+      { freq: 659.25, start: 0.08 },
+      { freq: 783.99, start: 0.16 },
+    ];
+    uri = buildWavDataUri(0.52, (t) => {
+      let sum = 0;
+      for (const n of notes) {
+        if (t >= n.start && t <= n.start + 0.35) {
+          const lt = t - n.start;
+          const env = Math.min(1, lt / 0.01) * Math.exp(-lt * 9);
+          sum += Math.sin(2 * Math.PI * n.freq * lt) * env * 0.28;
+        }
+      }
+      return sum;
+    });
+  } else if (type === 'error') {
+    // Soft descending tone (200Hz -> 125Hz)
+    uri = buildWavDataUri(0.26, (t) => {
+      const freq = 200 - (75 * t) / 0.26;
+      const env = Math.min(1, t / 0.01) * Math.exp(-t * 8);
+      // Warm soft triangle/sine mix instead of harsh buzz
+      const phase = 2 * Math.PI * freq * t;
+      return (Math.sin(phase) * 0.7 + Math.sin(phase * 2) * 0.2) * env * 0.32;
+    });
+  } else {
+    // Subtle crisp tap click
+    uri = buildWavDataUri(0.07, (t) => {
+      const env = Math.min(1, t / 0.004) * Math.exp(-t * 45);
+      return Math.sin(2 * Math.PI * 800 * t) * env * 0.24;
+    });
+  }
+
+  cachedWavUris[type] = uri;
+  return uri;
+}
+
+// Call synchronously inside user click/tap handlers to unlock AudioContext on Firefox & iOS
+function unlockAudioEngine() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (AudioContextClass) {
+      if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+        sharedAudioCtx = new AudioContextClass();
+      }
+      if (sharedAudioCtx.state === 'suspended') {
+        sharedAudioCtx.resume().catch(() => {});
+      }
+      // Play a 1-sample silent buffer synchronously to permanently unlock context in Firefox/Safari
+      try {
+        const silentBuf = sharedAudioCtx.createBuffer(1, 1, 22050);
+        const src = sharedAudioCtx.createBufferSource();
+        src.buffer = silentBuf;
+        src.connect(sharedAudioCtx.destination);
+        src.start(0);
+      } catch {}
+    }
+    // Pre-generate WAV URIs lazily on first interaction
+    getChimeWavUri('tap');
+  } catch {}
+}
+
+function playWebAudioFallback(type: 'success' | 'error' | 'tap') {
   try {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioContextClass) return;
     if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
       sharedAudioCtx = new AudioContextClass();
     }
-    if (sharedAudioCtx.state === 'suspended') {
-      sharedAudioCtx.resume().catch(() => {});
-    }
     const ctx = sharedAudioCtx;
-    const now = ctx.currentTime;
 
-    if (type === 'success') {
-      // Pleasant rising major chord
-      const freqs = [523.25, 659.25, 783.99]; // C5, E5, G5
-      freqs.forEach((freq, idx) => {
+    const triggerOscillators = () => {
+      const now = ctx.currentTime;
+      if (type === 'success') {
+        const freqs = [523.25, 659.25, 783.99];
+        freqs.forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+          gain.gain.setValueAtTime(0.14, now + idx * 0.08);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.35);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + idx * 0.08);
+          osc.stop(now + idx * 0.08 + 0.35);
+        });
+      } else if (type === 'error') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.exponentialRampToValueAtTime(110, now + 0.25);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.25);
+      } else {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, now + idx * 0.08);
-        gain.gain.setValueAtTime(0.12, now + idx * 0.08);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.35);
+        osc.frequency.setValueAtTime(800, now);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
         osc.connect(gain);
         gain.connect(ctx.destination);
-        osc.start(now + idx * 0.08);
-        osc.stop(now + idx * 0.08 + 0.35);
-      });
-    } else if (type === 'error') {
-      // Soft gentle error buzz
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(180, now);
-      osc.frequency.exponentialRampToValueAtTime(110, now + 0.25);
-      gain.gain.setValueAtTime(0.12, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.25);
+        osc.start(now);
+        osc.stop(now + 0.06);
+      }
+    };
+
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(triggerOscillators).catch(() => {});
     } else {
-      // Subtle tap click
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(800, now);
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.06);
+      triggerOscillators();
     }
   } catch {}
+}
+
+function playAudioChime(type: 'success' | 'error' | 'tap') {
+  try {
+    // Primary: lightweight in-memory WAV via HTMLAudioElement (unaffected by Firefox mic/AEC WebAudio conflicts)
+    const uri = getChimeWavUri(type);
+    const audio = new Audio(uri);
+    audio.volume = 0.75;
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {
+        playWebAudioFallback(type);
+      });
+    }
+  } catch {
+    playWebAudioFallback(type);
+  }
 }
 
 export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
@@ -536,6 +670,7 @@ interface ConnectedAttempt {
 
   // Button 1: Activate Mouse/Touch Mode
   const handleActivateMouseMode = () => {
+    unlockAudioEngine();
     stopVoiceRecording();
     setActiveInputMode('mouse');
     setGuidanceBox({
@@ -546,6 +681,7 @@ interface ConnectedAttempt {
 
   // Button 2: Start Voice Recording (Dual Engine: Web Speech API for Chrome/Safari + MediaRecorder/Whisper for Firefox)
   const handleStartVoiceRecording = () => {
+    unlockAudioEngine();
     if (isCompleted || isTranscribing) return;
 
     if (isListening) {
@@ -890,6 +1026,7 @@ interface ConnectedAttempt {
 
   // User click on right column card
   const handleRightCardClick = (item: ShuffledItem) => {
+    unlockAudioEngine();
     if (isVoiceOnlyMode) {
       setGuidanceBox({
         type: 'info',
@@ -914,6 +1051,7 @@ interface ConnectedAttempt {
 
   // User click on left column card - Enforces Right-Column-First rule
   const handleLeftCardClick = (item: ShuffledItem) => {
+    unlockAudioEngine();
     if (isVoiceOnlyMode) {
       setGuidanceBox({
         type: 'info',
