@@ -259,9 +259,17 @@ export async function transcribeWithInBrowserWhisper(
       }
     }
   } else if (options?.lessonVocabulary && options.lessonVocabulary.length > 0) {
-    // When transcribing matching exercise without a single target:
+    // Detect if the vocabulary pool consists predominantly of single Arabic letters
+    const singleLetterCount = options.lessonVocabulary.filter(
+      (w) => removeTashkeel(w).replace(/\u0640/g, '').trim().length <= 1
+    ).length;
     const vocabList = options.lessonVocabulary.slice(0, 12).join(' ، ');
-    cleanPrompt = `تمرين قراءة ووصل كلمات عربية فصيحة، الكلمات المتاحة للتوصيل: ${vocabList}.`;
+    if (singleLetterCount >= Math.ceil(options.lessonVocabulary.length * 0.5)) {
+      cleanPrompt = `تمرين نطق حروف هجائية عربية مفردة (ألف باء تاء ثاء جيم حاء خاء دال ذال راء زاي سين شين صاد ضاد طاء ظاء عين غين فاء قاف كاف لام ميم نون هاء واو ياء). الحروف المتاحة: ${vocabList}.`;
+    } else {
+      // When transcribing matching exercise without a single target:
+      cleanPrompt = `تمرين قراءة ووصل كلمات عربية فصيحة، الكلمات المتاحة للتوصيل: ${vocabList}.`;
+    }
   }
 
   // Fast chunk length for brief utterance (under 5 seconds) to dramatically speed up WebAssembly
@@ -384,15 +392,41 @@ export function findBestCandidateMatch(decodedText: string, candidates: string[]
   for (const cand of candidates) {
     const normCand = normalize(cand);
     const bareCand = stripPrefixes(normCand);
-    if (normCand === normDecoded || bareCand === bareDecoded || normCand === bareDecoded || bareCand === normDecoded) {
+    if (
+      normCand === normDecoded ||
+      (normCand.length >= 2 &&
+        (bareCand === bareDecoded || normCand === bareDecoded || bareCand === normDecoded))
+    ) {
       return cand;
     }
   }
 
-  // 2. Substring containment
+  // 1b. Exact Arabic letter-name alias match for single-letter candidates
+  // Prevents "باء" or "راء" from being hijacked by "ا" in substring checks below
+  const decodedTokens = normDecoded.split(/\s+/).filter(Boolean);
   for (const cand of candidates) {
     const normCand = normalize(cand);
-    if (normDecoded.includes(normCand) || normCand.includes(normDecoded)) {
+    if (normCand.length === 1) {
+      const aliases = ARABIC_LETTER_NAMES[normCand] || [normCand];
+      const matchesAlias = aliases.some((alias) => {
+        const normAlias = normalize(alias);
+        return (
+          normDecoded === normAlias ||
+          decodedTokens.includes(normAlias) ||
+          decodedTokens.some((tok) => tok.startsWith('ال') && tok.slice(2) === normAlias)
+        );
+      });
+      if (matchesAlias) {
+        return cand;
+      }
+    }
+  }
+
+  // 2. Substring containment (strictly for multi-character words, never 1-char letters!)
+  for (const cand of candidates) {
+    const normCand = normalize(cand);
+    if (normCand.length < 2) continue;
+    if (normDecoded.includes(normCand) || (normDecoded.length >= 2 && normCand.includes(normDecoded))) {
       return cand;
     }
   }

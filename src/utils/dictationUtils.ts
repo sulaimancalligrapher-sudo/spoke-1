@@ -395,49 +395,239 @@ export function generateScrambledFromAnswer(correctAnswer: string): string {
 }
 
 /**
+ * Comprehensive Arabic single-letter spoken aliases (handles canonical letter names,
+ * Google Chrome Web Speech transcriptions like "1000" for ألف, "في" for فاء,
+ * "رأى" for راء, "بها" for باء, "كف/كافي" for كاف, etc.)
+ */
+const DICTATION_LETTER_PRIMARY_NAMES: Record<string, string[]> = {
+  'ا': ['الف', 'ألف', 'اليف', 'الاف'],
+  'أ': ['الف', 'ألف', 'اليف', 'الاف'],
+  'إ': ['الف', 'ألف', 'اليف', 'الاف'],
+  'آ': ['الف', 'ألف', 'اليف', 'الاف'],
+  'ء': ['همزة', 'همزه', 'نبرة', 'نبره'],
+  'ؤ': ['همزة', 'همزه', 'واو همزة'],
+  'ئ': ['همزة', 'همزه', 'نبرة', 'نبره'],
+  'ب': ['باء', 'با'],
+  'ت': ['تاء', 'تا'],
+  'ث': ['ثاء', 'ثا'],
+  'ج': ['جيم', 'جي'],
+  'ح': ['حاء', 'حا'],
+  'خ': ['خاء', 'خا'],
+  'د': ['دال', 'دا'],
+  'ذ': ['ذال', 'ذا'],
+  'ر': ['راء', 'را'],
+  'ز': ['زاي', 'زا', 'زين'],
+  'س': ['سين', 'سي'],
+  'ش': ['شين', 'شي'],
+  'ص': ['صاد', 'صا'],
+  'ض': ['ضاد', 'ضا'],
+  'ط': ['طاء', 'طا'],
+  'ظ': ['ظاء', 'ظا'],
+  'ع': ['عين', 'عي'],
+  'غ': ['غين', 'غي'],
+  'ف': ['فاء', 'فا'],
+  'ق': ['قاف', 'قا'],
+  'ك': ['كاف', 'كا'],
+  'ل': ['لام', 'لا'],
+  'م': ['ميم', 'مي'],
+  'ن': ['نون', 'نو'],
+  'ه': ['هاء', 'ها'],
+  'ة': ['تاء مربوطة', 'تاء مربوطه', 'مربوطة', 'مربوطه', 'هاء', 'ها'],
+  'و': ['واو', 'وا'],
+  'ي': ['ياء', 'يا'],
+  'ى': ['الف مقصورة', 'ألف مقصورة', 'الف مقصوره', 'مقصورة', 'مقصوره', 'ياء', 'يا'],
+};
+
+const DICTATION_LETTER_EXTENDED_ALIASES: Record<string, string[]> = {
+  'ا': ['1000', '١٠٠٠', 'اه', 'آه', 'ايه', 'همزة', 'همزه', 'ا', 'أ', 'إ', 'آ'],
+  'أ': ['1000', '١٠٠٠', 'اه', 'آه', 'ايه', 'همزة', 'همزه', 'ا', 'أ'],
+  'إ': ['1000', '١٠٠٠', 'ايه', 'همزة', 'همزه', 'ا', 'إ'],
+  'آ': ['1000', '١٠٠٠', 'اه', 'آه', 'ا', 'آ'],
+  'ء': ['همزة', 'همزه', 'نبرة', 'ء', 'ا'],
+  'ؤ': ['همزة', 'همزه', 'ؤ', 'واو'],
+  'ئ': ['همزة', 'همزه', 'نبرة', 'ئ'],
+  'ب': ['به', 'بها', 'بأ', 'بى', 'بي', 'بو', 'ب', 'b', 'ba', 'baa'],
+  'ت': ['ته', 'تى', 'تي', 'تو', 'تأ', 'تاه', 'ت', 't', 'ta', 'taa'],
+  'ث': ['ثه', 'ثى', 'ثي', 'ثو', 'ثأ', 'ث', 'tha'],
+  'ج': ['جا', 'جه', 'جو', 'ج', 'j', 'jeem', 'jim'],
+  'ح': ['حه', 'حى', 'حي', 'حو', 'حأ', 'ح', 'ha'],
+  'خ': ['خه', 'خى', 'خي', 'خو', 'خأ', 'خ', 'kha'],
+  'د': ['ده', 'دي', 'دو', 'دل', 'د', 'd', 'dal'],
+  'ذ': ['ذه', 'ذي', 'ذو', 'ذل', 'ذ', 'dhal'],
+  'ر': ['راي', 'رعي', 'راه', 'ره', 'رى', 'ري', 'رو', 'ر', 'r', 'ra', 'raa'],
+  'ز': ['زي', 'زه', 'زو', 'زاى', 'ز', 'z', 'zay', 'zain'],
+  'س': ['سا', 'سه', 'سو', 'سن', '60', '٦٠', 'س', 'c', 's', 'sin', 'seen'],
+  'ش': ['شا', 'شه', 'شو', 'شئ', 'ش', 'shin', 'sheen'],
+  'ص': ['صه', 'صي', 'صو', 'صد', 'ص', 'sad'],
+  'ض': ['ضه', 'ضي', 'ضو', 'ضد', 'ض', 'dad'],
+  'ط': ['طه', 'طي', 'طو', 'طى', 'ط', 'ta'],
+  'ظ': ['ظه', 'ظي', 'ظو', 'ظى', 'ظ', 'za'],
+  'ع': ['عا', 'عه', 'عو', 'ع', 'ayn'],
+  'غ': ['غا', 'غه', 'غو', 'غ', 'ghayn'],
+  'ف': ['في', 'فه', 'فو', 'فى', 'فأ', 'ف', 'f', 'fa', 'faa'],
+  'ق': ['قه', 'قي', 'قو', 'قف', 'ق', 'q', 'qaf'],
+  'ك': ['كه', 'كي', 'كو', 'كف', 'كافي', 'ك', 'k', 'kaf'],
+  'ل': ['له', 'لي', 'لو', 'لم', 'لهم', 'ل', 'l', 'lam'],
+  'م': ['ما', 'مه', 'مو', 'مم', 'م', 'm', 'mim', 'meem'],
+  'ن': ['نا', 'نه', 'ني', 'ن', 'n', 'nun', 'noon'],
+  'ه': ['هه', 'هي', 'هو', 'هيه', 'ه', 'h', 'ha'],
+  'ة': ['ته', 'تي', 'تاء', 'هاء', 'ها', 'ة'],
+  'و': ['وه', 'وي', 'وو', 'او', 'أو', 'و', 'w', 'wow', 'waw'],
+  'ي': ['يه', 'يي', 'يو', 'ياه', 'ي', 'y', 'ya', 'yaa'],
+  'ى': ['يا', 'يه', 'ياه', 'ى', 'ي'],
+};
+
+function normalizeSpokenForDictation(text: string): string {
+  return removeTashkeel(text)
+    .replace(TATWEEL_REGEX, '')
+    .replace(/[.,،!؟?;:«»"'`~@#$%^&*()_+=\-\[\]{}|\\/<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .trim();
+}
+
+function stripRawMarksKeepShape(text: string): string {
+  return String(text || '')
+    .replace(ARABIC_DIACRITICS_ONLY, '')
+    .replace(TATWEEL_REGEX, '')
+    .replace(/[.,،!؟?;:«»"'`~@#$%^&*()_+=\-\[\]{}|\\/<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .trim();
+}
+
+function tokenMatchesAliasList(spoken: string, tokens: string[], aliases: string[]): boolean {
+  const normAliases = aliases.map((a) => normalizeSpokenForDictation(a)).filter(Boolean);
+  if (normAliases.includes(spoken)) return true;
+
+  for (const tok of tokens) {
+    if (normAliases.includes(tok)) return true;
+    // Handle definite article "ال" (e.g. "الباء" -> "باء", "السين" -> "سين", "الألف" -> "ألف")
+    if (tok.startsWith('ال') && tok.length >= 4) {
+      const bare = tok.slice(2);
+      if (normAliases.includes(bare)) return true;
+    }
+  }
+
+  // Multi-word alias like "تاء مربوطة" / "الف مقصورة"
+  return normAliases.some((a) => a.includes(' ') && spoken.includes(a));
+}
+
+/**
  * Map Arabic spoken input (word or letter name like "سين", "ألف", "باء") to matching available tiles.
  */
 export function matchSpokenToDictationTile(
   spokenText: string,
   availableTiles: DictationTile[]
 ): DictationTile | null {
-  const cleanSpoken = removeTashkeel(spokenText).replace(TATWEEL_REGEX, '').toLowerCase().trim();
+  const cleanSpoken = normalizeSpokenForDictation(spokenText);
+  const rawSpoken = stripRawMarksKeepShape(spokenText);
   if (!cleanSpoken || availableTiles.length === 0) return null;
 
-  // 1. Direct normalized token match
+  const spokenTokens = cleanSpoken.split(/\s+/).filter(Boolean);
+  const rawTokens = rawSpoken.split(/\s+/).filter(Boolean);
+
+  // Pass 1: Direct exact match (preserving raw shape for ة/ى/أ/إ first, then normalized)
   for (const tile of availableTiles) {
-    const cleanTile = removeTashkeel(tile.text).replace(TATWEEL_REGEX, '').toLowerCase().trim();
-    if (!cleanTile) continue;
-    if (cleanSpoken === cleanTile) return tile;
+    const rawTile = stripRawMarksKeepShape(tile.text);
+    if (rawTile && rawSpoken === rawTile) return tile;
+  }
+  for (const tile of availableTiles) {
+    const cleanTile = normalizeSpokenForDictation(tile.text);
+    if (cleanTile && cleanSpoken === cleanTile) return tile;
   }
 
-  // 2. Spoken phrase contains tile text or tile text matches spoken letter name aliases
+  // Pass 1b: Special exact "لا" ligature
   for (const tile of availableTiles) {
-    const cleanTile = removeTashkeel(tile.text).replace(TATWEEL_REGEX, '').toLowerCase().trim();
-    if (!cleanTile) continue;
-
-    if (cleanTile.length === 1) {
-      const aliases = ARABIC_LETTER_NAMES[cleanTile] || [cleanTile];
-      const spokenTokens = cleanSpoken.split(/\s+/).filter(Boolean);
-      if (
-        aliases.some(
-          (alias) => cleanSpoken === alias || spokenTokens.includes(alias)
-        )
-      ) {
-        return tile;
-      }
-    } else if (cleanTile === 'لا') {
-      if (
-        cleanSpoken === 'لا' ||
+    const cleanTile = normalizeSpokenForDictation(tile.text);
+    if (
+      cleanTile === 'لا' &&
+      (cleanSpoken === 'لا' ||
         cleanSpoken.includes('لام الف') ||
-        cleanSpoken.includes('لام ألف')
-      ) {
-        return tile;
-      }
-    } else if (cleanSpoken.includes(cleanTile) || cleanTile.includes(cleanSpoken)) {
+        cleanSpoken.includes('لام ألف'))
+    ) {
+      return tile;
+    }
+  }
+
+  // Pass 2: Primary canonical letter names (e.g. "باء", "سين", "ألف", "تاء مربوطة", "همزة")
+  for (const tile of availableTiles) {
+    const rawTile = stripRawMarksKeepShape(tile.text);
+    const cleanTile = normalizeSpokenForDictation(tile.text);
+    if (!cleanTile || cleanTile.length !== 1) continue;
+
+    const primaryList =
+      DICTATION_LETTER_PRIMARY_NAMES[rawTile] ||
+      DICTATION_LETTER_PRIMARY_NAMES[cleanTile] ||
+      ARABIC_LETTER_NAMES[cleanTile] ||
+      [];
+
+    if (
+      tokenMatchesAliasList(rawSpoken, rawTokens, primaryList) ||
+      tokenMatchesAliasList(cleanSpoken, spokenTokens, primaryList)
+    ) {
+      return tile;
+    }
+  }
+
+  // Pass 3: Extended Web Speech / Chrome phonetic & numeric aliases for single letters
+  // (e.g. "1000"/"١٠٠٠" -> ا, "في" -> ف, "رأى" -> ر, "بها" -> ب, "كف"/"كافي" -> ك, "لم" -> ل)
+  for (const tile of availableTiles) {
+    const rawTile = stripRawMarksKeepShape(tile.text);
+    const cleanTile = normalizeSpokenForDictation(tile.text);
+    if (!cleanTile || cleanTile.length !== 1) continue;
+
+    const extList = [
+      ...(DICTATION_LETTER_EXTENDED_ALIASES[rawTile] || []),
+      ...(DICTATION_LETTER_EXTENDED_ALIASES[cleanTile] || []),
+      ...(ARABIC_LETTER_NAMES[cleanTile] || []),
+    ];
+
+    if (
+      tokenMatchesAliasList(rawSpoken, rawTokens, extList) ||
+      tokenMatchesAliasList(cleanSpoken, spokenTokens, extList)
+    ) {
+      return tile;
+    }
+  }
+
+  // Pass 4: Multi-character words / phrases (words_sentence, fill_word, 2+ letter tiles)
+  for (const tile of availableTiles) {
+    const cleanTile = normalizeSpokenForDictation(tile.text);
+    if (!cleanTile || cleanTile.length < 2 || cleanTile === 'لا') continue;
+
+    if (
+      cleanSpoken.includes(cleanTile) ||
+      (cleanSpoken.length >= 2 && cleanTile.includes(cleanSpoken))
+    ) {
+      return tile;
+    }
+
+    // Prefix-stripped comparison for words (e.g. "المدرسة" vs "مدرسة")
+    const bareTile = cleanTile.startsWith('ال') && cleanTile.length > 3 ? cleanTile.slice(2) : cleanTile;
+    const bareSpoken = cleanSpoken.startsWith('ال') && cleanSpoken.length > 3 ? cleanSpoken.slice(2) : cleanSpoken;
+    if (bareTile === bareSpoken || bareSpoken.includes(bareTile)) {
       return tile;
     }
   }
 
   return null;
+}
+
+/**
+ * Check a ranked list of SpeechRecognition alternatives in order and return the first matched tile.
+ */
+export function matchSpokenAlternativesToDictationTile(
+  alternatives: string[],
+  availableTiles: DictationTile[]
+): { tile: DictationTile | null; matchedTranscript: string } {
+  for (const alt of alternatives) {
+    const clean = String(alt || '').trim();
+    if (!clean) continue;
+    const tile = matchSpokenToDictationTile(clean, availableTiles);
+    if (tile) {
+      return { tile, matchedTranscript: clean };
+    }
+  }
+  return { tile: null, matchedTranscript: alternatives[0] || '' };
 }

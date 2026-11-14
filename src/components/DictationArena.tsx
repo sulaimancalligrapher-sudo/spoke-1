@@ -24,7 +24,7 @@ import {
   buildShuffledTiles,
   formatAssembledPreview,
   verifyDictationAnswer,
-  matchSpokenToDictationTile,
+  matchSpokenAlternativesToDictationTile,
 } from '../utils/dictationUtils';
 import {
   Mic,
@@ -255,6 +255,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
   const [guidanceBox, setGuidanceBox] = useState<{
     type: 'info' | 'success' | 'error' | 'recording';
     message: string;
+    canUseWhisper?: boolean;
   } | null>(null);
 
   // Media state (question image lightbox + audio player)
@@ -262,15 +263,23 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
   const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
   const mediaAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Voice input state (SpeechRecognition + Firefox Whisper fallback)
+  // Voice input state (SpeechRecognition + Whisper cross-browser hybrid)
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [countdown, setCountdown] = useState<number>(0);
+  const [preferWhisperInChrome, setPreferWhisperInChrome] = useState<boolean>(false);
   const countdownIntervalRef = useRef<any>(null);
   const recordingTimeoutRef = useRef<any>(null);
+  const safetyFlushTimeoutRef = useRef<any>(null);
   const recognizerRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+
+  const supportsWebSpeech = useMemo(() => {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+    const isFirefox = /firefox/i.test(navigator.userAgent);
+    return !isFirefox && Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+  }, []);
 
   const exerciseDuration = activeExercise?.durationSeconds || 5;
 
@@ -298,10 +307,15 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       clearTimeout(recordingTimeoutRef.current);
       recordingTimeoutRef.current = null;
     }
+    if (safetyFlushTimeoutRef.current) {
+      clearTimeout(safetyFlushTimeoutRef.current);
+      safetyFlushTimeoutRef.current = null;
+    }
     if (recognizerRef.current) {
       const rec = recognizerRef.current;
       recognizerRef.current = null;
       rec.onresult = null;
+      rec.onspeechend = null;
       rec.onerror = null;
       rec.onend = null;
       try {
@@ -645,12 +659,22 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     }
   };
 
-  // Voice input matched handler
-  const handleVoiceRecognized = (spokenText: string) => {
+  // Voice input matched handler (accepts single string or ranked SpeechRecognition alternatives)
+  const handleVoiceRecognized = (spokenInput: string | string[], usedWhisper = false) => {
     const availableTiles = shuffledTiles.filter((tile) => !usedTileIds.has(tile.id));
     if (availableTiles.length === 0) return;
 
-    const matchedTile = matchSpokenToDictationTile(spokenText, availableTiles);
+    const alternatives = (Array.isArray(spokenInput) ? spokenInput : [spokenInput])
+      .map((s) => String(s || '').trim().replace(/[.,،!؟]/g, ''))
+      .filter(Boolean);
+
+    if (alternatives.length === 0) return;
+
+    const { tile: matchedTile, matchedTranscript } = matchSpokenAlternativesToDictationTile(
+      alternatives,
+      availableTiles
+    );
+
     if (matchedTile) {
       handleSelectTile(matchedTile);
       setGuidanceBox({
@@ -661,7 +685,8 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       playAudioChime('error');
       setGuidanceBox({
         type: 'error',
-        message: `⚠️ سُمع: «${spokenText}» — لم يطابق أياً من البطاقات المتبقية. انطق الحرف أو الكلمة بوضوح أو انقر عليها.`,
+        message: `⚠️ سُمع: «${matchedTranscript || alternatives[0]}» — لم يطابق أياً من البطاقات المتبقية. انطق اسم الحرف (مثل: باء، سين، ألف) أو الكلمة بوضوح، أو استخدم المحرك الدقيق.`,
+        canUseWhisper: supportsWebSpeech && !usedWhisper,
       });
     }
   };
@@ -695,6 +720,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       };
       recorder.onstop = async () => {
         clearCountdown();
+        if (recordingTimeoutRef.current) {
+          clearTimeout(recordingTimeoutRef.current);
+          recordingTimeoutRef.current = null;
+        }
         if (mediaStreamRef.current) {
           try {
             mediaStreamRef.current.getTracks().forEach((trck) => trck.stop());
@@ -715,7 +744,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
         setIsTranscribing(true);
         setGuidanceBox({
           type: 'recording',
-          message: 'جاري التعرف على الحرف أو الكلمة المنطوقة... ⏳',
+          message: 'جاري التعرف على الحرف أو الكلمة المنطوقة بالذكاء الداخلي... ⏳',
         });
 
         try {
@@ -731,13 +760,14 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
             { lessonVocabulary: remainingCandidates, audioDuration: exerciseDuration }
           );
           setIsTranscribing(false);
-          const clean = (text || '').trim();
+          const clean = (text || '').trim().replace(/[.,،!؟]/g, '');
           if (clean) {
-            handleVoiceRecognized(clean);
+            handleVoiceRecognized(clean, true);
           } else {
+            playAudioChime('error');
             setGuidanceBox({
               type: 'error',
-              message: 'لم يتم التقاط صوت واضح، يمكنك النقر بالماوس أو اللمس على البطاقات.',
+              message: 'لم يتم التقاط صوت واضح، يمكنك إعادة المحاولة أو النقر مباشرة على البطاقات.',
             });
           }
         } catch {
@@ -749,11 +779,18 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
         }
       };
 
+      setIsListening(true);
       recorder.start(100);
       setCountdown(exerciseDuration);
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
       countdownIntervalRef.current = setInterval(() => {
         setCountdown((prev) => (prev <= 1 ? 0 : prev - 1));
       }, 1000);
+
+      setGuidanceBox({
+        type: 'recording',
+        message: 'تحدث الآن... انطق الحرف أو الكلمة (اضغط الزر مجدداً للإنهاء المبكر) 🎙️',
+      });
 
       recordingTimeoutRef.current = setTimeout(() => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
@@ -772,22 +809,16 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     }
   };
 
-  const handleToggleVoiceInput = () => {
+  const startVoiceRecording = (forceWhisper = false) => {
     unlockAudioEngine();
     if (isCompleted || isTranscribing) return;
 
-    if (isListening) {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        try {
-          mediaRecorderRef.current.stop();
-          return;
-        } catch {}
-      }
-      stopVoiceRecording();
-      setGuidanceBox({
-        type: 'info',
-        message: 'تم إيقاف الاستماع. انقر على البطاقات أو أعد التسجيل.',
-      });
+    const isFirefox = typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent);
+    const SpeechRec =
+      !isFirefox && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+
+    if (forceWhisper || preferWhisperInChrome || !SpeechRec) {
+      recordAndTranscribeWithWhisper();
       return;
     }
 
@@ -800,48 +831,143 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
 
     setGuidanceBox({
       type: 'recording',
-      message: 'تحدث الآن... انطق الحرف (مثل: سين / باء) أو الكلمة المطلوبة 🎙️',
+      message: 'تحدث الآن... انطق اسم الحرف (مثل: ألف / باء / سين) أو الكلمة المطلوبة 🎙️',
     });
 
-    const isFirefox = typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent);
-    const SpeechRec =
-      !isFirefox && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+    try {
+      const recognizer = new SpeechRec();
+      recognizer.continuous = false;
+      recognizer.interimResults = true;
+      recognizer.maxAlternatives = 5;
+      recognizer.lang = 'ar-SA';
 
-    if (SpeechRec) {
-      try {
-        const recognizer = new SpeechRec();
-        recognizer.continuous = false;
-        recognizer.interimResults = false;
-        recognizer.maxAlternatives = 3;
-        recognizer.lang = 'ar-SA';
+      let resolved = false;
+      let latestInterimAlts: string[] = [];
 
-        recordingTimeoutRef.current = setTimeout(() => {
-          stopVoiceRecording();
-        }, exerciseDuration * 1000);
+      const finalizeFromTranscripts = (alts: string[]) => {
+        if (resolved) return;
+        resolved = true;
+        stopVoiceRecording();
+        if (alts.length > 0) {
+          handleVoiceRecognized(alts, false);
+        } else {
+          playAudioChime('error');
+          setGuidanceBox({
+            type: 'error',
+            message:
+              'لم يلتقط المتصفح صوتاً واضحاً — انطق اسم الحرف بوضوح (مثل: باء، ألف، فاء، راء) أو جرّب المحرك الدقيق بالأسفل.',
+            canUseWhisper: true,
+          });
+        }
+      };
 
-        recognizer.onresult = (event: any) => {
-          stopVoiceRecording();
-          const transcript = event.results?.[0]?.[0]?.transcript || '';
-          const trimmed = transcript.trim().replace(/[.,!؟]/g, '');
-          if (trimmed) {
-            handleVoiceRecognized(trimmed);
+      // Graceful stop at timeout so buffered transcripts flush cleanly
+      recordingTimeoutRef.current = setTimeout(() => {
+        if (resolved) return;
+        try {
+          recognizer.stop();
+        } catch {}
+        safetyFlushTimeoutRef.current = setTimeout(() => {
+          finalizeFromTranscripts(latestInterimAlts);
+        }, 350);
+      }, exerciseDuration * 1000);
+
+      recognizer.onspeechend = () => {
+        try {
+          recognizer.stop();
+        } catch {}
+      };
+
+      recognizer.onresult = (event: any) => {
+        if (resolved) return;
+        const collectedFinal: string[] = [];
+        const collectedInterim: string[] = [];
+
+        for (let r = event.resultIndex || 0; r < (event.results?.length || 0); r++) {
+          const resObj = event.results[r];
+          if (!resObj) continue;
+          const altsForRow: string[] = [];
+          for (let a = 0; a < resObj.length; a++) {
+            const trText = (resObj[a]?.transcript || '').trim();
+            if (trText) altsForRow.push(trText);
           }
-        };
-        recognizer.onerror = () => {
-          stopVoiceRecording();
-        };
-        recognizer.onend = () => {
-          stopVoiceRecording();
-        };
+          if (resObj.isFinal) {
+            collectedFinal.push(...altsForRow);
+          } else {
+            collectedInterim.push(...altsForRow);
+          }
+        }
 
-        recognizerRef.current = recognizer;
-        recognizer.start();
-      } catch {
-        recordAndTranscribeWithWhisper();
-      }
-    } else {
+        if (collectedInterim.length > 0) {
+          latestInterimAlts = collectedInterim;
+          setGuidanceBox({
+            type: 'recording',
+            message: `يستمع الآن: «${collectedInterim[0]}» 🎙️`,
+          });
+        }
+
+        if (collectedFinal.length > 0) {
+          finalizeFromTranscripts(collectedFinal);
+        }
+      };
+
+      recognizer.onerror = (event: any) => {
+        if (resolved) return;
+        const errCode = event?.error || '';
+        if (
+          errCode === 'network' ||
+          errCode === 'service-not-allowed' ||
+          errCode === 'language-not-supported' ||
+          errCode === 'audio-capture'
+        ) {
+          resolved = true;
+          stopVoiceRecording();
+          recordAndTranscribeWithWhisper();
+          return;
+        }
+        finalizeFromTranscripts(latestInterimAlts);
+      };
+
+      recognizer.onend = () => {
+        if (!resolved) {
+          finalizeFromTranscripts(latestInterimAlts);
+        }
+      };
+
+      recognizerRef.current = recognizer;
+      recognizer.start();
+    } catch {
+      stopVoiceRecording();
       recordAndTranscribeWithWhisper();
     }
+  };
+
+  const handleToggleVoiceInput = () => {
+    unlockAudioEngine();
+    if (isCompleted || isTranscribing) return;
+
+    if (isListening) {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        try {
+          mediaRecorderRef.current.stop();
+          return;
+        } catch {}
+      }
+      if (recognizerRef.current) {
+        try {
+          recognizerRef.current.stop();
+          return;
+        } catch {}
+      }
+      stopVoiceRecording();
+      setGuidanceBox({
+        type: 'info',
+        message: 'تم إيقاف الاستماع. انقر على البطاقات أو أعد التسجيل.',
+      });
+      return;
+    }
+
+    startVoiceRecording(false);
   };
 
   const handleNextExercise = () => {
@@ -1022,35 +1148,53 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                   {tr('dictation_pool_title', 'الحروف والكلمات المشتتة (انقر أو انطق للاختيار):')}
                 </span>
 
-                <button
-                  type="button"
-                  onClick={handleToggleVoiceInput}
-                  disabled={isCompleted || isTranscribing}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer disabled:opacity-50 ${
-                    isListening
-                      ? 'bg-rose-600 text-white border-rose-600 animate-pulse ring-2 ring-rose-200'
-                      : isTranscribing
-                      ? 'bg-amber-600 text-white border-amber-600'
-                      : 'bg-white hover:bg-rose-50 text-slate-700 border-slate-300 hover:border-rose-300'
-                  }`}
-                >
-                  {isListening ? (
-                    <>
-                      <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-                      <span className="font-mono">جاري الاستماع ({countdown}) 🎙️</span>
-                    </>
-                  ) : isTranscribing ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>جاري التحليل...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Mic className="w-3.5 h-3.5 text-rose-500" />
-                      <span>اختيار بالصوت 🎙️</span>
-                    </>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {supportsWebSpeech && (
+                    <button
+                      type="button"
+                      disabled={isCompleted || isListening || isTranscribing}
+                      onClick={() => setPreferWhisperInChrome((prev) => !prev)}
+                      title="تبديل محرك التعرف على الصوت بين المتصفح السريع ومحرك Whisper الدقيق للحروف المفردة"
+                      className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-all cursor-pointer disabled:opacity-50 ${
+                        preferWhisperInChrome
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                          : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-300'
+                      }`}
+                    >
+                      {preferWhisperInChrome ? '🧠 محرك Whisper (دقيق للحروف)' : '⚡ صوت المتصفح (سريع)'}
+                    </button>
                   )}
-                </button>
+
+                  <button
+                    type="button"
+                    onClick={handleToggleVoiceInput}
+                    disabled={isCompleted || isTranscribing}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer disabled:opacity-50 ${
+                      isListening
+                        ? 'bg-rose-600 text-white border-rose-600 animate-pulse ring-2 ring-rose-200'
+                        : isTranscribing
+                        ? 'bg-amber-600 text-white border-amber-600'
+                        : 'bg-white hover:bg-rose-50 text-slate-700 border-slate-300 hover:border-rose-300'
+                    }`}
+                  >
+                    {isListening ? (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                        <span className="font-mono">جاري الاستماع ({countdown}) 🎙️</span>
+                      </>
+                    ) : isTranscribing ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>جاري التحليل...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-3.5 h-3.5 text-rose-500" />
+                        <span>اختيار بالصوت 🎙️</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
               {/* Compact Low-Margin Tiles */}
@@ -1208,7 +1352,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
             {/* AREA C: Unified Guidance & Feedback Box */}
             {guidanceBox && (
               <div
-                className={`w-full p-3.5 rounded-2xl border text-xs sm:text-sm font-bold flex items-center justify-center gap-2 text-center animate-in fade-in duration-200 ${
+                className={`w-full p-3.5 rounded-2xl border text-xs sm:text-sm font-bold flex flex-wrap items-center justify-center gap-2 text-center animate-in fade-in duration-200 ${
                   guidanceBox.type === 'success'
                     ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
                     : guidanceBox.type === 'error'
@@ -1231,6 +1375,18 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                   <HelpCircle className="w-4 h-4 text-teal-600 shrink-0" />
                 )}
                 <span>{guidanceBox.message}</span>
+                {guidanceBox.canUseWhisper && !isListening && !isTranscribing && !isCompleted && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreferWhisperInChrome(true);
+                      startVoiceRecording(true);
+                    }}
+                    className="inline-flex items-center gap-1 px-3 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-extrabold shadow-xs cursor-pointer transition-all"
+                  >
+                    <span>🧠 التسجيل بمحرك Whisper الدقيق</span>
+                  </button>
+                )}
               </div>
             )}
 
