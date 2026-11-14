@@ -7,9 +7,10 @@ import {
   CheckCircle2,
   Sparkles,
   ChevronLeft,
-  Volume2,
-  Gauge,
   RotateCcw,
+  Eye,
+  EyeOff,
+  Lock,
 } from 'lucide-react';
 import { normalizeMediaUrl } from '../utils/mediaUrl';
 
@@ -18,7 +19,7 @@ interface LessonsModalProps {
   onClose: () => void;
   curriculum: WordItem[];
   selectedItem: WordItem;
-  onSelectItem: (item: WordItem) => void;
+  onSelectItem: (item: WordItem, isRetry?: boolean) => void;
   subjectsList: string[];
   selectedSubject: string;
   onSelectSubject: (subject: string) => void;
@@ -51,15 +52,21 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
 
   const [activeCategory, setActiveCategory] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showCompleted, setShowCompleted] = useState<boolean>(false);
 
   if (!isOpen) return null;
+
+  const getItemScore = (item: WordItem): number | undefined => {
+    const cleanWord = item.word.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').trim();
+    return scoresMap[item.id] ?? scoresMap[item.word] ?? scoresMap[cleanWord];
+  };
 
   const currentCategory =
     activeCategory && availableCategories.includes(activeCategory)
       ? activeCategory
       : availableCategories[0] || '';
 
-  const filteredItems = curriculum.filter((item) => {
+  const baseItems = curriculum.filter((item) => {
     const matchesSubject = !selectedSubject || item.lessonSubject === selectedSubject;
     const matchesCat = !currentCategory || item.category === currentCategory;
     const matchesSearch =
@@ -70,8 +77,18 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
     return matchesSubject && matchesCat && matchesSearch;
   });
 
-  const handlePickItem = (item: WordItem) => {
-    onSelectItem(item);
+  const filteredItems = showCompleted
+    ? baseItems
+    : baseItems.filter((item) => getItemScore(item) === undefined);
+
+  const hasHiddenCompleted =
+    !showCompleted &&
+    baseItems.length > 0 &&
+    filteredItems.length === 0 &&
+    baseItems.some((item) => getItemScore(item) !== undefined);
+
+  const handlePickItem = (item: WordItem, isRetry = false) => {
+    onSelectItem(item, isRetry);
     onClose();
   };
 
@@ -127,9 +144,12 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
           {/* Category Tabs */}
           <div className="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar">
             {availableCategories.map((cat) => {
-              const count = curriculum.filter(
+              const catItems = curriculum.filter(
                 (c) => (!selectedSubject || c.lessonSubject === selectedSubject) && c.category === cat
-              ).length;
+              );
+              const count = showCompleted
+                ? catItems.length
+                : catItems.filter((c) => getItemScore(c) === undefined).length;
               const isSelected = currentCategory === cat;
               const translatedCat =
                 cat === 'الحرف'
@@ -155,42 +175,89 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
             })}
           </div>
 
-          {/* Search Box */}
-          <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={tr('lessons_search_placeholder', 'ابحث عن كلمة أو حرف أو معنى...')}
-              className="w-full pr-10 pl-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:border-indigo-400 transition-all placeholder:text-slate-400"
-            />
+          {/* Search Box + Icon-only Eye Toggle */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={tr('lessons_search_placeholder', 'ابحث عن كلمة أو حرف أو معنى...')}
+                className="w-full pr-10 pl-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:border-indigo-400 transition-all placeholder:text-slate-400"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowCompleted((prev) => !prev)}
+              title={
+                showCompleted
+                  ? tr('lessons_hide_completed_eye', 'إخفاء الدروس التي تم تسجيل إجابتها')
+                  : tr('lessons_show_completed_eye', 'إظهار الدروس التي تم تسجيل إجابتها')
+              }
+              aria-label={
+                showCompleted
+                  ? tr('lessons_hide_completed_eye', 'إخفاء الدروس التي تم تسجيل إجابتها')
+                  : tr('lessons_show_completed_eye', 'إظهار الدروس التي تم تسجيل إجابتها')
+              }
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                showCompleted
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+              }`}
+            >
+              {showCompleted ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
           </div>
         </div>
 
         {/* Exercises Grid */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-2 bg-slate-50/50">
           {filteredItems.length === 0 ? (
-            <div className="text-center py-12 text-slate-400 text-sm">
-              {tr('lessons_empty_search', 'لا توجد كلمات أو تمارين تطابق البحث في هذا الدرس.')}
+            <div className="text-center py-12 text-slate-500 text-sm px-4">
+              {hasHiddenCompleted ? (
+                <div className="inline-flex flex-col items-center gap-2 max-w-md mx-auto p-4 rounded-2xl bg-emerald-50/80 border border-emerald-200 text-emerald-900">
+                  <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+                  <p className="text-xs sm:text-sm font-bold leading-relaxed">
+                    {tr(
+                      'lessons_all_completed_hint',
+                      'أتممت جميع دروس هذا القسم! اضغط على أيقونة العين أعلاه لإظهارها أو إعادتها.'
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <span className="text-slate-400">
+                  {tr('lessons_empty_search', 'لا توجد كلمات أو تمارين تطابق البحث في هذا الدرس.')}
+                </span>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {filteredItems.map((item) => {
                 const isSelected = item.id === selectedItem.id;
-                const cleanWord = item.word.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').trim();
-                const score = scoresMap[item.id] ?? scoresMap[item.word] ?? scoresMap[cleanWord];
+                const score = getItemScore(item);
+                const isCompleted = score !== undefined;
+                const canRetry = item.allowRetry !== false;
+
                 return (
-                  <button
+                  <div
                     key={item.id}
-                    onClick={() => handlePickItem(item)}
-                    className={`w-full text-right p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                      isSelected
+                    className={`w-full p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-2.5 ${
+                      isCompleted
+                        ? isSelected
+                          ? 'bg-emerald-100/80 border-emerald-500 ring-2 ring-emerald-300 shadow-sm'
+                          : 'bg-emerald-50/75 hover:bg-emerald-100/60 border-emerald-300 shadow-2xs'
+                        : isSelected
                         ? 'bg-indigo-50/90 border-indigo-400 ring-2 ring-indigo-300 shadow-sm'
                         : 'bg-white hover:bg-slate-50 border-slate-200/80 shadow-2xs'
                     }`}
                   >
-                    <div className="flex items-center gap-3 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => handlePickItem(item, false)}
+                      className="flex items-center gap-3 min-w-0 flex-1 text-right cursor-pointer"
+                    >
                       {item.imageUrl ? (
                         <img
                           src={normalizeMediaUrl(item.imageUrl)}
@@ -201,7 +268,13 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
                           }}
                         />
                       ) : (
-                        <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-sm shrink-0">
+                        <div
+                          className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 ${
+                            isCompleted
+                              ? 'bg-emerald-200/70 text-emerald-900'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
                           {item.word.slice(0, 2)}
                         </div>
                       )}
@@ -226,26 +299,50 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
                           );
                         })()}
                       </div>
-                    </div>
+                    </button>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      {score !== undefined ? (
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                            score >= 80
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : score >= 50
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-rose-100 text-rose-800'
-                          }`}
-                        >
-                          {score}%
-                        </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {isCompleted ? (
+                        <>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                              score >= 80
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : score >= 50
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                : 'bg-rose-100 text-rose-800 border border-rose-200'
+                            }`}
+                          >
+                            {score}%
+                          </span>
+                          {canRetry ? (
+                            <button
+                              type="button"
+                              onClick={() => handlePickItem(item, true)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-300 text-[11px] font-bold transition-all cursor-pointer shadow-2xs"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>{tr('lessons_retry_btn', 'إعادة')}</span>
+                            </button>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-xl bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-bold">
+                              <Lock className="w-3 h-3" />
+                              <span>{tr('lessons_retry_locked', 'مغلق')}</span>
+                            </span>
+                          )}
+                        </>
                       ) : (
-                        <ChevronLeft className="w-4 h-4 text-slate-400" />
+                        <button
+                          type="button"
+                          onClick={() => handlePickItem(item, false)}
+                          className="p-1 text-slate-400 hover:text-indigo-600 cursor-pointer"
+                          aria-label={item.word}
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
                       )}
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>

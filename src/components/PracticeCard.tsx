@@ -75,6 +75,14 @@ interface PracticeCardProps {
   onOpenLessons?: () => void;
   isSubmitted?: boolean;
   onReRecord?: () => void;
+  retryNonce?: number;
+  recordedHistoryItem?: {
+    score: number;
+    grade: string;
+    spokenText?: string;
+    recordedAudioUrl?: string;
+    timestamp?: number;
+  } | null;
   currentLang?: SupportedLang;
   translations?: TranslationItem[];
   t?: (id: string, fallback?: string) => string;
@@ -93,6 +101,8 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   onOpenLessons,
   isSubmitted = false,
   onReRecord,
+  retryNonce = 0,
+  recordedHistoryItem = null,
   currentLang = 'ar',
   translations = [],
   t,
@@ -120,14 +130,20 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   const [isReRecording, setIsReRecording] = useState(false);
   const [isPlayingSubmittedAudio, setIsPlayingSubmittedAudio] = useState(false);
   const submittedAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lastHandledRetryNonceRef = useRef<number>(0);
 
   useEffect(() => {
-    setIsReRecording(false);
     setIsPlayingSubmittedAudio(false);
     if (submittedAudioRef.current) {
       submittedAudioRef.current.pause();
     }
-  }, [wordItem?.id, currentStudent?.id]);
+    if (retryNonce > 0 && retryNonce !== lastHandledRetryNonceRef.current && wordItem?.allowRetry !== false) {
+      lastHandledRetryNonceRef.current = retryNonce;
+      setIsReRecording(true);
+    } else {
+      setIsReRecording(false);
+    }
+  }, [wordItem?.id, currentStudent?.id, retryNonce, wordItem?.allowRetry]);
 
   const handlePlaySubmittedVoice = (url: string) => {
     if (isPlayingSubmittedAudio && submittedAudioRef.current) {
@@ -165,6 +181,17 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         const fallbackRaw = localStorage.getItem(fallbackKey);
         if (fallbackRaw) {
           setPreviousSubmission(JSON.parse(fallbackRaw));
+        } else if (recordedHistoryItem) {
+          setPreviousSubmission({
+            score: recordedHistoryItem.score,
+            grade: recordedHistoryItem.grade,
+            detectedWord: recordedHistoryItem.spokenText,
+            targetWord: wordItem.word,
+            audioUrl: recordedHistoryItem.recordedAudioUrl,
+            date: recordedHistoryItem.timestamp
+              ? new Date(recordedHistoryItem.timestamp).toLocaleDateString('ar-SA')
+              : undefined,
+          });
         } else {
           setPreviousSubmission(null);
         }
@@ -172,7 +199,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     } catch {
       setPreviousSubmission(null);
     }
-  }, [currentStudent?.id, wordItem.id, wordItem.word, wordItem.lessonSubject]);
+  }, [currentStudent?.id, wordItem.id, wordItem.word, wordItem.lessonSubject, recordedHistoryItem]);
 
   const isMobileDevice = typeof navigator !== 'undefined' && (
     /Android|webOS|iPhone|iPad|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
@@ -959,20 +986,28 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
           </div>
         </div>
 
-        {/* Bottom Action: زر إعادة التسجيل 🔄 */}
+        {/* Bottom Action: زر إعادة التسجيل 🔄 أو تنبيه قفل الإعادة */}
         <div className="mt-8 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="text-xs text-slate-500 text-center sm:text-right">
-            {tr('practice_retry_prompt', 'هل ترغب في إعادة المحاولة وتوثيق تسجيل ودرجة جديدة؟')}
-          </div>
+          {wordItem.allowRetry !== false ? (
+            <>
+              <div className="text-xs text-slate-500 text-center sm:text-right">
+                {tr('practice_retry_prompt', 'هل ترغب في إعادة المحاولة وتوثيق تسجيل ودرجة جديدة؟')}
+              </div>
 
-          <button
-            type="button"
-            onClick={() => setIsReRecording(true)}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-2xl text-sm transition-all shadow-md shadow-indigo-600/20 cursor-pointer hover:scale-102 active:scale-98"
-          >
-            <RotateCcw className="w-4 h-4" />
-            <span>{tr('practice_re_record_btn', 'إعادة التسجيل')}</span>
-          </button>
+              <button
+                type="button"
+                onClick={() => setIsReRecording(true)}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-2xl text-sm transition-all shadow-md shadow-indigo-600/20 cursor-pointer hover:scale-102 active:scale-98"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>{tr('practice_re_record_btn', 'إعادة التسجيل')}</span>
+              </button>
+            </>
+          ) : (
+            <div className="w-full p-3 rounded-2xl bg-slate-100 border border-slate-200 text-slate-700 text-xs sm:text-sm font-bold text-center">
+              {tr('practice_retry_disabled_notice', '🔒 تم تسجيل درجتك مسبقاً، وإعادة المحاولة مغلقة من المعلم.')}
+            </div>
+          )}
         </div>
       </div>
     );

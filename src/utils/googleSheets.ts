@@ -19,7 +19,7 @@ import { INITIAL_MATCHING_SUBJECTS } from '../data/matchingCurriculum';
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbz7pJ8u1OaRVLBvTVSRQxAQ3E5dNWFbBudi7qcFF7QjuKqgLRbcEb_zyYCPFnGUmiRkvQ/exec';
+  'https://script.google.com/macros/s/AKfycbwQ5mmzuw0cWB1vdQsQidWqa_bj8OPbJVZE7pJRunje4IbNaUeN-UFPJ04eKg_voFNF8g/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -249,6 +249,16 @@ export async function fetchCurriculumFromSheets(webhookUrl: string): Promise<{
         }
         return 5;
       })(),
+      allowRetry: (() => {
+        if (typeof item.allowRetry === 'boolean') {
+          return item.allowRetry;
+        }
+        const raw = String(item.repeatCount || '').trim().toLowerCase();
+        if (raw.includes('منع') || raw.includes('لا إعادة') || raw.includes('no_retry') || raw.includes('false')) {
+          return false;
+        }
+        return true;
+      })(),
     }))
     .filter((w: WordItem) => Boolean(w.word));
 
@@ -295,6 +305,7 @@ export async function saveWordToGoogleSheets(
       repeatCount: wordItem.repeatCount || 1,
       difficultyLevel: wordItem.difficultyLevel || 'medium',
       recordingDuration: wordItem.recordingDuration || 5,
+      allowRetry: wordItem.allowRetry !== false,
     },
     audioBase64: audioBase64 || undefined,
   };
@@ -398,6 +409,8 @@ export async function syncAllCurriculumToSheets(
       makhrajTip: item.makhrajTip || '',
       repeatCount: item.repeatCount || 1,
       difficultyLevel: item.difficultyLevel || 'medium',
+      recordingDuration: item.recordingDuration || 5,
+      allowRetry: item.allowRetry !== false,
     })),
   };
 
@@ -1239,6 +1252,7 @@ export async function fetchMatchingExercisesFromSheets(
               lockOnMistake: Boolean(ex.lockOnMistake),
               showMistakeFeedback: ex.showMistakeFeedback !== false,
               allowSmartReassign: Boolean(ex.allowSmartReassign),
+              allowRetry: ex.allowRetry !== false,
             }))
           : [],
       }));
@@ -1276,13 +1290,15 @@ export function formatExerciseSettingsString(exercise: {
   lockOnMistake?: boolean;
   showMistakeFeedback?: boolean;
   allowSmartReassign?: boolean;
+  allowRetry?: boolean;
 }): string {
   const modeStr = exercise.inputMode === 'voice_only' ? 'صوت فقط' : 'فأرة وصوت';
   const lockStr = exercise.lockOnMistake ? 'لا تراجع' : 'إتاحة المحاولة';
   const feedbackStr = exercise.showMistakeFeedback === false ? 'إخفاء الخطأ' : 'إظهار الخطأ';
   const smartStr = exercise.allowSmartReassign ? 'تصحيح ذكي' : 'بدون تصحيح ذكي';
+  const retryStr = exercise.allowRetry === false ? 'منع الإعادة' : 'السماح بالإعادة';
   const dur = typeof exercise.durationSeconds === 'number' && exercise.durationSeconds > 0 ? exercise.durationSeconds : 4;
-  return `${modeStr} | ${lockStr} | ${feedbackStr} | ${smartStr} | ${dur} ثواني`;
+  return `${modeStr} | ${lockStr} | ${feedbackStr} | ${smartStr} | ${retryStr} | ${dur} ثواني`;
 }
 
 /**
@@ -1294,6 +1310,7 @@ export function parseExerciseSettingsString(str?: string): {
   lockOnMistake: boolean;
   showMistakeFeedback: boolean;
   allowSmartReassign: boolean;
+  allowRetry: boolean;
 } {
   const s = String(str || '').trim();
   const inputMode: 'voice_only' | 'both' = s.includes('صوت فقط') ? 'voice_only' : 'both';
@@ -1303,9 +1320,10 @@ export function parseExerciseSettingsString(str?: string): {
     (s.includes('تصحيح ذكي') && !s.includes('بدون تصحيح ذكي')) ||
     s.includes('فك ذكي') ||
     s.includes('تبديل الإجابة');
+  const allowRetry = !(s.includes('منع الإعادة') || s.includes('لا إعادة') || s.includes('no_retry'));
   const durMatch = s.match(/(\d+)\s*ثوان/);
   const durationSeconds = durMatch ? parseInt(durMatch[1], 10) : 4;
-  return { inputMode, durationSeconds, lockOnMistake, showMistakeFeedback, allowSmartReassign };
+  return { inputMode, durationSeconds, lockOnMistake, showMistakeFeedback, allowSmartReassign, allowRetry };
 }
 
 /**
@@ -1323,6 +1341,7 @@ export async function saveMatchingExerciseToSheets(
     lockOnMistake?: boolean;
     showMistakeFeedback?: boolean;
     allowSmartReassign?: boolean;
+    allowRetry?: boolean;
   }
 ): Promise<{ success: boolean; error?: string; message?: string }> {
   if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
@@ -1515,6 +1534,7 @@ export async function exportAllMatchingCurriculumToSheets(
         lockOnMistake: ex.lockOnMistake,
         showMistakeFeedback: ex.showMistakeFeedback,
         allowSmartReassign: ex.allowSmartReassign,
+        allowRetry: ex.allowRetry,
       });
       savedCount++;
     }
@@ -2209,6 +2229,7 @@ function doGet(e) {
                 var lockOnMistake = sStr.indexOf("لا تراجع") !== -1 || sStr.indexOf("قفل") !== -1;
                 var showMistakeFeedback = sStr.indexOf("إخفاء") === -1;
                 var allowSmartReassign = (sStr.indexOf("تصحيح ذكي") !== -1 && sStr.indexOf("بدون تصحيح ذكي") === -1) || sStr.indexOf("فك ذكي") !== -1 || sStr.indexOf("تبديل الإجابة") !== -1;
+                var allowRetry = sStr.indexOf("منع الإعادة") === -1 && sStr.indexOf("لا إعادة") === -1 && sStr.indexOf("no_retry") === -1;
                 var durMatch = sStr.match(/(\d+)\s*ثوان/);
                 var durationSeconds = durMatch ? parseInt(durMatch[1]) : 4;
                 exercises.push({
@@ -2220,7 +2241,8 @@ function doGet(e) {
                   durationSeconds: durationSeconds,
                   lockOnMistake: lockOnMistake,
                   showMistakeFeedback: showMistakeFeedback,
-                  allowSmartReassign: allowSmartReassign
+                  allowSmartReassign: allowSmartReassign,
+                  allowRetry: allowRetry
                 });
                 exNum++;
               }
@@ -2276,7 +2298,12 @@ function doGet(e) {
         var repeatCount = 1;
         var difficultyLevel = "medium";
         var recordingDuration = 5;
+        var allowRetry = true;
         if (repeatRaw) {
+          var repeatLower = repeatRaw.toLowerCase();
+          if (repeatLower.indexOf("منع") !== -1 || repeatLower.indexOf("لا إعادة") !== -1 || repeatLower.indexOf("no_retry") !== -1 || repeatLower.indexOf("false") !== -1) {
+            allowRetry = false;
+          }
           var parts = repeatRaw.split(/[,|]/).map(function(s) { return s.trim(); });
           if (parts.length >= 1) {
             var p1 = parseInt(parts[0]);
@@ -2306,7 +2333,8 @@ function doGet(e) {
           makhrajTip: makhrajTip || "",
           repeatCount: repeatCount,
           difficultyLevel: difficultyLevel,
-          recordingDuration: recordingDuration
+          recordingDuration: recordingDuration,
+          allowRetry: allowRetry
         });
       }
     }
@@ -2856,7 +2884,8 @@ function doPost(e) {
           var diff = item.difficultyLevel || "medium";
           var diffArabic = diff === "easy" ? "سهل" : (diff === "hard" ? "متقدم" : "متوسط");
           var dur = parseInt(item.recordingDuration) || 5;
-          return rep + "," + diffArabic + "," + dur;
+          var retryArabic = item.allowRetry === false ? "منع الإعادة" : "السماح بالإعادة";
+          return rep + "," + diffArabic + "," + dur + "," + retryArabic;
         })()
       ]];
       
@@ -2991,7 +3020,9 @@ function doPost(e) {
                 var rep = parseInt(curItem.repeatCount) || 1;
                 var diff = curItem.difficultyLevel || "medium";
                 var diffArabic = diff === "easy" ? "سهل" : (diff === "hard" ? "متقدم" : "متوسط");
-                return rep + "," + diffArabic;
+                var dur = parseInt(curItem.recordingDuration) || 5;
+                var retryArabic = curItem.allowRetry === false ? "منع الإعادة" : "السماح بالإعادة";
+                return rep + "," + diffArabic + "," + dur + "," + retryArabic;
               })()
             );
           }

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   MatchingLessonSubject,
   MatchingExercise,
+  MatchingHistoryItem,
   StudentRegistrant,
 } from '../types';
 import {
@@ -9,7 +10,10 @@ import {
   TranslationItem,
   getTranslatedMatchingQuestionText,
 } from '../utils/translations';
-import { submitMatchingAnswerToSheet } from '../utils/googleSheets';
+import {
+  submitMatchingAnswerToSheet,
+  extractPercentageFromMatchingText,
+} from '../utils/googleSheets';
 import { removeTashkeel } from '../utils/arabicMatcher';
 import { transcribeWithInBrowserWhisper, findBestCandidateMatch } from '../utils/whisperEngine';
 import {
@@ -37,6 +41,7 @@ import {
   Play,
   Pause,
   X,
+  Lock,
 } from 'lucide-react';
 
 interface WordMatchingArenaProps {
@@ -54,6 +59,15 @@ interface WordMatchingArenaProps {
   activeExerciseIndex?: number;
   onSelectSubjectExercise?: (subjectId: string, exerciseIndex: number) => void;
   onOpenMatchingLessonsModal?: () => void;
+  matchingHistory?: MatchingHistoryItem[];
+  retryNonce?: number;
+  onMatchingSubmitted?: (submitted?: {
+    subjectName: string;
+    exerciseNumber: number;
+    formulaString: string;
+    percentage: number;
+    completionStatus: string;
+  }) => void;
 }
 
 interface ShuffledItem {
@@ -272,6 +286,9 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
   activeSubjectId,
   activeExerciseIndex = 0,
   onSelectSubjectExercise,
+  matchingHistory = [],
+  retryNonce = 0,
+  onMatchingSubmitted,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
   const handleTriggerLogin = onRequestLogin || onOpenLogin || (() => {});
@@ -403,12 +420,14 @@ interface ConnectedAttempt {
     const showMistake = ex?.showMistakeFeedback !== false;
     const smartReassign = !!ex?.allowSmartReassign && !lock;
     const voiceOnly = ex?.inputMode === 'voice_only';
+    const noRetry = ex?.allowRetry === false;
 
     const rules: string[] = [];
     if (lock) rules.push(tr('matching_rule_lock', '🔒 محاولة واحدة بدون تراجع'));
     if (!showMistake) rules.push(tr('matching_rule_hide_mistake', '🙈 كشف الخطأ في نهاية التمرين'));
     if (smartReassign) rules.push(tr('matching_rule_smart_reassign', '🧠 تبديل الإجابة والتصحيح الذكي متاح'));
     if (voiceOnly) rules.push(tr('matching_rule_voice_only', '🎙️ إدخال صوتي فقط (النقر معطّل)'));
+    if (noRetry) rules.push(tr('matching_rule_no_retry', '🔒 الإعادة غير متاحة بعد التسجيل'));
 
     return {
       type: 'info',
@@ -607,7 +626,7 @@ interface ConnectedAttempt {
 
   useEffect(() => {
     initExercise();
-  }, [activeExercise]);
+  }, [activeExercise, retryNonce]);
 
   // Refresh initial guidance message/rules immediately if language changes before interaction
   useEffect(() => {
@@ -1107,6 +1126,21 @@ interface ConnectedAttempt {
     const overallPercentage = Math.round(
       scoresArr.reduce((a, b) => a + b, 0) / Math.max(1, scoresArr.length)
     );
+    const completionStatusText =
+      completedCount >= totalInSubject
+        ? `مكتمل (${completedCount} من ${totalInSubject} تمارين) - النسبة: ${overallPercentage}%`
+        : `جاري الإنجاز (${completedCount} من ${totalInSubject} تمارين) - النسبة التراكمية: ${overallPercentage}%`;
+
+    // Immediately notify parent so MatchingLessonsModal hides completed exercises right away
+    if (currentStudent && onMatchingSubmitted) {
+      onMatchingSubmitted({
+        subjectName: activeSubject.subjectName,
+        exerciseNumber: activeExercise.exerciseNumber,
+        formulaString,
+        percentage,
+        completionStatus: completionStatusText,
+      });
+    }
 
     // Auto-sync to sheet "answers 2" if student is registered and webhook is active
     if (webhookUrl && currentStudent) {
@@ -1207,6 +1241,14 @@ interface ConnectedAttempt {
     }
   };
 
+  const recordedExerciseEntry = useMemo(() => {
+    if (!activeSubject || !activeExercise || !matchingHistory.length) return null;
+    const cleanSubj = (activeSubject.subjectName || '').trim();
+    const rec = matchingHistory.find((h) => (h.lessonSubject || '').trim() === cleanSubj);
+    if (!rec || !Array.isArray(rec.exercises)) return null;
+    return rec.exercises.find((e) => e.exerciseNumber === activeExercise.exerciseNumber) || null;
+  }, [activeSubject, activeExercise, matchingHistory]);
+
   if (!activeSubject || !activeExercise) {
     return (
       <div className="bg-white rounded-3xl p-8 border border-slate-200 text-center max-w-lg mx-auto my-12 shadow-sm">
@@ -1226,6 +1268,11 @@ interface ConnectedAttempt {
       </div>
     );
   }
+
+  const isRetryLockedSubmitted =
+    !isCompleted &&
+    activeExercise.allowRetry === false &&
+    Boolean(recordedExerciseEntry);
 
   const totalPairsCount = activeExercise.pairs.length;
   const accuracyPercent = Math.round(
@@ -1392,8 +1439,43 @@ interface ConnectedAttempt {
           </div>
         )}
 
-        {/* 3. The Two Columns with SVG Connecting Curves Overlay */}
-        {!isCompleted ? (
+        {/* 3. Locked Already-Submitted View OR Playable Matching Arena OR Completed Card */}
+        {isRetryLockedSubmitted && recordedExerciseEntry ? (
+          <div className="w-full max-w-lg my-6 p-6 sm:p-8 bg-slate-50 rounded-3xl border border-slate-200 text-center space-y-4 animate-in fade-in duration-200">
+            <div className="w-14 h-14 rounded-2xl bg-slate-200 text-slate-700 flex items-center justify-center mx-auto">
+              <Lock className="w-7 h-7" />
+            </div>
+            <div>
+              <h3 className="text-lg sm:text-xl font-black text-slate-900">
+                {tr('matching_already_submitted_title', 'تم تسجيل إجابتك في هذا التمرين')}
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                {tr('matching_already_submitted_desc', 'لا يمكن إعادة التمرين لأن المعلم قام بإغلاق الإعادة لهذا التمرين.')}
+              </p>
+            </div>
+            <div className="bg-white p-3.5 rounded-2xl border border-slate-200 font-mono text-sm sm:text-base font-black text-emerald-700">
+              {extractPercentageFromMatchingText(recordedExerciseEntry.formulaString, recordedExerciseEntry.percentage)}% — {recordedExerciseEntry.formulaString}
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+              {exerciseIndex < activeSubject.exercises.length - 1 ? (
+                <button
+                  onClick={handleNextExercise}
+                  className="flex items-center gap-1.5 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-purple-600/20 cursor-pointer"
+                >
+                  <span>{tr('matching_next_btn', 'التمرين التالي')}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleTriggerPronunciation}
+                  className="flex items-center gap-1.5 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+                >
+                  <span>{tr('matching_back_pronunciation', 'الانتقال لتمرين النطق')} 🎙️</span>
+                </button>
+              )}
+            </div>
+          </div>
+        ) : !isCompleted ? (
           <div ref={containerRef} className="relative grid grid-cols-2 gap-4 sm:gap-8 w-full max-w-2xl my-3">
             {/* SVG Connecting Curves */}
             <svg className="absolute inset-0 w-full h-full pointer-events-none z-10 overflow-visible">
@@ -1753,13 +1835,15 @@ interface ConnectedAttempt {
 
             {/* Bottom Actions inside Completion Card */}
             <div className="flex flex-wrap items-center justify-center gap-2.5 pt-3 border-t border-purple-200/80">
-              <button
-                onClick={initExercise}
-                className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>{tr('matching_retry_btn', 'إعادة التمرين')}</span>
-              </button>
+              {activeExercise.allowRetry !== false && (
+                <button
+                  onClick={initExercise}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>{tr('matching_retry_btn', 'إعادة التمرين')}</span>
+                </button>
+              )}
 
               {exerciseIndex < activeSubject.exercises.length - 1 ? (
                 <button

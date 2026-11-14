@@ -127,6 +127,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
   const [lockOnMistake, setLockOnMistake] = useState<boolean>(false);
   const [showMistakeFeedback, setShowMistakeFeedback] = useState<boolean>(true);
   const [allowSmartReassign, setAllowSmartReassign] = useState<boolean>(false);
+  const [allowRetry, setAllowRetry] = useState<boolean>(true);
 
   const [statusMessage, setStatusMessage] = useState<{
     success: boolean;
@@ -419,6 +420,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
     setLockOnMistake(false);
     setShowMistakeFeedback(true);
     setAllowSmartReassign(false);
+    setAllowRetry(true);
   };
 
   // Start Editing an existing exercise
@@ -469,6 +471,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
     setLockOnMistake(!!ex.lockOnMistake);
     setShowMistakeFeedback(ex.showMistakeFeedback !== false);
     setAllowSmartReassign(!!ex.allowSmartReassign);
+    setAllowRetry(ex.allowRetry !== false);
     setEditingInfo({
       subjectId: subj.id,
       exerciseId: ex.id,
@@ -563,6 +566,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                   lockOnMistake,
                   showMistakeFeedback,
                   allowSmartReassign: lockOnMistake ? false : allowSmartReassign,
+                  allowRetry,
                 };
               }
               return ex;
@@ -585,6 +589,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
         lockOnMistake,
         showMistakeFeedback,
         allowSmartReassign: lockOnMistake ? false : allowSmartReassign,
+        allowRetry,
       };
 
       if (subjectItem) {
@@ -626,6 +631,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
           lockOnMistake,
           showMistakeFeedback,
           allowSmartReassign: lockOnMistake ? false : allowSmartReassign,
+          allowRetry,
         });
 
         if (sheetRes.success) {
@@ -1522,6 +1528,42 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                     : 'الافتراضي: عند إظهار الخطأ يختفي الخط الخاطئ فوراً للتحاول مجدداً، وعند إخفاء الخطأ يثبت التوصيل البنفسجي ولا يمكن تبديل الإجابة.'}
                 </p>
               </div>
+
+              {/* Control 6 */}
+              <div className="sm:col-span-2 p-3 bg-white rounded-xl border border-purple-200 shadow-2xs space-y-2">
+                <span className="text-[11px] font-extrabold text-slate-800 block">
+                  6. السماح بإعادة التمرين بعد تسجيل الدرجة:
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setAllowRetry(true)}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      allowRetry
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🔄 السماح بالإعادة (افتراضي)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAllowRetry(false)}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      !allowRetry
+                        ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🔒 منع الإعادة (محاولة واحدة)
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  {allowRetry
+                    ? 'الافتراضي: يختفي التمرين من القائمة فور حله، ويمكن للطالب إظهاره عبر أيقونة العين والنقر على «إعادة» لتحديث درجته.'
+                    : '✓ مقفول: بعد تسجيل الإجابة يختفي التمرين ولا يُسمح للطالب بإعادته مجدداً حتى عند إظهاره بأيقونة العين.'}
+                </p>
+              </div>
             </div>
           </div>
 
@@ -1636,6 +1678,11 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                             {ex.allowSmartReassign && !ex.lockOnMistake && (
                               <span className="px-1.5 py-0.5 rounded-md bg-teal-100 text-teal-900 text-[9px] font-bold" title="فك وتصحيح الخطأ الذكي مفعّل">
                                 🧠 تصحيح ذكي
+                              </span>
+                            )}
+                            {ex.allowRetry === false && (
+                              <span className="px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-800 text-[9px] font-bold" title="منع إعادة التمرين بعد التسجيل">
+                                🔒 منع الإعادة
                               </span>
                             )}
                             <span className="font-amiri text-base font-bold text-slate-800 truncate">

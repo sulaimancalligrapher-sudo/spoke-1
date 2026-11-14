@@ -29,6 +29,7 @@ export interface WordItem {
   repeatCount?: number; // عدد مرات التكرار المطلوبة (افتراضي 1)
   difficultyLevel?: DifficultyLevel; // مستوى تدقيق النطق: 'easy' (سهل) | 'medium' (متوسط) | 'hard' (متقدم)
   recordingDuration?: number; // مدة التسجيل المخصصة بالثواني (افتراضي 5 ثوانٍ)
+  allowRetry?: boolean; // السماح بإعادة التمرين بعد تسجيل الإجابة (افتراضي true)
 }
 
 export interface LetterPhoneme {
@@ -185,6 +186,7 @@ export interface MatchingExercise {
   lockOnMistake?: boolean; // لا يمكن التراجع عن الإجابة عند الخطأ (تثبيت الخطأ)
   showMistakeFeedback?: boolean; // إظهار الخطأ فوراً (افتراضياً true) أو إخفاؤه حتى النهاية (false)
   allowSmartReassign?: boolean; // فك وتصحيح الخطأ الذكي (السماح بتبديل الإجابة وفك الربط السابق تلقائياً)
+  allowRetry?: boolean; // السماح بإعادة التمرين بعد تسجيل الإجابة (افتراضي true)
 }
 
 export interface MatchingLessonSubject {

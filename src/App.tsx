@@ -174,6 +174,8 @@ export default function App() {
 
   // Submission status for current exercise
   const [isCurrentAnswerSubmitted, setIsCurrentAnswerSubmitted] = useState(false);
+  const [pronunciationRetryNonce, setPronunciationRetryNonce] = useState(0);
+  const [matchingRetryNonce, setMatchingRetryNonce] = useState(0);
 
   // Google Sheets Config (Defaulted to verified Webhook URL for seamless cross-device sync)
   const [sheetsConfig, setSheetsConfig] = useState<GoogleSheetsConfig>({
@@ -1047,7 +1049,7 @@ export default function App() {
 
   const currentIndex = activeSubjectWords.findIndex((item) => item.id === selectedItem.id);
 
-  const handleSelectWord = (item: WordItem) => {
+  const handleSelectWord = (item: WordItem, isRetry = false) => {
     setSelectedItem(item);
     if (item.lessonSubject) {
       setStudentSubject(item.lessonSubject);
@@ -1055,6 +1057,9 @@ export default function App() {
     setEvaluation(null);
     setRecordedAudioUrl(null);
     setIsCurrentAnswerSubmitted(false);
+    if (isRetry) {
+      setPronunciationRetryNonce((n) => n + 1);
+    }
     setAppMode('pronunciation');
     setCurrentView('practice');
     setIsLessonsModalOpen(false);
@@ -1528,6 +1533,49 @@ export default function App() {
               onOpenMatchingLessonsModal={() => setIsMatchingLessonsModalOpen(true)}
               onBackToPronunciation={() => setAppMode('pronunciation')}
               onRequestLogin={() => setIsLoginModalOpen(true)}
+              matchingHistory={matchingHistory}
+              retryNonce={matchingRetryNonce}
+              onMatchingSubmitted={(submitted) => {
+                if (!submitted) return;
+                const ts = new Date().toLocaleString('ar-SA');
+                setMatchingHistory((prev) => {
+                  const cleanSubj = submitted.subjectName.trim();
+                  const existingIdx = prev.findIndex((item) => (item.lessonSubject || '').trim() === cleanSubj);
+                  const newEntry = {
+                    exerciseNumber: submitted.exerciseNumber,
+                    formulaString: submitted.formulaString,
+                    percentage: submitted.percentage,
+                  };
+                  if (existingIdx >= 0) {
+                    const next = [...prev];
+                    const existing = next[existingIdx];
+                    const filteredEx = (existing.exercises || []).filter(
+                      (e) => e.exerciseNumber !== submitted.exerciseNumber
+                    );
+                    filteredEx.push(newEntry);
+                    filteredEx.sort((a, b) => a.exerciseNumber - b.exerciseNumber);
+                    next[existingIdx] = {
+                      ...existing,
+                      timestamp: ts,
+                      completionStatus: submitted.completionStatus,
+                      exercises: filteredEx,
+                    };
+                    return next;
+                  }
+                  return [
+                    {
+                      id: `local-ans2-${Date.now()}`,
+                      timestamp: ts,
+                      studentId: currentStudent?.id || '',
+                      studentName: currentStudent?.name || '',
+                      lessonSubject: cleanSubj,
+                      completionStatus: submitted.completionStatus,
+                      exercises: [newEntry],
+                    },
+                    ...prev,
+                  ];
+                });
+              }}
             />
           </div>
         ) : (
@@ -1612,6 +1660,18 @@ export default function App() {
                   setEvaluation(null);
                   setRecordedAudioUrl(null);
                 }}
+                retryNonce={pronunciationRetryNonce}
+                recordedHistoryItem={(() => {
+                  if (!currentStudent || !studentHistory.length) return null;
+                  const cleanSel = selectedItem.word.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').trim();
+                  return (
+                    studentHistory.find((h) => {
+                      if (h.wordId && h.wordId === selectedItem.id) return true;
+                      const hClean = (h.word || '').replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').trim();
+                      return h.word === selectedItem.word || hClean === cleanSel;
+                    }) || null
+                  );
+                })()}
                 currentLang={currentLang}
                 translations={translations}
                 t={t}
@@ -1638,7 +1698,32 @@ export default function App() {
                   lessonSubject={selectedItem.lessonSubject || studentSubject}
                   wordIndex={currentIndex}
                   onRequestLogin={() => setIsLoginModalOpen(true)}
-                  onSubmissionSuccess={() => setIsCurrentAnswerSubmitted(true)}
+                  onSubmissionSuccess={(submitted) => {
+                    setIsCurrentAnswerSubmitted(true);
+                    if (submitted) {
+                      const cleanSubmittedWord = submitted.word.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').trim();
+                      setStudentHistory((prev) => {
+                        const filtered = prev.filter((item) => {
+                          const itemClean = (item.word || '').replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').trim();
+                          return item.wordId !== submitted.wordId && item.word !== submitted.word && itemClean !== cleanSubmittedWord;
+                        });
+                        return [
+                          {
+                            id: `sub-${Date.now()}`,
+                            wordId: submitted.wordId,
+                            word: submitted.word,
+                            score: submitted.score,
+                            grade: submitted.grade,
+                            timestamp: Date.now(),
+                            spokenText: submitted.spokenText,
+                            recordedAudioUrl: submitted.audioUrl,
+                            studentName: currentStudent?.name,
+                          },
+                          ...filtered,
+                        ];
+                      });
+                    }
+                  }}
                   currentLang={currentLang}
                   translations={translations}
                   t={t}
@@ -1748,9 +1833,12 @@ export default function App() {
         subjects={matchingSubjects}
         activeSubjectId={activeMatchingSubjectId || matchingSubjects[0]?.id}
         activeExerciseIndex={activeMatchingExerciseIdx}
-        onSelectSubjectExercise={(subjId, exIdx) => {
+        onSelectSubjectExercise={(subjId, exIdx, isRetry) => {
           setActiveMatchingSubjectId(subjId);
           setActiveMatchingExerciseIdx(exIdx);
+          if (isRetry) {
+            setMatchingRetryNonce((n) => n + 1);
+          }
           setAppMode('matching');
           setCurrentView('practice');
         }}

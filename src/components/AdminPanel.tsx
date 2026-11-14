@@ -260,6 +260,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [repeatCount, setRepeatCount] = useState<number>(1);
   const [difficultyLevel, setDifficultyLevel] = useState<DifficultyLevel>('medium');
   const [recordingDuration, setRecordingDuration] = useState<number>(5);
+  const [allowRetry, setAllowRetry] = useState<boolean>(true);
 
   // Teacher Voice Recording State (Inline quick recording)
   const [isRecordingTeacher, setIsRecordingTeacher] = useState(false);
@@ -314,6 +315,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setRepeatCount(item.repeatCount || 1);
     setDifficultyLevel(item.difficultyLevel || 'medium');
     setRecordingDuration(item.recordingDuration || 5);
+    setAllowRetry(item.allowRetry !== false);
     setLessonsSubTab('add');
 
     window.scrollTo({ top: 120, behavior: 'smooth' });
@@ -331,6 +333,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setRepeatCount(1);
     setDifficultyLevel('medium');
     setRecordingDuration(5);
+    setAllowRetry(true);
     setLessonsSubTab('list');
   };
 
@@ -529,6 +532,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       repeatCount: repeatCount > 1 ? repeatCount : 1,
       difficultyLevel: difficultyLevel,
       recordingDuration: recordingDuration >= 2 ? recordingDuration : 5,
+      allowRetry,
     };
 
     if (editingId) {
@@ -588,6 +592,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setCustomSubjectInput('');
     setRepeatCount(1);
     setDifficultyLevel('medium');
+    setRecordingDuration(5);
+    setAllowRetry(true);
   };
 
   // Test play audio from field
@@ -1728,6 +1734,56 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                   </span>
                 </div>
 
+                {/* 12. السماح بإعادة التمرين بعد تسجيل الدرجة */}
+                <div className="p-3 bg-emerald-50/60 border border-emerald-200/80 rounded-2xl">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                      <RotateCcw className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>12- السماح بإعادة التمرين بعد تسجيل الدرجة:</span>
+                    </label>
+                    <span className="text-[11px] font-bold text-emerald-800">
+                      {allowRetry ? '🔄 مسموح بالإعادة' : '🔒 محاولة واحدة فقط'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAllowRetry(true)}
+                      className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
+                        allowRetry
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-300'
+                      }`}
+                    >
+                      <div className="text-xs font-bold flex items-center justify-between">
+                        <span>السماح بالإعادة (افتراضي)</span>
+                        <span>🔄</span>
+                      </div>
+                      <span className={`text-[10px] mt-1 ${allowRetry ? 'text-emerald-100' : 'text-slate-500'}`}>
+                        يمكن للطالب إعادة التمرين وتحديث درجته السابقة من أيقونة العين في قائمة الدروس
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAllowRetry(false)}
+                      className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
+                        !allowRetry
+                          ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:border-rose-300'
+                      }`}
+                    >
+                      <div className="text-xs font-bold flex items-center justify-between">
+                        <span>منع الإعادة (مرة واحدة)</span>
+                        <span>🔒</span>
+                      </div>
+                      <span className={`text-[10px] mt-1 ${!allowRetry ? 'text-rose-100' : 'text-slate-500'}`}>
+                        يُغلق التمرين نهائياً للطالب فور تسجيل درجته ولا يظهر له زر الإعادة
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Submit button */}
                 <div className="flex gap-2 pt-1">
                   {editingId && (
@@ -1917,6 +1973,11 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                             ) : (
                               <span className="text-[10px] text-sky-800 bg-sky-100 border border-sky-300 px-1.5 py-0.5 rounded-md font-bold" title="مستوى التدقيق: متوسط (متوازن)">
                                 🟡 متوسط
+                              </span>
+                            )}
+                            {item.allowRetry === false && (
+                              <span className="text-[10px] text-rose-800 bg-rose-100 border border-rose-300 px-1.5 py-0.5 rounded-md font-bold" title="ممنوع إعادة التمرين بعد التسجيل">
+                                🔒 بدون إعادة
                               </span>
                             )}
                           </div>
