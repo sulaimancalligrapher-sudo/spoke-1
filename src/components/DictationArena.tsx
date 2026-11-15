@@ -24,7 +24,9 @@ import {
   buildShuffledTiles,
   formatAssembledPreview,
   verifyDictationAnswer,
-  matchSpokenAlternativesToDictationTile,
+  findAllSpokenMatchingTiles,
+  matchDisambiguationChoice,
+  inferPositionalLabel,
 } from '../utils/dictationUtils';
 import {
   Mic,
@@ -268,12 +270,27 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [countdown, setCountdown] = useState<number>(0);
   const [preferWhisperInChrome, setPreferWhisperInChrome] = useState<boolean>(false);
+  const [pendingDisambiguation, setPendingDisambiguation] = useState<{
+    baseChar: string;
+    items: { tile: DictationTile; number: number }[];
+  } | null>(null);
+  const pendingDisambiguationRef = useRef<{
+    baseChar: string;
+    items: { tile: DictationTile; number: number }[];
+  } | null>(null);
   const countdownIntervalRef = useRef<any>(null);
   const recordingTimeoutRef = useRef<any>(null);
   const safetyFlushTimeoutRef = useRef<any>(null);
   const recognizerRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+
+  const updatePendingDisambiguation = (
+    next: { baseChar: string; items: { tile: DictationTile; number: number }[] } | null
+  ) => {
+    pendingDisambiguationRef.current = next;
+    setPendingDisambiguation(next);
+  };
 
   const supportsWebSpeech = useMemo(() => {
     if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
@@ -357,6 +374,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     setSelectedTiles([]);
     setBlankAssignments({});
     setActiveBlankIdx(0);
+    updatePendingDisambiguation(null);
     setWrongAttempts(0);
     setIsCompleted(false);
     setFinalScore(100);
@@ -449,6 +467,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     unlockAudioEngine();
     if (isCompleted || usedTileIds.has(tile.id)) return;
     playAudioChime('tap');
+    updatePendingDisambiguation(null);
 
     if (parsedBlanks.hasBlanks) {
       const totalBlanks = parsedBlanks.expectedBlanks.length;
@@ -491,6 +510,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     unlockAudioEngine();
     if (isCompleted) return;
     playAudioChime('tap');
+    updatePendingDisambiguation(null);
     setSelectedTiles((prev) => prev.filter((t) => t.id !== tileId));
   };
 
@@ -499,6 +519,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     unlockAudioEngine();
     if (isCompleted) return;
     playAudioChime('tap');
+    updatePendingDisambiguation(null);
     if (blankAssignments[blankIdx]) {
       setBlankAssignments((prev) => ({
         ...prev,
@@ -513,6 +534,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     unlockAudioEngine();
     if (isCompleted) return;
     playAudioChime('tap');
+    updatePendingDisambiguation(null);
 
     if (parsedBlanks.hasBlanks) {
       for (let i = parsedBlanks.expectedBlanks.length - 1; i >= 0; i--) {
@@ -533,6 +555,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     unlockAudioEngine();
     if (isCompleted) return;
     playAudioChime('tap');
+    updatePendingDisambiguation(null);
     setSelectedTiles([]);
     setBlankAssignments({});
     setActiveBlankIdx(0);
@@ -546,6 +569,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
   const handleCheckAnswer = async () => {
     unlockAudioEngine();
     if (!activeExercise || !activeSubject || isCompleted) return;
+    updatePendingDisambiguation(null);
 
     // Ensure student placed at least something
     if (parsedBlanks.hasBlanks) {
@@ -570,6 +594,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     const result = verifyDictationAnswer({
       type: detectedType,
       correctAnswer: activeExercise.correctAnswer,
+      scrambledPool: activeExercise.scrambledPool,
       selectedTiles,
       blankAssignments,
     });
@@ -580,7 +605,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       setWrongAttempts(nextWrong);
       setGuidanceBox({
         type: 'error',
-        message: `❌ الإجابة غير صحيحة (${result.assembledAnswer || '—'}). راجع الترتيب أو الحرف وحاول مجدداً ثم اضغط «تحقق».`,
+        message: `❌ الإجابة غير صحيحة (${result.assembledAnswer || '—'}). راجع الشكل أو الترتيب وحاول مجدداً ثم اضغط «تحقق».`,
       });
       return;
     }
@@ -659,7 +684,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     }
   };
 
-  // Voice input matched handler (accepts single string or ranked SpeechRecognition alternatives)
+  // Voice input matched handler (two-step disambiguation for multiple letter shapes)
   const handleVoiceRecognized = (spokenInput: string | string[], usedWhisper = false) => {
     const availableTiles = shuffledTiles.filter((tile) => !usedTileIds.has(tile.id));
     if (availableTiles.length === 0) return;
@@ -670,25 +695,76 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
 
     if (alternatives.length === 0) return;
 
-    const { tile: matchedTile, matchedTranscript } = matchSpokenAlternativesToDictationTile(
-      alternatives,
-      availableTiles
-    );
+    // STEP 2: If student is currently selecting from numbered shapes (1, 2, 3...)
+    const activeDisamb = pendingDisambiguationRef.current;
+    if (activeDisamb && activeDisamb.items.length > 0) {
+      const choice = matchDisambiguationChoice(alternatives, activeDisamb.items);
+      if (choice.isCancel) {
+        playAudioChime('tap');
+        updatePendingDisambiguation(null);
+        setGuidanceBox({
+          type: 'info',
+          message: 'تم إلغاء التحديد وعادت جميع البطاقات. اختر حرفاً أو كلمة جديدة.',
+        });
+        return;
+      }
 
-    if (matchedTile) {
-      handleSelectTile(matchedTile);
+      if (choice.tile) {
+        handleSelectTile(choice.tile);
+        const posLbl = choice.tile.label || inferPositionalLabel(choice.tile.text);
+        setGuidanceBox({
+          type: 'success',
+          message: `✓ تم اختيار «${choice.tile.text}» (${posLbl}) بنجاح. تابع أو اضغط «تحقق».`,
+        });
+        return;
+      }
+
+      playAudioChime('error');
       setGuidanceBox({
-        type: 'success',
-        message: `✓ تم اختيار «${matchedTile.text}» عبر الصوت. تابع الاختيار أو اضغط «تحقق».`,
+        type: 'error',
+        message: `⚠️ سُمع: «${choice.heardText || alternatives[0]}» — انطق الرقم (من 1 إلى ${activeDisamb.items.length}) أو انقر على الشكل المطلوب.`,
+        canUseWhisper: supportsWebSpeech && !usedWhisper,
       });
-    } else {
+      return;
+    }
+
+    // STEP 1: Match spoken letter or word against all available tiles
+    const { tiles: matchedList, matchedTranscript, requiresDisambiguation } =
+      findAllSpokenMatchingTiles(alternatives, availableTiles);
+
+    if (matchedList.length === 0) {
       playAudioChime('error');
       setGuidanceBox({
         type: 'error',
         message: `⚠️ سُمع: «${matchedTranscript || alternatives[0]}» — لم يطابق أياً من البطاقات المتبقية. انطق اسم الحرف (مثل: باء، سين، ألف) أو الكلمة بوضوح، أو استخدم المحرك الدقيق.`,
         canUseWhisper: supportsWebSpeech && !usedWhisper,
       });
+      return;
     }
+
+    if (requiresDisambiguation) {
+      // Order matched shapes visually as they appear in the tiles grid and number them 1..N
+      const numbered = matchedList.map((tile, idx) => ({
+        tile,
+        number: idx + 1,
+      }));
+      const baseChar = matchedList[0].text.replace(/\u0640/g, '').trim();
+      updatePendingDisambiguation({ baseChar, items: numbered });
+      playAudioChime('tap');
+      setGuidanceBox({
+        type: 'info',
+        message: `تم العثور على ${numbered.length} أشكال لحرف «${baseChar}» — اضغط زر الصوت مرة أخرى وانطق الرقم المطلوب (1 - ${numbered.length}) أو انقر على الشكل.`,
+      });
+      return;
+    }
+
+    // Single distinct match -> select immediately
+    const chosen = matchedList[0];
+    handleSelectTile(chosen);
+    setGuidanceBox({
+      type: 'success',
+      message: `✓ تم اختيار «${chosen.text}» عبر الصوت. تابع الاختيار أو اضغط «تحقق».`,
+    });
   };
 
   const recordAndTranscribeWithWhisper = async () => {
@@ -749,9 +825,24 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
 
         try {
           const audioBlob = new Blob(chunks, { type: mimeType });
-          const remainingCandidates = shuffledTiles
-            .filter((tile) => !usedTileIds.has(tile.id))
-            .map((tile) => tile.text);
+          const activeDisamb = pendingDisambiguationRef.current;
+          const remainingCandidates = activeDisamb
+            ? [
+                'واحد',
+                'اثنان',
+                'اثنين',
+                'ثلاثة',
+                'أربعة',
+                'خمسة',
+                'مفرد',
+                'بداية',
+                'وسط',
+                'نهاية',
+              ]
+            : shuffledTiles
+                .filter((tile) => !usedTileIds.has(tile.id))
+                .map((tile) => tile.text);
+
           const text = await transcribeWithInBrowserWhisper(
             audioBlob,
             undefined,
@@ -831,7 +922,9 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
 
     setGuidanceBox({
       type: 'recording',
-      message: 'تحدث الآن... انطق اسم الحرف (مثل: ألف / باء / سين) أو الكلمة المطلوبة 🎙️',
+      message: pendingDisambiguationRef.current
+        ? `تحدث الآن... انطق الرقم المطلوب (1 - ${pendingDisambiguationRef.current.items.length}) 🎙️`
+        : 'تحدث الآن... انطق اسم الحرف (مثل: ألف / باء / سين) أو الكلمة المطلوبة 🎙️',
     });
 
     try {
@@ -1165,6 +1258,23 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                     </button>
                   )}
 
+                  {pendingDisambiguation && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updatePendingDisambiguation(null);
+                        setGuidanceBox({
+                          type: 'info',
+                          message: 'تم إلغاء التحديد وعادت جميع البطاقات. اختر أي حرف أو كلمة.',
+                        });
+                      }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-[11px] font-extrabold cursor-pointer transition-all"
+                    >
+                      <X className="w-3 h-3" />
+                      <span>إلغاء التحديد</span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={handleToggleVoiceInput}
@@ -1174,6 +1284,8 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                         ? 'bg-rose-600 text-white border-rose-600 animate-pulse ring-2 ring-rose-200'
                         : isTranscribing
                         ? 'bg-amber-600 text-white border-amber-600'
+                        : pendingDisambiguation
+                        ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-sm'
                         : 'bg-white hover:bg-rose-50 text-slate-700 border-slate-300 hover:border-rose-300'
                     }`}
                   >
@@ -1187,6 +1299,11 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         <span>جاري التحليل...</span>
                       </>
+                    ) : pendingDisambiguation ? (
+                      <>
+                        <Mic className="w-3.5 h-3.5 text-white" />
+                        <span>انطق الرقم (1 - {pendingDisambiguation.items.length}) 🎙️</span>
+                      </>
                     ) : (
                       <>
                         <Mic className="w-3.5 h-3.5 text-rose-500" />
@@ -1197,23 +1314,53 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                 </div>
               </div>
 
-              {/* Compact Low-Margin Tiles */}
-              <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 pt-1">
+              {/* Compact Low-Margin Tiles (with optional Positional Labels + Voice Number Badges) */}
+              <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 pt-1.5">
                 {shuffledTiles.map((tile) => {
                   const isUsed = usedTileIds.has(tile.id);
+                  const disambMatch = pendingDisambiguation?.items.find(
+                    (it) => it.tile.id === tile.id
+                  );
+                  const isDimmedByDisambiguation = Boolean(pendingDisambiguation && !disambMatch);
+                  const isHighlightedByDisambiguation = Boolean(pendingDisambiguation && disambMatch);
+
                   return (
                     <button
                       key={tile.id}
                       type="button"
-                      disabled={isUsed || isCompleted}
+                      disabled={isUsed || isCompleted || isDimmedByDisambiguation}
                       onClick={() => handleSelectTile(tile)}
-                      className={`px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-xl border-2 font-amiri text-xl sm:text-2xl font-bold leading-none transition-all select-none ${
+                      className={`relative px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border-2 flex flex-col items-center justify-center transition-all select-none ${
                         isUsed
                           ? 'bg-slate-100 border-slate-200 text-slate-300 cursor-default scale-95'
+                          : isDimmedByDisambiguation
+                          ? 'bg-slate-100 border-slate-200 text-slate-400 opacity-30 grayscale cursor-not-allowed scale-95'
+                          : isHighlightedByDisambiguation
+                          ? 'bg-amber-50 hover:bg-amber-100 border-amber-500 text-slate-950 ring-2 ring-amber-300 shadow-md scale-105 cursor-pointer active:scale-95'
                           : 'bg-white hover:bg-teal-50 border-slate-300 hover:border-teal-500 text-slate-900 shadow-2xs cursor-pointer active:scale-95'
                       }`}
                     >
-                      {tile.text}
+                      {disambMatch && (
+                        <span className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-amber-600 text-white text-xs font-black flex items-center justify-center shadow-sm border-2 border-white">
+                          {disambMatch.number}
+                        </span>
+                      )}
+                      <span className="font-amiri text-xl sm:text-2xl font-bold leading-none">
+                        {tile.text}
+                      </span>
+                      {tile.label && (
+                        <span
+                          className={`mt-1 px-1.5 py-0.5 rounded-md text-[10px] font-extrabold leading-none ${
+                            isUsed
+                              ? 'bg-slate-100 text-slate-300'
+                              : isHighlightedByDisambiguation
+                              ? 'bg-amber-200/80 text-amber-950'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {tile.label}
+                        </span>
+                      )}
                     </button>
                   );
                 })}

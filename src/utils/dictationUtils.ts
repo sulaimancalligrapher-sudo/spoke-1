@@ -4,7 +4,13 @@ import { ARABIC_LETTER_NAMES, removeTashkeel } from './arabicMatcher';
 export interface DictationTile {
   id: string;
   text: string;
+  label?: string;
   index: number;
+}
+
+export interface ParsedPoolTileEntry {
+  text: string;
+  label?: string;
 }
 
 export interface AnswerSegment {
@@ -45,22 +51,123 @@ export function normalizeForDictationCompare(
 }
 
 /**
- * Split scrambled pool (Column C of sheet "كلمات") into individual selectable tiles.
- * Supports "|" separator if explicitly present, otherwise whitespace.
+ * Infer Arabic positional label from tatweel markers:
+ * "س" -> مفرد | "سـ" -> بداية | "ـسـ" -> وسط | "ـس" -> نهاية
+ */
+export function inferPositionalLabel(glyph: string): string {
+  const clean = String(glyph || '').trim();
+  const startsTatweel = clean.startsWith('ـ');
+  const endsTatweel = clean.endsWith('ـ');
+  if (startsTatweel && endsTatweel) return 'وسط';
+  if (endsTatweel) return 'بداية';
+  if (startsTatweel) return 'نهاية';
+  return 'مفرد';
+}
+
+function canonicalizePositionalLabel(rawLabel?: string, glyph?: string): string | undefined {
+  const lbl = String(rawLabel || '').trim();
+  if (!lbl) return undefined;
+  if (lbl.includes('مفرد') || lbl.includes('منفرد') || lbl.includes('منفصل')) return 'مفرد';
+  if (lbl.includes('بداية') || lbl.includes('اول') || lbl.includes('أول')) return 'بداية';
+  if (lbl.includes('وسط') || lbl.includes('منتصف')) return 'وسط';
+  if (lbl.includes('نهاية') || lbl.includes('اخر') || lbl.includes('آخر')) return 'نهاية';
+  return lbl || (glyph ? inferPositionalLabel(glyph) : undefined);
+}
+
+/**
+ * Parse Col C scrambled pool into { text, label } entries.
+ * Supports:
+ * 1) Descriptive positional format: "( ـس ) نهاية ( ـسـ ) وسط ( ف ) مفرد ( سـ ) بداية"
+ *    (with or without outer parentheses or "|" separators)
+ * 2) Pipe-separated tokens: "ـسـ | ـكـ | س"
+ * 3) Space-separated tokens: "ب ا ب ف ر" or "المدرسة ذهب إلى محمد"
+ */
+export function parsePoolEntries(scrambledPool: string): ParsedPoolTileEntry[] {
+  let raw = String(scrambledPool || '').trim();
+  if (!raw) return [];
+
+  // Strip redundant outer wrapping parens: "( ( ـس ) نهاية ... )" -> "( ـس ) نهاية ..."
+  if (/^\(\s*\(/.test(raw) && raw.endsWith(')')) {
+    raw = raw.slice(1, -1).trim();
+  }
+
+  const hasParenSyntax = /\(\s*[^()]+\s*\)/.test(raw);
+  let entries: ParsedPoolTileEntry[] = [];
+
+  if (hasParenSyntax) {
+    // Try pipe-split first if pipes are explicitly used between parenthesized entries
+    if (raw.includes('|')) {
+      const chunks = raw.split('|').map((c) => c.trim()).filter(Boolean);
+      for (const chunk of chunks) {
+        const m = chunk.match(/^\(\s*([^()]+?)\s*\)(?:\s*(.*))?$/);
+        if (m) {
+          const text = m[1].trim();
+          const label = canonicalizePositionalLabel(m[2], text);
+          if (text) entries.push({ text, label });
+        } else {
+          entries.push({ text: chunk });
+        }
+      }
+    } else {
+      const parenRegex =
+        /\(\s*([^()]+?)\s*\)(?:\s*(مفردة|مفرد|منفردة|منفرد|منفصلة|منفصل|بداية|أول الكلمة|اول الكلمة|أول|اول|وسط الكلمة|وسطية|وسط|منتصف|نهاية|آخر الكلمة|اخر الكلمة|آخر|اخر))?/g;
+      let match: RegExpExecArray | null;
+      while ((match = parenRegex.exec(raw)) !== null) {
+        const text = match[1].trim();
+        const label = canonicalizePositionalLabel(match[2], text);
+        if (text) {
+          entries.push({ text, label });
+        }
+      }
+    }
+  }
+
+  if (entries.length === 0) {
+    const rawTokens = raw.includes('|')
+      ? raw.split('|').map((t) => t.trim()).filter(Boolean)
+      : raw.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+    entries = rawTokens.map((text) => ({ text }));
+  }
+
+  // If the pool uses positional forms (any tatweel "ـ" or explicit positional label),
+  // auto-infer labels on any single-letter entries that don't have one yet.
+  const usesPositional = entries.some(
+    (e) => Boolean(e.label) || e.text.includes('ـ')
+  );
+  if (usesPositional) {
+    entries = entries.map((e) => {
+      if (e.label) return e;
+      const bareLen = e.text.replace(ARABIC_DIACRITICS_ONLY, '').replace(TATWEEL_REGEX, '').trim().length;
+      if (bareLen <= 1 || e.text.includes('ـ')) {
+        return { ...e, label: inferPositionalLabel(e.text) };
+      }
+      return e;
+    });
+  }
+
+  return entries;
+}
+
+/**
+ * Split scrambled pool (Column C of sheet "كلمات") into individual glyph/word tokens.
  */
 export function parsePoolTokens(scrambledPool: string): string[] {
-  const raw = String(scrambledPool || '').trim();
-  if (!raw) return [];
-  if (raw.includes('|')) {
-    return raw
-      .split('|')
-      .map((t) => t.trim())
-      .filter(Boolean);
-  }
-  return raw
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter(Boolean);
+  return parsePoolEntries(scrambledPool).map((e) => e.text);
+}
+
+/**
+ * Format pool tokens into descriptive positional syntax:
+ * "( ـس ) نهاية ( ـسـ ) وسط ( ف ) مفرد ( سـ ) بداية"
+ */
+export function formatPoolWithPositionalLabels(scrambledPool: string): string {
+  const entries = parsePoolEntries(scrambledPool);
+  if (entries.length === 0) return '';
+  return entries
+    .map((e) => {
+      const lbl = e.label || inferPositionalLabel(e.text);
+      return `( ${e.text} ) ${lbl}`;
+    })
+    .join(' ');
 }
 
 /**
@@ -170,10 +277,11 @@ export function buildShuffledTiles(
   correctAnswer: string,
   type: DictationQuestionType
 ): DictationTile[] {
-  const tokens = parsePoolTokens(scrambledPool);
-  const tiles: DictationTile[] = tokens.map((text, idx) => ({
-    id: `tile-${idx}-${text}`,
-    text,
+  const entries = parsePoolEntries(scrambledPool);
+  const tiles: DictationTile[] = entries.map((entry, idx) => ({
+    id: `tile-${idx}-${entry.text}-${entry.label || ''}`,
+    text: entry.text,
+    label: entry.label,
     index: idx,
   }));
 
@@ -248,12 +356,17 @@ export function formatAssembledPreview(
 export function verifyDictationAnswer(params: {
   type: DictationQuestionType;
   correctAnswer: string;
+  scrambledPool?: string;
   selectedTiles: DictationTile[];
   blankAssignments: Record<number, DictationTile | null>;
 }): { isCorrect: boolean; assembledAnswer: string; expectedDisplay: string } {
-  const { type, correctAnswer, selectedTiles, blankAssignments } = params;
+  const { type, correctAnswer, scrambledPool, selectedTiles, blankAssignments } = params;
   const parsedBlanks = parseAnswerWithBlanks(correctAnswer);
-  const expectedDisplay = correctAnswer.replace(/\|/g, '').replace(/\s+/g, ' ').trim();
+  const expectedDisplay = correctAnswer
+    .replace(/\|/g, '')
+    .replace(TATWEEL_REGEX, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
   if (parsedBlanks.hasBlanks) {
     const allFilled = parsedBlanks.expectedBlanks.every((_, idx) => Boolean(blankAssignments[idx]));
@@ -261,12 +374,31 @@ export function verifyDictationAnswer(params: {
       return { isCorrect: false, assembledAnswer: '', expectedDisplay };
     }
 
+    const poolEntries = scrambledPool ? parsePoolEntries(scrambledPool) : [];
+    const poolUsesPositional = poolEntries.some(
+      (e) => e.text.includes('ـ') || Boolean(e.label)
+    );
+
     const everyBlankMatches = parsedBlanks.expectedBlanks.every((expected, idx) => {
       const chosen = blankAssignments[idx];
       if (!chosen) return false;
       const normExpected = normalizeForDictationCompare(expected, { stripSpaces: true });
       const normChosen = normalizeForDictationCompare(chosen.text, { stripSpaces: true });
-      return normExpected === normChosen;
+      if (normExpected !== normChosen) return false;
+
+      // Strict positional check (e.g. "ـسـ" وسط vs "س" مفرد vs "سـ" بداية vs "ـس" نهاية)
+      const enforcePositional = expected.includes('ـ') || (type === 'fill_letter' && poolUsesPositional);
+      if (enforcePositional) {
+        const expTrim = expected.trim();
+        const choTrim = chosen.text.trim();
+        const expStart = expTrim.startsWith('ـ');
+        const expEnd = expTrim.endsWith('ـ');
+        const choStart = choTrim.startsWith('ـ');
+        const choEnd = choTrim.endsWith('ـ');
+        return expStart === choStart && expEnd === choEnd;
+      }
+
+      return true;
     });
 
     const assembledAnswer = parsedBlanks.segments
@@ -284,7 +416,15 @@ export function verifyDictationAnswer(params: {
       return { isCorrect: true, assembledAnswer, expectedDisplay };
     }
 
-    // Also allow full-string match (e.g. if connected forms match after removing tatweel)
+    // If positional forms are enforced, do NOT fall back to tatweel-stripped comparison!
+    const anyPositionalExpected =
+      parsedBlanks.expectedBlanks.some((b) => b.includes('ـ')) ||
+      (type === 'fill_letter' && poolUsesPositional);
+    if (anyPositionalExpected) {
+      return { isCorrect: false, assembledAnswer, expectedDisplay };
+    }
+
+    // Fallback full-string match for non-positional blanks
     const fullNormStudent = normalizeForDictationCompare(assembledAnswer, {
       stripSpaces: type === 'fill_letter',
     });
@@ -358,18 +498,57 @@ export function formatDictationSettingsString(exercise: {
 
 /**
  * Helper for Teacher Admin: auto-generate scrambled pool from Col D answer.
+ * When positional shapes are present (or formatPositional = true), auto-generates
+ * positional letter forms with descriptive labels: "( ـس ) نهاية ( ـسـ ) وسط ...".
  */
-export function generateScrambledFromAnswer(correctAnswer: string): string {
+export function generateScrambledFromAnswer(
+  correctAnswer: string,
+  formatPositional = false
+): string {
   const raw = String(correctAnswer || '').trim();
   if (!raw) return '';
 
   const parsedBlanks = parseAnswerWithBlanks(raw);
   const distractorsLetters = ['ف', 'ر', 'م', 'س', 'ل', 'ك', 'د', 'ن'];
   const distractorsWords = ['جلس', 'كتب', 'فوق', 'نام', 'المسجد', 'البيت'];
+  const nonLeftConnectingLetters = new Set(['ا', 'أ', 'إ', 'آ', 'د', 'ذ', 'ر', 'ز', 'و', 'ة', 'ى', 'ء']);
 
   if (parsedBlanks.hasBlanks) {
     const type = detectDictationType('', raw);
     const needed = [...parsedBlanks.expectedBlanks].filter(Boolean);
+    const hasPositionalBlank = needed.some((b) => b.includes('ـ')) || formatPositional;
+
+    if (type === 'fill_letter' && hasPositionalBlank) {
+      const poolList: string[] = [...needed];
+      const primaryBlank = needed[0] || '';
+      const baseChar = primaryBlank.replace(ARABIC_DIACRITICS_ONLY, '').replace(TATWEEL_REGEX, '').trim();
+
+      // Add positional variants of the target letter first (e.g. س, سـ, ـسـ, ـس)
+      if (baseChar && baseChar.length === 1) {
+        const candidateShapes = nonLeftConnectingLetters.has(baseChar)
+          ? [baseChar, `ـ${baseChar}`]
+          : [baseChar, `${baseChar}ـ`, `ـ${baseChar}ـ`, `ـ${baseChar}`];
+        for (const shape of candidateShapes) {
+          if (!poolList.includes(shape)) {
+            poolList.push(shape);
+          }
+        }
+      }
+
+      // Add a couple of positional distractors from other letters
+      const extraShapes = ['ف', 'ـف', 'ـعـ', 'ع', 'لـ', 'ـكـ', 'مـ', 'ـن'];
+      for (const sh of extraShapes) {
+        if (poolList.length >= 8) break;
+        const shBase = sh.replace(TATWEEL_REGEX, '');
+        if (shBase !== baseChar && !poolList.includes(sh)) {
+          poolList.push(sh);
+        }
+      }
+
+      const shuffled = [...poolList].sort(() => Math.random() - 0.5);
+      return shuffled.map((g) => `( ${g} ) ${inferPositionalLabel(g)}`).join(' ');
+    }
+
     const poolSet = [...needed];
     const extrasSource = type === 'fill_word' ? distractorsWords : distractorsLetters;
     for (const d of extrasSource) {
@@ -391,6 +570,9 @@ export function generateScrambledFromAnswer(correctAnswer: string): string {
 
   // Letter ordering -> split non-space characters
   const chars = raw.replace(/\s+/g, '').split('').filter(Boolean);
+  if (formatPositional) {
+    return chars.map((g) => `( ${g} ) ${inferPositionalLabel(g)}`).join(' ');
+  }
   return chars.join(' ');
 }
 
@@ -631,3 +813,107 @@ export function matchSpokenAlternativesToDictationTile(
   }
   return { tile: null, matchedTranscript: alternatives[0] || '' };
 }
+
+/**
+ * Find ALL available tiles matching a spoken letter/word (for two-step voice disambiguation
+ * when multiple positional shapes of the same letter exist, e.g., ـس / ـسـ / سـ / س).
+ */
+export function findAllSpokenMatchingTiles(
+  alternatives: string[],
+  availableTiles: DictationTile[]
+): {
+  tiles: DictationTile[];
+  matchedTranscript: string;
+  requiresDisambiguation: boolean;
+} {
+  const { tile: primaryMatch, matchedTranscript } = matchSpokenAlternativesToDictationTile(
+    alternatives,
+    availableTiles
+  );
+
+  if (!primaryMatch) {
+    return { tiles: [], matchedTranscript: alternatives[0] || '', requiresDisambiguation: false };
+  }
+
+  const targetBase = normalizeSpokenForDictation(primaryMatch.text);
+  const matchingTiles = availableTiles.filter(
+    (t) => normalizeSpokenForDictation(t.text) === targetBase
+  );
+
+  // Only require number disambiguation if there are 2+ DISTINCT visual shapes/labels
+  // (So two identical "ب" tiles in "باب" still select immediately without asking for a number!)
+  const distinctVariants = new Set(
+    matchingTiles.map((t) => `${t.text.trim()}__${t.label || ''}`)
+  );
+
+  return {
+    tiles: matchingTiles,
+    matchedTranscript,
+    requiresDisambiguation: distinctVariants.size >= 2,
+  };
+}
+
+const ARABIC_NUMBER_WORDS: Record<number, string[]> = {
+  1: ['1', '١', 'واحد', 'واحدة', 'أول', 'اول', 'الأول', 'الاول', 'one', 'first'],
+  2: ['2', '٢', 'اثنين', 'اثنان', 'إثنين', 'إثنان', 'اتنين', 'تنين', 'ثاني', 'الثاني', 'ثانية', 'two', 'second'],
+  3: ['3', '٣', 'ثلاثة', 'ثلاثه', 'ثلاث', 'تلاتة', 'تلاته', 'تلات', 'ثالث', 'الثالث', 'three', 'third'],
+  4: ['4', '٤', 'أربعة', 'اربعة', 'أربعه', 'اربعه', 'أربع', 'اربع', 'رابع', 'الرابع', 'four', 'fourth'],
+  5: ['5', '٥', 'خمسة', 'خمسه', 'خمس', 'خامس', 'الخامس', 'five', 'fifth'],
+  6: ['6', '٦', 'ستة', 'سته', 'ست', 'سادس', 'السادس', 'six', 'sixth'],
+  7: ['7', '٧', 'سبعة', 'سبعه', 'سبع', 'سابع', 'السابع', 'seven', 'seventh'],
+  8: ['8', '٨', 'ثمانية', 'ثمانيه', 'ثماني', 'تمانية', 'ثامن', 'الثامن', 'eight', 'eighth'],
+  9: ['9', '٩', 'تسعة', 'تسعه', 'تسع', 'تاسع', 'التاسع', 'nine', 'ninth'],
+};
+
+/**
+ * Resolve student's second voice step during disambiguation:
+ * Matches spoken digits ("1", "١", "واحد", "اثنين", "ثلاثة"...) OR explicit position ("وسط", "بداية", "نهاية", "مفرد"),
+ * or "إلغاء" to cancel selection mode.
+ */
+export function matchDisambiguationChoice(
+  alternatives: string[],
+  numberedItems: { tile: DictationTile; number: number }[]
+): { tile: DictationTile | null; isCancel: boolean; heardText: string } {
+  const cleanAlts = alternatives
+    .map((a) => String(a || '').trim())
+    .filter(Boolean);
+  const heardText = cleanAlts[0] || '';
+
+  for (const alt of cleanAlts) {
+    const norm = normalizeSpokenForDictation(alt);
+    if (!norm) continue;
+
+    if (norm.includes('الغاء') || norm.includes('تراجع') || norm === 'cancel') {
+      return { tile: null, isCancel: true, heardText: alt };
+    }
+
+    // 1. Check spoken numbers 1..9
+    const tokens = norm.split(/\s+/).filter(Boolean);
+    for (const item of numberedItems) {
+      const variants = ARABIC_NUMBER_WORDS[item.number] || [String(item.number)];
+      const normVariants = variants.map((v) => normalizeSpokenForDictation(v));
+      if (
+        normVariants.includes(norm) ||
+        tokens.some((tok) => normVariants.includes(tok))
+      ) {
+        return { tile: item.tile, isCancel: false, heardText: alt };
+      }
+    }
+
+    // 2. Also accept explicit positional label if the student speaks it directly
+    for (const item of numberedItems) {
+      const lbl = item.tile.label || inferPositionalLabel(item.tile.text);
+      if (
+        (lbl === 'مفرد' && (norm.includes('مفرد') || norm.includes('منفرد') || norm.includes('منفصل'))) ||
+        (lbl === 'بداية' && (norm.includes('بداية') || norm.includes('اول'))) ||
+        (lbl === 'وسط' && (norm.includes('وسط') || norm.includes('منتصف'))) ||
+        (lbl === 'نهاية' && (norm.includes('نهاية') || norm.includes('اخر')))
+      ) {
+        return { tile: item.tile, isCancel: false, heardText: alt };
+      }
+    }
+  }
+
+  return { tile: null, isCancel: false, heardText };
+}
+

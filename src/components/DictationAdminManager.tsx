@@ -19,9 +19,10 @@ import {
 import {
   detectDictationType,
   getDictationTypeLabel,
-  parsePoolTokens,
+  parsePoolEntries,
   parseAnswerWithBlanks,
   generateScrambledFromAnswer,
+  formatPoolWithPositionalLabels,
   formatDictationSettingsString,
 } from '../utils/dictationUtils';
 import { getAlternativeAudioUrls } from '../utils/mediaUrl';
@@ -369,6 +370,14 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
     setScrambledPool(generated);
   };
 
+  const handleFormatPositionalPool = () => {
+    if (!scrambledPool.trim()) {
+      alert('أدخل الحروف في خانة المشتت أولاً (أو اضغط التفكيك التلقائي) ليتم تنسيقها بالمواضع.');
+      return;
+    }
+    setScrambledPool(formatPoolWithPositionalLabels(scrambledPool));
+  };
+
   const resetFormFields = () => {
     setQuestionOrder(['text', 'image', 'audio']);
     setQText('');
@@ -649,7 +658,7 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
 
   const liveDetectedType = detectDictationType(scrambledPool, correctAnswer);
   const liveBlanks = parseAnswerWithBlanks(correctAnswer);
-  const liveTilesPreview = parsePoolTokens(scrambledPool);
+  const liveTilesPreview = parsePoolEntries(scrambledPool);
 
   return (
     <div className="bg-white rounded-3xl p-5 sm:p-7 border border-slate-200/80 shadow-sm space-y-6">
@@ -1033,35 +1042,52 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="text-xs font-extrabold text-slate-800">
-                4. الحروف أو الكلمات المشتتة (العمود الثاني — افصل بمسافة أو |):
+                4. الحروف أو الكلمات المشتتة (العمود الثاني — يدعم المواضع مثل ( ـس ) نهاية ( ـسـ ) وسط):
               </label>
-              <button
-                type="button"
-                onClick={handleAutoGenerateScrambled}
-                className="inline-flex items-center gap-1 px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-[11px] font-bold transition-all cursor-pointer"
-              >
-                <Wand2 className="w-3 h-3" />
-                <span>✨ تفكيك تلقائي من الإجابة</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleFormatPositionalPool}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-amber-50 text-amber-800 border border-amber-300 rounded-lg text-[11px] font-bold transition-all cursor-pointer"
+                  title="إضافة تسميات المواضع (مفرد / بداية / وسط / نهاية) تلقائياً للحروف"
+                >
+                  <span>🏷️ إضافة تسمية الموضع تلقائياً</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAutoGenerateScrambled}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-[11px] font-bold transition-all cursor-pointer"
+                >
+                  <Wand2 className="w-3 h-3" />
+                  <span>✨ تفكيك تلقائي من الإجابة</span>
+                </button>
+              </div>
             </div>
 
             <input
               type="text"
               value={scrambledPool}
               onChange={(e) => setScrambledPool(e.target.value)}
-              placeholder="مثال: ب ا ب ف ر  — أو: ـسـ ـكـ ك س سـ  — أو: المدرسة ذهب إلى محمد"
+              placeholder="مثال: ( ـس ) نهاية ( ـسـ ) وسط ( ف ) مفرد ( سـ ) بداية  — أو: ب ا ب ف ر"
               className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl font-amiri text-xl font-bold text-slate-900"
             />
 
             {liveTilesPreview.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 pt-1">
                 <span className="text-[11px] font-bold text-slate-500 ml-1">معاينة البطاقات:</span>
-                {liveTilesPreview.map((tok, i) => (
+                {liveTilesPreview.map((entry, i) => (
                   <span
                     key={i}
-                    className="px-2.5 py-1 bg-white border border-slate-300 rounded-lg font-amiri text-lg font-bold text-slate-800"
+                    className="inline-flex flex-col items-center px-2.5 py-1 bg-white border border-slate-300 rounded-lg"
                   >
-                    {tok}
+                    <span className="font-amiri text-lg font-bold text-slate-800 leading-none">
+                      {entry.text}
+                    </span>
+                    {entry.label && (
+                      <span className="mt-1 text-[10px] font-bold text-teal-700 leading-none">
+                        {entry.label}
+                      </span>
+                    )}
                   </span>
                 ))}
               </div>
