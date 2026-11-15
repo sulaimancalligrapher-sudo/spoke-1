@@ -467,13 +467,17 @@ export function verifyDictationAnswer(params: {
 }
 
 /**
- * Parse Col 4 settings string (minimal defaults now, expandable later).
+ * Parse Col 4 settings string (inputMode, lockOnMistake, allowRetry, durationSeconds).
  */
 export function parseDictationSettingsString(str?: string): {
+  inputMode: 'voice_only' | 'both';
+  lockOnMistake: boolean;
   durationSeconds: number;
   allowRetry: boolean;
 } {
   const s = String(str || '').trim();
+  const inputMode: 'voice_only' | 'both' = s.includes('صوت فقط') ? 'voice_only' : 'both';
+  const lockOnMistake = s.includes('لا تراجع') || s.includes('لا يمكن التراجع') || s.includes('قفل');
   const allowRetry = !(
     s.includes('منع الإعادة') ||
     s.includes('لا إعادة') ||
@@ -481,19 +485,23 @@ export function parseDictationSettingsString(str?: string): {
   );
   const durMatch = s.match(/(\d+)\s*ثوان/);
   const durationSeconds = durMatch ? parseInt(durMatch[1], 10) : 5;
-  return { durationSeconds, allowRetry };
+  return { inputMode, lockOnMistake, durationSeconds, allowRetry };
 }
 
 export function formatDictationSettingsString(exercise: {
+  inputMode?: 'voice_only' | 'both';
+  lockOnMistake?: boolean;
   durationSeconds?: number;
   allowRetry?: boolean;
 }): string {
+  const modeStr = exercise.inputMode === 'voice_only' ? 'صوت فقط' : 'فأرة وصوت';
+  const lockStr = exercise.lockOnMistake ? 'لا تراجع' : 'إتاحة المحاولة';
   const retryStr = exercise.allowRetry === false ? 'منع الإعادة' : 'السماح بالإعادة';
   const dur =
     typeof exercise.durationSeconds === 'number' && exercise.durationSeconds > 0
       ? exercise.durationSeconds
       : 5;
-  return `${retryStr} | ${dur} ثواني`;
+  return `${modeStr} | ${lockStr} | ${retryStr} | ${dur} ثواني`;
 }
 
 /**

@@ -1618,6 +1618,8 @@ export async function fetchDictationExercisesFromSheets(
                 scrambledPool: String(ex.scrambledPool || '').trim(),
                 correctAnswer: String(ex.correctAnswer || '').trim(),
                 settingsString: String(ex.settingsString || ex.settings || '').trim(),
+                inputMode: ex.inputMode === 'voice_only' || ex.inputMode === 'both' ? ex.inputMode : parsedSet.inputMode,
+                lockOnMistake: ex.lockOnMistake !== undefined ? Boolean(ex.lockOnMistake) : parsedSet.lockOnMistake,
                 durationSeconds:
                   typeof ex.durationSeconds === 'number' ? ex.durationSeconds : parsedSet.durationSeconds,
                 allowRetry: ex.allowRetry !== undefined ? Boolean(ex.allowRetry) : parsedSet.allowRetry,
@@ -1659,6 +1661,8 @@ export async function saveDictationExerciseToSheets(
     questionText: string;
     scrambledPool: string;
     correctAnswer: string;
+    inputMode?: 'voice_only' | 'both';
+    lockOnMistake?: boolean;
     durationSeconds?: number;
     allowRetry?: boolean;
   }
@@ -1737,6 +1741,8 @@ export async function exportAllDictationCurriculumToSheets(
         questionText: ex.questionText,
         scrambledPool: ex.scrambledPool,
         correctAnswer: ex.correctAnswer,
+        inputMode: ex.inputMode,
+        lockOnMistake: ex.lockOnMistake,
         durationSeconds: ex.durationSeconds,
         allowRetry: ex.allowRetry,
       });

@@ -1,3 +1,4 @@
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Mic,
   Flame,
@@ -9,6 +10,10 @@ import {
   FileSpreadsheet,
   User,
   LogOut,
+  BookOpen,
+  ChevronDown,
+  Link2,
+  PenTool,
 } from 'lucide-react';
 import { StudentRegistrant } from '../types';
 import { LanguageSelector } from './LanguageSelector';
@@ -69,6 +74,24 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectMode,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
+  const [lessonsMenuOpen, setLessonsMenuOpen] = useState(false);
+  const lessonsMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      if (lessonsMenuRef.current && !lessonsMenuRef.current.contains(e.target as Node)) {
+        setLessonsMenuOpen(false);
+      }
+    };
+    if (lessonsMenuOpen) {
+      document.addEventListener('mousedown', handleOutside);
+      document.addEventListener('touchstart', handleOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+    };
+  }, [lessonsMenuOpen]);
 
   return (
     <header className="bg-white/90 backdrop-blur-md sticky top-0 z-40 border-b border-slate-100 shadow-2xs">
@@ -154,37 +177,95 @@ export const Navbar: React.FC<NavbarProps> = ({
             <LanguageSelector currentLang={currentLang} onSelectLang={onSelectLang} />
           )}
 
-          {/* Quick Open Lessons Button (تمرين النطق) */}
-          {onOpenLessons && (
-            <button
-              onClick={onOpenLessons}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-600/20 cursor-pointer"
-              title={tr('nav_open_lessons', 'فتح قائمة دروس وتمارين النطق')}
-            >
-              <span>{tr('nav_open_lessons', 'فتح الدروس 📚')}</span>
-            </button>
-          )}
+          {/* Unified Lessons Dropdown Button (دروس) */}
+          {(onOpenLessons || onOpenMatchingLessons || onOpenDictationLessons) && (
+            <div ref={lessonsMenuRef} className="relative flex-1 sm:flex-none">
+              <button
+                type="button"
+                onClick={() => setLessonsMenuOpen((prev) => !prev)}
+                className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-600/20 cursor-pointer"
+                aria-expanded={lessonsMenuOpen}
+                aria-haspopup="menu"
+              >
+                <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                <span>{tr('nav_lessons_menu', 'دروس')}</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                    lessonsMenuOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
 
-          {/* Dedicated Matching Lessons Button (تمرين الوصل - ورقة وصل) */}
-          {onOpenMatchingLessons && (
-            <button
-              onClick={onOpenMatchingLessons}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-purple-600/20 cursor-pointer"
-              title={tr('nav_matching_lessons', 'دروس الوصل 🔗')}
-            >
-              <span>{tr('nav_matching_lessons', 'دروس الوصل 🔗')}</span>
-            </button>
-          )}
+              {lessonsMenuOpen && (
+                <div
+                  role="menu"
+                  className="absolute left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-slate-200 py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150"
+                >
+                  {onOpenLessons && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setLessonsMenuOpen(false);
+                        onOpenLessons();
+                      }}
+                      className={`w-full px-3.5 py-2.5 text-right flex items-center gap-2.5 text-xs font-bold transition-colors cursor-pointer ${
+                        currentView === 'practice' && currentMode === 'pronunciation'
+                          ? 'bg-indigo-50 text-indigo-800'
+                          : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="w-7 h-7 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                        <Mic className="w-3.5 h-3.5" />
+                      </span>
+                      <span className="flex-1">{tr('nav_pronunciation_training', 'تدريب النطق')}</span>
+                    </button>
+                  )}
 
-          {/* Dedicated Dictation Lessons Button (تمرين الإملاء - ورقة كلمات) */}
-          {onOpenDictationLessons && (
-            <button
-              onClick={onOpenDictationLessons}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-3.5 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-teal-600/20 cursor-pointer"
-              title={tr('nav_dictation_lessons', 'دروس الإملاء 📝')}
-            >
-              <span>{tr('nav_dictation_lessons', 'دروس الإملاء 📝')}</span>
-            </button>
+                  {onOpenMatchingLessons && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setLessonsMenuOpen(false);
+                        onOpenMatchingLessons();
+                      }}
+                      className={`w-full px-3.5 py-2.5 text-right flex items-center gap-2.5 text-xs font-bold transition-colors cursor-pointer ${
+                        currentView === 'practice' && currentMode === 'matching'
+                          ? 'bg-purple-50 text-purple-800'
+                          : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="w-7 h-7 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
+                        <Link2 className="w-3.5 h-3.5" />
+                      </span>
+                      <span className="flex-1">{tr('nav_matching_exercises', 'تمارين الوصل')}</span>
+                    </button>
+                  )}
+
+                  {onOpenDictationLessons && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setLessonsMenuOpen(false);
+                        onOpenDictationLessons();
+                      }}
+                      className={`w-full px-3.5 py-2.5 text-right flex items-center gap-2.5 text-xs font-bold transition-colors cursor-pointer ${
+                        currentView === 'practice' && currentMode === 'dictation'
+                          ? 'bg-teal-50 text-teal-800'
+                          : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="w-7 h-7 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center shrink-0">
+                        <PenTool className="w-3.5 h-3.5" />
+                      </span>
+                      <span className="flex-1">{tr('nav_dictation_exercise', 'تمرين الإملاء')}</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           {/* Student Status on Desktop (اسم المشترك وزر خروج أيقونة فقط) */}

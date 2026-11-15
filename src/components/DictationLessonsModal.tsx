@@ -5,16 +5,13 @@ import {
   Sparkles,
   BookOpen,
   ChevronLeft,
-  Image as ImageIcon,
-  Volume2,
   Eye,
   EyeOff,
   RotateCcw,
   Lock,
   CheckCircle2,
 } from 'lucide-react';
-import { getQuestionPlainText, parseQuestionBlocks } from '../utils/matchingMedia';
-import { detectDictationType, getDictationTypeLabel } from '../utils/dictationUtils';
+import { getQuestionPlainText } from '../utils/matchingMedia';
 import { SupportedLang } from '../utils/translations';
 import { extractPercentageFromMatchingText } from '../utils/googleSheets';
 
@@ -110,7 +107,7 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
           </div>
           <div>
             <h2 className="text-xl sm:text-2xl font-black text-slate-900 font-amiri tracking-wide">
-              {tr('dictation_modal_title', 'تمارين الإملاء وتكوين الكلمات 📝')}
+              {tr('nav_dictation_exercise', 'تمرين الإملاء')}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               {tr('dictation_modal_subtitle', 'اختر موضوع الدرس ثم ابدأ بترتيب الحروف أو إكمال الكلمات')}
@@ -167,8 +164,9 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
             indexedExercises.map(({ ex, exIdx }) => {
               const isCurrent =
                 currentSubject.id === activeSubjectId && exIdx === activeExerciseIndex;
-              const plainQ = getQuestionPlainText(ex.questionText);
-              const qType = detectDictationType(ex.scrambledPool, ex.correctAnswer);
+              const plainQ =
+                getQuestionPlainText(ex.questionText).trim() ||
+                `${tr('matching_modal_exercise_word', 'تمرين')} ${ex.exerciseNumber}`;
               const score = subjectScoresMap[ex.exerciseNumber];
               const isCompleted = score !== undefined;
               const canRetry = ex.allowRetry !== false;
@@ -176,7 +174,7 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
               return (
                 <div
                   key={ex.id || exIdx}
-                  className={`w-full p-4 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
+                  className={`w-full p-3.5 sm:p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-3 ${
                     isCompleted
                       ? isCurrent
                         ? 'bg-emerald-100/80 border-emerald-500 ring-2 ring-emerald-300/70 shadow-sm'
@@ -192,10 +190,10 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
                       onSelectSubjectExercise(currentSubject.id, exIdx, false);
                       onClose();
                     }}
-                    className="flex items-center gap-3 min-w-0 flex-1 text-right cursor-pointer"
+                    className="flex items-start sm:items-center gap-3 min-w-0 flex-1 text-right cursor-pointer"
                   >
                     <span
-                      className={`w-9 h-9 rounded-xl font-extrabold text-xs flex items-center justify-center shrink-0 ${
+                      className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5 sm:mt-0 ${
                         isCompleted
                           ? 'bg-emerald-200/80 text-emerald-900'
                           : 'bg-teal-100 text-teal-900'
@@ -203,43 +201,12 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
                     >
                       {ex.exerciseNumber}
                     </span>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
-                        <span
-                          className={`text-[10px] font-bold ${
-                            isCompleted ? 'text-emerald-800' : 'text-teal-700'
-                          }`}
-                        >
-                          {tr('matching_modal_exercise_word', 'تمرين')} {ex.exerciseNumber}
-                        </span>
-                        <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-[9px] font-bold rounded-md">
-                          {getDictationTypeLabel(qType)}
-                        </span>
-                        {isCurrent && (
-                          <span className="px-1.5 py-0.2 bg-teal-600 text-white text-[9px] font-bold rounded-md">
-                            {tr('matching_modal_current_badge', 'الحالي')}
-                          </span>
-                        )}
-                        {parseQuestionBlocks(ex.questionText).some((b) => b.type === 'image') && (
-                          <span className="px-1.5 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 text-[9px] font-bold rounded-md inline-flex items-center gap-0.5">
-                            <ImageIcon className="w-2.5 h-2.5" />
-                            <span>{currentLang === 'ar' ? 'صورة' : currentLang === 'th' ? 'รูปภาพ' : 'Image'}</span>
-                          </span>
-                        )}
-                        {parseQuestionBlocks(ex.questionText).some((b) => b.type === 'audio') && (
-                          <span className="px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 text-[9px] font-bold rounded-md inline-flex items-center gap-0.5">
-                            <Volume2 className="w-2.5 h-2.5" />
-                            <span>{currentLang === 'ar' ? 'صوت' : currentLang === 'th' ? 'เสียง' : 'Audio'}</span>
-                          </span>
-                        )}
-                      </div>
-                      <h4 className="text-base sm:text-lg font-bold text-slate-900 font-amiri leading-snug">
-                        {plainQ}
-                      </h4>
-                    </div>
+                    <h4 className="flex-1 min-w-0 text-base sm:text-lg font-bold text-slate-900 font-amiri leading-relaxed">
+                      {plainQ}
+                    </h4>
                   </button>
 
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center justify-end gap-2 shrink-0 pt-1 sm:pt-0 border-t border-slate-200/60 sm:border-t-0">
                     {isCompleted ? (
                       <>
                         <span
@@ -260,15 +227,19 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
                               onSelectSubjectExercise(currentSubject.id, exIdx, true);
                               onClose();
                             }}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-300 text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                            title={tr('matching_retry_short', 'إعادة التمرين')}
+                            aria-label={tr('matching_retry_short', 'إعادة التمرين')}
+                            className="w-8 h-8 rounded-xl bg-white hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-300 flex items-center justify-center transition-all cursor-pointer shadow-2xs"
                           >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span>{tr('matching_retry_short', 'إعادة')}</span>
+                            <RotateCcw className="w-4 h-4" />
                           </button>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-bold">
-                            <Lock className="w-3 h-3" />
-                            <span>{tr('lessons_retry_locked', 'مغلق')}</span>
+                          <span
+                            title={tr('lessons_retry_locked', 'الإعادة مغلقة')}
+                            aria-label={tr('lessons_retry_locked', 'الإعادة مغلقة')}
+                            className="w-8 h-8 rounded-xl bg-slate-100 text-slate-500 border border-slate-200 flex items-center justify-center"
+                          >
+                            <Lock className="w-3.5 h-3.5" />
                           </span>
                         )}
                       </>
@@ -279,7 +250,7 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
                           onSelectSubjectExercise(currentSubject.id, exIdx, false);
                           onClose();
                         }}
-                        className="p-1 text-slate-400 hover:text-teal-600 cursor-pointer"
+                        className="p-1.5 text-slate-400 hover:text-teal-600 cursor-pointer"
                         aria-label={plainQ}
                       >
                         <ChevronLeft className="w-4 h-4" />

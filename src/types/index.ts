@@ -233,7 +233,9 @@ export interface DictationExercise {
   questionText: string; // Col 1: نص | صورة:رابط | صوت:رابط
   scrambledPool: string; // Col 2: الحروف / الحروف المتصلة / الكلمات المشتتة
   correctAnswer: string; // Col 3: الإجابة الصحيحة (تقبل |...| للفراغ الناقص)
-  settingsString?: string; // Col 4: الإعدادات (محجوز للتحكم اللاحق)
+  settingsString?: string; // Col 4: الإعدادات
+  inputMode?: 'voice_only' | 'both'; // صوت فقط أو صوت وفأرة
+  lockOnMistake?: boolean; // لا يمكن التراجع (true) أو إتاحة المحاولة (false)
   durationSeconds?: number; // مدة تسجيل الصوت بالثواني (افتراضياً 5)
   allowRetry?: boolean; // السماح بإعادة التمرين بعد التسجيل (افتراضي true)
 }

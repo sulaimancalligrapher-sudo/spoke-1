@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   WordItem,
   PronunciationEvaluation,
@@ -79,6 +79,11 @@ import {
   Home,
   Layers,
   Award,
+  ChevronDown,
+  Link2,
+  PenTool,
+  Mic,
+  List,
 } from 'lucide-react';
 
 const STORAGE_KEY_HISTORY = 'faseeh_pronunciation_history_v1';
@@ -158,10 +163,28 @@ export default function App() {
   const [isLessonsModalOpen, setIsLessonsModalOpen] = useState(false);
   const [isMatchingLessonsModalOpen, setIsMatchingLessonsModalOpen] = useState(false);
   const [isDictationLessonsModalOpen, setIsDictationLessonsModalOpen] = useState(false);
+  const [landingLessonsMenuOpen, setLandingLessonsMenuOpen] = useState(false);
+  const landingLessonsMenuRef = useRef<HTMLDivElement | null>(null);
   const [activeMatchingSubjectId, setActiveMatchingSubjectId] = useState<string>('');
   const [activeMatchingExerciseIdx, setActiveMatchingExerciseIdx] = useState<number>(0);
   const [activeDictationSubjectId, setActiveDictationSubjectId] = useState<string>('');
   const [activeDictationExerciseIdx, setActiveDictationExerciseIdx] = useState<number>(0);
+
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      if (landingLessonsMenuRef.current && !landingLessonsMenuRef.current.contains(e.target as Node)) {
+        setLandingLessonsMenuOpen(false);
+      }
+    };
+    if (landingLessonsMenuOpen) {
+      document.addEventListener('mousedown', handleOutside);
+      document.addEventListener('touchstart', handleOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+    };
+  }, [landingLessonsMenuOpen]);
 
   // Modals & Registration
   const [isStatsOpen, setIsStatsOpen] = useState(false);
@@ -1401,7 +1424,7 @@ export default function App() {
           <div className="flex flex-col items-center justify-center animate-in fade-in duration-300 py-2 sm:py-6">
             {/* Main Hero Card - Controlled exclusively by sheet 'الرئيسية' B21:B27 */}
             <div
-              className="relative overflow-hidden rounded-3xl text-white shadow-2xl border border-slate-800/80 max-w-4xl w-full mx-auto"
+              className="relative overflow-visible rounded-3xl text-white shadow-2xl border border-slate-800/80 max-w-4xl w-full mx-auto"
               style={
                 homeConfig?.card?.cardBgUrl
                   ? {
@@ -1412,10 +1435,12 @@ export default function App() {
                   : undefined
               }
             >
-              {/* Dark overlay for contrast and crystal-clear readability (supports static images & animated GIFs) */}
-              <div className="absolute inset-0 bg-linear-to-b from-slate-950/90 via-slate-950/85 to-slate-950/92 backdrop-blur-xs" />
-              <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-              <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-500/15 rounded-full blur-3xl pointer-events-none" />
+              {/* Clipped backdrop layer so dropdown can extend smoothly outside if needed */}
+              <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
+                <div className="absolute inset-0 bg-linear-to-b from-slate-950/90 via-slate-950/85 to-slate-950/92 backdrop-blur-xs" />
+                <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl" />
+                <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-500/15 rounded-full blur-3xl" />
+              </div>
 
               <div className="relative z-10 flex flex-col items-center text-center p-7 sm:p-14 max-w-3xl mx-auto">
                 {/* 1. B21: Card Logo (Centered) */}
@@ -1481,15 +1506,101 @@ export default function App() {
                   );
                 })()}
 
-                {/* 5. ONLY ONE ACTION BUTTON: [ فتح الدروس والتمارين 📚 ] */}
-                <div className="flex justify-center pt-2">
+                {/* 5. Unified Lessons Dropdown Button (دروس) */}
+                <div ref={landingLessonsMenuRef} className="relative flex justify-center pt-2">
                   <button
-                    onClick={() => setIsLessonsModalOpen(true)}
+                    type="button"
+                    onClick={() => setLandingLessonsMenuOpen((prev) => !prev)}
                     className="flex items-center justify-center gap-2.5 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-2xl text-base sm:text-lg transition-all shadow-xl shadow-emerald-500/30 cursor-pointer hover:scale-105 active:scale-95"
+                    aria-expanded={landingLessonsMenuOpen}
+                    aria-haspopup="menu"
                   >
                     <BookOpen className="w-5 h-5" />
-                    <span>{t('nav_open_lessons', 'فتح الدروس والتمارين 📚')}</span>
+                    <span>{t('nav_lessons_menu', 'دروس')}</span>
+                    <ChevronDown
+                      className={`w-4 h-4 transition-transform duration-200 ${
+                        landingLessonsMenuOpen ? 'rotate-180' : ''
+                      }`}
+                    />
                   </button>
+
+                  {landingLessonsMenuOpen && (
+                    <div
+                      role="menu"
+                      className="absolute top-full left-1/2 -translate-x-1/2 mt-2.5 w-60 bg-white rounded-2xl shadow-2xl border border-slate-200 py-2 z-30 text-slate-800 animate-in fade-in slide-in-from-top-2 duration-150"
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setLandingLessonsMenuOpen(false);
+                          setIsLessonsModalOpen(true);
+                        }}
+                        className="w-full px-4 py-3 text-right flex items-center gap-3 text-sm font-bold text-slate-800 hover:bg-indigo-50 hover:text-indigo-900 transition-colors cursor-pointer"
+                      >
+                        <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                          <Mic className="w-4 h-4" />
+                        </span>
+                        <span className="flex-1">{t('nav_pronunciation_training', 'تدريب النطق')}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setLandingLessonsMenuOpen(false);
+                          if (currentStudent && sheetsConfig.webhookUrl) {
+                            fetchStudentMatchingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+                              .then((mh) => {
+                                if (mh) setMatchingHistory(mh);
+                              })
+                              .catch(() => {});
+                          } else {
+                            fetchStudentMatchingHistory('', '', '')
+                              .then((mh) => {
+                                if (mh) setMatchingHistory(mh);
+                              })
+                              .catch(() => {});
+                          }
+                          setIsMatchingLessonsModalOpen(true);
+                        }}
+                        className="w-full px-4 py-3 text-right flex items-center gap-3 text-sm font-bold text-slate-800 hover:bg-purple-50 hover:text-purple-900 transition-colors cursor-pointer"
+                      >
+                        <span className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
+                          <Link2 className="w-4 h-4" />
+                        </span>
+                        <span className="flex-1">{t('nav_matching_exercises', 'تمارين الوصل')}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setLandingLessonsMenuOpen(false);
+                          if (currentStudent && sheetsConfig.webhookUrl) {
+                            fetchStudentDictationHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+                              .then((dh) => {
+                                if (dh) setDictationHistory(dh);
+                              })
+                              .catch(() => {});
+                          } else {
+                            fetchStudentDictationHistory('', '', '')
+                              .then((dh) => {
+                                if (dh) setDictationHistory(dh);
+                              })
+                              .catch(() => {});
+                          }
+                          setIsDictationLessonsModalOpen(true);
+                        }}
+                        className="w-full px-4 py-3 text-right flex items-center gap-3 text-sm font-bold text-slate-800 hover:bg-teal-50 hover:text-teal-900 transition-colors cursor-pointer"
+                      >
+                        <span className="w-8 h-8 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center shrink-0">
+                          <PenTool className="w-4 h-4" />
+                        </span>
+                        <span className="flex-1">{t('nav_dictation_exercise', 'تمرين الإملاء')}</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1715,15 +1826,6 @@ export default function App() {
                     </button>
 
                     <button
-                      onClick={() => setAppMode('pronunciation')}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                      title={t('matching_back_pronunciation', 'العودة لتمرين النطق')}
-                    >
-                      <span>🎙️</span>
-                      <span>{t('matching_back_pronunciation', 'العودة لتمرين النطق')}</span>
-                    </button>
-
-                    <button
                       type="button"
                       onClick={() => {
                         if (currentStudent && sheetsConfig.webhookUrl) {
@@ -1741,26 +1843,24 @@ export default function App() {
                         }
                         setIsDictationLessonsModalOpen(true);
                       }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                      title={t('dictation_lessons_list_btn', 'قائمة الدروس 📝')}
+                      className="p-2 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200/80 rounded-xl transition-all cursor-pointer shadow-2xs"
+                      title={t('dictation_lessons_list_btn', 'قائمة الدروس')}
+                      aria-label={t('dictation_lessons_list_btn', 'قائمة الدروس')}
                     >
-                      <span>{t('dictation_lessons_list_btn', 'قائمة الدروس 📝')}</span>
+                      <List className="w-4 h-4 text-teal-700" />
                     </button>
                   </div>
 
                   {resolvedSubject && (
                     <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs">
-                      <div className="px-2.5 py-1 rounded-xl bg-teal-50 text-teal-900 font-bold border border-teal-200/80 flex items-center gap-1.5">
-                        <span className="text-teal-700 font-normal">
-                          {t('matching_subject_label', 'الموضوع:')}
-                        </span>
+                      <div className="px-2.5 py-1 rounded-xl bg-teal-50 text-teal-900 font-bold border border-teal-200/80 flex items-center">
                         <select
                           value={resolvedSubjectId}
                           onChange={(e) => {
                             setActiveDictationSubjectId(e.target.value);
                             setActiveDictationExerciseIdx(0);
                           }}
-                          className="bg-transparent font-bold text-teal-950 focus:outline-hidden cursor-pointer max-w-[170px] truncate"
+                          className="bg-transparent font-bold text-teal-950 focus:outline-hidden cursor-pointer max-w-[190px] truncate"
                         >
                           {dictationSubjects.map((subj) => (
                             <option key={subj.id} value={subj.id}>
@@ -1890,10 +1990,10 @@ export default function App() {
                 <button
                   onClick={() => setIsLessonsModalOpen(true)}
                   className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                  title={t('nav_open_lessons', 'فتح قائمة الدروس واختيار تمرين آخر')}
+                  title={t('eval_open_lessons_btn', 'فتح الدروس')}
                 >
                   <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>({t('nav_open_lessons', 'فتح الدروس')})</span>
+                  <span>({t('eval_open_lessons_btn', 'فتح الدروس')})</span>
                 </button>
               </div>
 

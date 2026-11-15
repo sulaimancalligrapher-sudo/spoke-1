@@ -102,6 +102,8 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
   // Dictation core fields (Col C & Col D)
   const [correctAnswer, setCorrectAnswer] = useState<string>('');
   const [scrambledPool, setScrambledPool] = useState<string>('');
+  const [inputMode, setInputMode] = useState<'both' | 'voice_only'>('both');
+  const [lockOnMistake, setLockOnMistake] = useState<boolean>(false);
   const [durationSeconds, setDurationSeconds] = useState<number>(5);
   const [allowRetry, setAllowRetry] = useState<boolean>(true);
 
@@ -385,6 +387,8 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
     setQAudioUrl('');
     setCorrectAnswer('');
     setScrambledPool('');
+    setInputMode('both');
+    setLockOnMistake(false);
     setDurationSeconds(5);
     setAllowRetry(true);
   };
@@ -411,6 +415,8 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
     setQAudioUrl(nextAud);
     setCorrectAnswer(ex.correctAnswer || '');
     setScrambledPool(ex.scrambledPool || '');
+    setInputMode(ex.inputMode === 'voice_only' ? 'voice_only' : 'both');
+    setLockOnMistake(Boolean(ex.lockOnMistake));
     setDurationSeconds(ex.durationSeconds || 5);
     setAllowRetry(ex.allowRetry !== false);
     setEditingInfo({
@@ -474,7 +480,12 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
     setIsSaving(true);
     setStatusMessage(null);
 
-    const settingsString = formatDictationSettingsString({ durationSeconds, allowRetry });
+    const settingsString = formatDictationSettingsString({
+      inputMode,
+      lockOnMistake,
+      durationSeconds,
+      allowRetry,
+    });
 
     let nextSubjects: DictationLessonSubject[];
     let exerciseNumberToSave = 1;
@@ -493,6 +504,8 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
                   scrambledPool: scrambledPool.trim(),
                   correctAnswer: correctAnswer.trim(),
                   settingsString,
+                  inputMode,
+                  lockOnMistake,
                   durationSeconds,
                   allowRetry,
                 };
@@ -514,6 +527,8 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
         scrambledPool: scrambledPool.trim(),
         correctAnswer: correctAnswer.trim(),
         settingsString,
+        inputMode,
+        lockOnMistake,
         durationSeconds,
         allowRetry,
       };
@@ -547,6 +562,8 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
           questionText: finalQuestionString,
           scrambledPool: scrambledPool.trim(),
           correctAnswer: correctAnswer.trim(),
+          inputMode,
+          lockOnMistake,
           durationSeconds,
           allowRetry,
         });
@@ -786,6 +803,24 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
                             <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-bold text-[10px]">
                               {getDictationTypeLabel(qType)}
                             </span>
+                            {ex.inputMode === 'voice_only' && (
+                              <span className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-800 border border-indigo-200 font-bold text-[10px]">
+                                🎙️ صوت فقط
+                              </span>
+                            )}
+                            <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 font-bold text-[10px]">
+                              ⏱️ {ex.durationSeconds || 5}ث
+                            </span>
+                            {ex.lockOnMistake && (
+                              <span className="px-2 py-0.5 rounded-lg bg-rose-50 text-rose-800 border border-rose-200 font-bold text-[10px]">
+                                🔒 لا تراجع
+                              </span>
+                            )}
+                            {ex.allowRetry === false && (
+                              <span className="px-2 py-0.5 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 font-bold text-[10px]">
+                                🔒 منع الإعادة
+                              </span>
+                            )}
                           </div>
                           <div className="text-xs sm:text-sm font-bold text-slate-900">
                             {getQuestionPlainText(ex.questionText)}
@@ -1094,28 +1129,152 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
             )}
           </div>
 
-          {/* 5. Default Settings (Col 4) */}
-          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-wrap items-center justify-between gap-4">
-            <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={allowRetry}
-                onChange={(e) => setAllowRetry(e.target.checked)}
-                className="w-4 h-4 accent-teal-600 rounded"
-              />
-              <span>السماح للطالب بإعادة التمرين بعد تسجيل الإجابة</span>
-            </label>
+          {/* 5. Student Behavior & Controls (Col 4) */}
+          <div className="p-4 bg-teal-50/70 border border-teal-200/90 rounded-2xl space-y-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-teal-700" />
+              <h4 className="text-xs font-black text-teal-950">
+                5. خيارات طريقة الإجابة وسلوك التمرين للطالب (تُحفظ في العمود الرابع بورقة كلمات):
+              </h4>
+            </div>
 
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
-              <span>مدة استماع الميكروفون (ثواني):</span>
-              <input
-                type="number"
-                min={2}
-                max={20}
-                value={durationSeconds}
-                onChange={(e) => setDurationSeconds(Math.max(2, Number(e.target.value) || 5))}
-                className="w-16 px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-center"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              {/* Control 1: Input Mode */}
+              <div className="p-3 bg-white rounded-xl border border-teal-200 shadow-2xs space-y-2">
+                <span className="text-[11px] font-extrabold text-slate-800 block">
+                  1. أزرار الإدخال المتاحة للطالب:
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setInputMode('both')}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      inputMode === 'both'
+                        ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🖱️🎙️ صوت وفأرة
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInputMode('voice_only')}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      inputMode === 'voice_only'
+                        ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🎙️ صوت فقط
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  {inputMode === 'voice_only'
+                    ? '✓ صوت فقط: يظهر للطالب زر النطق الصوتي فقط (يتعطل النقر على الخيارات لإلزام الطالب بالنطق).'
+                    : 'الافتراضي: يمكن للطالب الاختيار بالنقر على الخيارات أو عن طريق النطق الصوتي.'}
+                </p>
+              </div>
+
+              {/* Control 2: Mic Listening Duration */}
+              <div className="p-3 bg-white rounded-xl border border-teal-200 shadow-2xs space-y-2">
+                <span className="text-[11px] font-extrabold text-slate-800 block">
+                  2. مدة الاستماع والعد التنازلي:
+                </span>
+                <div className="flex items-center justify-between gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setDurationSeconds((prev) => Math.max(2, prev - 1))}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-white hover:bg-teal-50 text-teal-700 font-black border border-slate-200 cursor-pointer text-sm shadow-2xs"
+                  >
+                    -
+                  </button>
+                  <span className="text-xs font-black text-teal-900 font-mono">
+                    {durationSeconds} ثوانٍ
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setDurationSeconds((prev) => Math.min(20, prev + 1))}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-white hover:bg-teal-50 text-teal-700 font-black border border-slate-200 cursor-pointer text-sm shadow-2xs"
+                  >
+                    +
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  مدة تسجيل الميكروفون عند نطق الحروف أو الكلمات ({durationSeconds} ثوانٍ) قبل التحليل التلقائي.
+                </p>
+              </div>
+
+              {/* Control 3: Lock on Mistake */}
+              <div className="p-3 bg-white rounded-xl border border-teal-200 shadow-2xs space-y-2">
+                <span className="text-[11px] font-extrabold text-slate-800 block">
+                  3. خيار التراجع عند الخطأ:
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setLockOnMistake(false)}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      !lockOnMistake
+                        ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🔄 إتاحة المحاولة
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLockOnMistake(true)}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      lockOnMistake
+                        ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🔒 لا يمكن التراجع
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  {lockOnMistake
+                    ? '✓ تم القفل: يتعطل زر «تراجع» ولا يمكن سحب الحرف بعد وضعه، وإذا أخطأ عند الضغط على «تحقق» تُسجل النتيجة 0% وتظهر الإجابة الصحيحة.'
+                    : 'الافتراضي: يمكن للطالب التراجع عن الحروف وإعادة المحاولة حتى يصل للإجابة الصحيحة.'}
+                </p>
+              </div>
+
+              {/* Control 4: Allow Retry */}
+              <div className="p-3 bg-white rounded-xl border border-teal-200 shadow-2xs space-y-2">
+                <span className="text-[11px] font-extrabold text-slate-800 block">
+                  4. السماح بإعادة التمرين بعد تسجيل الدرجة:
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setAllowRetry(true)}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      allowRetry
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🔄 السماح بالإعادة (افتراضي)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAllowRetry(false)}
+                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      !allowRetry
+                        ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🔒 منع الإعادة (محاولة واحدة)
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  {allowRetry
+                    ? 'الافتراضي: يختفي التمرين من القائمة فور حله، ويمكن للطالب إظهاره عبر أيقونة العين والنقر على زر الإعادة لتحديث درجته.'
+                    : '✓ مقفول: بعد تسجيل الإجابة يختفي التمرين ولا يُسمح للطالب بإعادته مجدداً حتى عند إظهاره بأيقونة العين.'}
+                </p>
+              </div>
             </div>
           </div>
 
