@@ -25,6 +25,12 @@ import {
 } from '../utils/matchingMedia';
 import { getAlternativeAudioUrls } from '../utils/mediaUrl';
 import {
+  formatStudentRetryBannerMessage,
+  getRetryStatus,
+  recordStudentRetryAttempt,
+  resolveEffectiveMaxRetries,
+} from '../utils/retryLimit';
+import {
   Mic,
   MousePointer,
   Sparkles,
@@ -61,6 +67,7 @@ interface WordMatchingArenaProps {
   onOpenMatchingLessonsModal?: () => void;
   matchingHistory?: MatchingHistoryItem[];
   retryNonce?: number;
+  retryBanner?: { nonce: number; message: string } | null;
   onMatchingSubmitted?: (submitted?: {
     subjectName: string;
     exerciseNumber: number;
@@ -288,6 +295,7 @@ export const WordMatchingArena: React.FC<WordMatchingArenaProps> = ({
   onSelectSubjectExercise,
   matchingHistory = [],
   retryNonce = 0,
+  retryBanner = null,
   onMatchingSubmitted,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
@@ -420,14 +428,14 @@ interface ConnectedAttempt {
     const showMistake = ex?.showMistakeFeedback !== false;
     const smartReassign = !!ex?.allowSmartReassign && !lock;
     const voiceOnly = ex?.inputMode === 'voice_only';
-    const noRetry = ex?.allowRetry === false;
+    const maxRetries = resolveEffectiveMaxRetries(ex || undefined);
 
     const rules: string[] = [];
     if (lock) rules.push(tr('matching_rule_lock', '🔒 محاولة واحدة بدون تراجع'));
     if (!showMistake) rules.push(tr('matching_rule_hide_mistake', '🙈 كشف الخطأ في نهاية التمرين'));
     if (smartReassign) rules.push(tr('matching_rule_smart_reassign', '🧠 تبديل الإجابة والتصحيح الذكي متاح'));
     if (voiceOnly) rules.push(tr('matching_rule_voice_only', '🎙️ إدخال صوتي فقط (النقر معطّل)'));
-    if (noRetry) rules.push(tr('matching_rule_no_retry', '🔒 الإعادة غير متاحة بعد التسجيل'));
+    if (maxRetries === 0) rules.push(tr('matching_rule_no_retry', '🔒 الإعادة غير متاحة بعد التسجيل'));
 
     return {
       type: 'info',
@@ -624,9 +632,30 @@ interface ConnectedAttempt {
     setGuidanceBox(getInitialGuidanceForExercise(activeExercise));
   };
 
+  const [hasActiveRetryPass, setHasActiveRetryPass] = useState(false);
+  const [retryBannerMessage, setRetryBannerMessage] = useState<string | null>(null);
+  const lastHandledRetryNonceRef = useRef<number>(0);
+  const prevExerciseKeyRef = useRef<string>('');
+
   useEffect(() => {
+    const currentExKey =
+      activeSubject && activeExercise
+        ? `${activeSubject.subjectName.trim()}::ex-${activeExercise.exerciseNumber}`
+        : '';
+    if (currentExKey !== prevExerciseKeyRef.current) {
+      prevExerciseKeyRef.current = currentExKey;
+      setHasActiveRetryPass(false);
+      setRetryBannerMessage(null);
+    }
+    if (retryNonce > 0 && retryNonce !== lastHandledRetryNonceRef.current) {
+      lastHandledRetryNonceRef.current = retryNonce;
+      setHasActiveRetryPass(true);
+      setRetryBannerMessage(
+        retryBanner && retryBanner.nonce === retryNonce ? retryBanner.message : null
+      );
+    }
     initExercise();
-  }, [activeExercise, retryNonce]);
+  }, [activeExercise, retryNonce, retryBanner]);
 
   // Refresh initial guidance message/rules immediately if language changes before interaction
   useEffect(() => {
@@ -1095,6 +1124,7 @@ interface ConnectedAttempt {
     _finalConnections?: ConnectedAttempt[]
   ) => {
     setIsCompleted(true);
+    setHasActiveRetryPass(false);
     stopVoiceRecording();
     if (!activeExercise || !activeSubject) return;
 
@@ -1269,10 +1299,34 @@ interface ConnectedAttempt {
     );
   }
 
+  const matchingRetryKey = `${(activeSubject.subjectName || '').trim()}::ex-${activeExercise.exerciseNumber}`;
+  const matchingRetryStatus = getRetryStatus(
+    'matching',
+    currentStudent,
+    matchingRetryKey,
+    activeExercise
+  );
+
   const isRetryLockedSubmitted =
     !isCompleted &&
-    activeExercise.allowRetry === false &&
-    Boolean(recordedExerciseEntry);
+    !hasActiveRetryPass &&
+    Boolean(recordedExerciseEntry) &&
+    !matchingRetryStatus.canRetry;
+
+  const handleTriggerRetryInArena = () => {
+    const status = getRetryStatus('matching', currentStudent, matchingRetryKey, activeExercise);
+    if (!status.canRetry) return;
+    const outcome = recordStudentRetryAttempt(
+      'matching',
+      currentStudent,
+      matchingRetryKey,
+      activeExercise,
+      webhookUrl
+    );
+    setRetryBannerMessage(formatStudentRetryBannerMessage(outcome, currentStudent, tr));
+    setHasActiveRetryPass(true);
+    initExercise();
+  };
 
   const totalPairsCount = activeExercise.pairs.length;
   const accuracyPercent = Math.round(
@@ -1439,6 +1493,12 @@ interface ConnectedAttempt {
           </div>
         )}
 
+        {!isCompleted && !isRetryLockedSubmitted && retryBannerMessage && (
+          <div className="w-full max-w-xl mx-auto mb-3 p-3 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 text-xs sm:text-sm font-bold text-center shadow-2xs animate-in fade-in duration-200">
+            {retryBannerMessage}
+          </div>
+        )}
+
         {/* 3. Locked Already-Submitted View OR Playable Matching Arena OR Completed Card */}
         {isRetryLockedSubmitted && recordedExerciseEntry ? (
           <div className="w-full max-w-lg my-6 p-6 sm:p-8 bg-slate-50 rounded-3xl border border-slate-200 text-center space-y-4 animate-in fade-in duration-200">
@@ -1450,7 +1510,14 @@ interface ConnectedAttempt {
                 {tr('matching_already_submitted_title', 'تم تسجيل إجابتك في هذا التمرين')}
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                {tr('matching_already_submitted_desc', 'لا يمكن إعادة التمرين لأن المعلم قام بإغلاق الإعادة لهذا التمرين.')}
+                {matchingRetryStatus.maxRetries === 0
+                  ? tr('matching_already_submitted_desc', 'لا يمكن إعادة التمرين لأن المعلم قام بإغلاق الإعادة لهذا التمرين.')
+                  : tr(
+                      'retry_limit_reached_notice',
+                      '🔒 وصلت للحد الأقصى لمحاولات الإعادة المسموح بها ({used} من {max}) وتوقفت الإعادة لك في هذا التمرين.'
+                    )
+                      .replace('{used}', String(matchingRetryStatus.usedRetries))
+                      .replace('{max}', String(matchingRetryStatus.maxRetries))}
               </p>
             </div>
             <div className="bg-white p-3.5 rounded-2xl border border-slate-200 font-mono text-sm sm:text-base font-black text-emerald-700">
@@ -1834,14 +1901,39 @@ interface ConnectedAttempt {
             </div>
 
             {/* Bottom Actions inside Completion Card */}
+            {!matchingRetryStatus.canRetry && (
+              <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-bold">
+                {matchingRetryStatus.maxRetries === 0
+                  ? tr('matching_already_submitted_desc', 'لا يمكن إعادة التمرين لأن المعلم قام بإغلاق الإعادة لهذا التمرين.')
+                  : tr(
+                      'retry_limit_reached_notice',
+                      '🔒 وصلت للحد الأقصى لمحاولات الإعادة المسموح بها ({used} من {max}) وتوقفت الإعادة لك في هذا التمرين.'
+                    )
+                      .replace('{used}', String(matchingRetryStatus.usedRetries))
+                      .replace('{max}', String(matchingRetryStatus.maxRetries))}
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center justify-center gap-2.5 pt-3 border-t border-purple-200/80">
-              {activeExercise.allowRetry !== false && (
+              {matchingRetryStatus.canRetry && (
                 <button
-                  onClick={initExercise}
+                  onClick={handleTriggerRetryInArena}
+                  title={
+                    matchingRetryStatus.isUnlimited
+                      ? tr('matching_retry_btn', 'إعادة التمرين')
+                      : tr('retry_remaining_badge', 'متبقٍ {remaining} من {max}')
+                          .replace('{remaining}', String(matchingRetryStatus.remainingRetries))
+                          .replace('{max}', String(matchingRetryStatus.maxRetries))
+                  }
                   className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>{tr('matching_retry_btn', 'إعادة التمرين')}</span>
+                  <span>
+                    {tr('matching_retry_btn', 'إعادة التمرين')}
+                    {!matchingRetryStatus.isUnlimited
+                      ? ` (${matchingRetryStatus.remainingRetries}/${matchingRetryStatus.maxRetries})`
+                      : ''}
+                  </span>
                 </button>
               )}
 

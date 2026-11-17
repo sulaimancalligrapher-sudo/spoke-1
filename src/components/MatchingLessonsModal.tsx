@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { MatchingHistoryItem, MatchingLessonSubject } from '../types';
+import { MatchingHistoryItem, MatchingLessonSubject, StudentRegistrant } from '../types';
+import { getRetryStatus } from '../utils/retryLimit';
 import {
   X,
   Sparkles,
@@ -31,6 +32,7 @@ interface MatchingLessonsModalProps {
   onSelectSubjectExercise: (subjectId: string, exerciseIndex: number, isRetry?: boolean) => void;
   onOpenAdminMatching?: () => void;
   matchingHistory?: MatchingHistoryItem[];
+  currentStudent?: StudentRegistrant | null;
   currentLang?: SupportedLang;
   translations?: TranslationItem[];
   t?: (id: string, fallback?: string) => string;
@@ -45,6 +47,7 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
   onSelectSubjectExercise,
   onOpenAdminMatching,
   matchingHistory = [],
+  currentStudent,
   currentLang = 'ar',
   translations = [],
   t,
@@ -196,7 +199,9 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
 
               const score = subjectScoresMap[ex.exerciseNumber];
               const isCompleted = score !== undefined;
-              const canRetry = ex.allowRetry !== false;
+              const retryKey = `${(currentSubject.subjectName || '').trim()}::ex-${ex.exerciseNumber}`;
+              const retryStatus = getRetryStatus('matching', currentStudent, retryKey, ex);
+              const canRetry = retryStatus.canRetry;
 
               return (
                 <div
@@ -282,15 +287,44 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
                               onSelectSubjectExercise(currentSubject.id, exIdx, true);
                               onClose();
                             }}
+                            title={
+                              retryStatus.isUnlimited
+                                ? tr('matching_retry_short', 'إعادة')
+                                : tr('retry_remaining_badge', 'متبقٍ {remaining} من {max}')
+                                    .replace('{remaining}', String(retryStatus.remainingRetries))
+                                    .replace('{max}', String(retryStatus.maxRetries))
+                            }
                             className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-300 text-xs font-bold transition-all cursor-pointer shadow-2xs"
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
                             <span>{tr('matching_retry_short', 'إعادة')}</span>
+                            {!retryStatus.isUnlimited && (
+                              <span className="text-[10px] opacity-80 font-mono">
+                                ({retryStatus.remainingRetries}/{retryStatus.maxRetries})
+                              </span>
+                            )}
                           </button>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-bold">
+                          <span
+                            title={
+                              retryStatus.maxRetries > 0
+                                ? tr(
+                                    'retry_limit_reached_notice',
+                                    '🔒 وصلت للحد الأقصى لمحاولات الإعادة المسموح بها ({used} من {max}) وتوقفت الإعادة لك في هذا التمرين.'
+                                  )
+                                    .replace('{used}', String(retryStatus.usedRetries))
+                                    .replace('{max}', String(retryStatus.maxRetries))
+                                : tr('lessons_retry_locked', 'مغلق')
+                            }
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-bold"
+                          >
                             <Lock className="w-3 h-3" />
                             <span>{tr('lessons_retry_locked', 'مغلق')}</span>
+                            {retryStatus.maxRetries > 0 && (
+                              <span className="font-mono text-[9px] opacity-80">
+                                ({retryStatus.usedRetries}/{retryStatus.maxRetries})
+                              </span>
+                            )}
                           </span>
                         )}
                       </>

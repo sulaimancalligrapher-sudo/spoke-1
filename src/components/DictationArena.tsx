@@ -34,6 +34,11 @@ import {
   resolveDirectVoiceTranscript,
 } from '../utils/dictationUtils';
 import {
+  formatStudentRetryBannerMessage,
+  getRetryStatus,
+  recordStudentRetryAttempt,
+} from '../utils/retryLimit';
+import {
   Mic,
   Sparkles,
   Award,
@@ -68,6 +73,7 @@ interface DictationArenaProps {
   onSelectSubjectExercise?: (subjectId: string, exerciseIndex: number) => void;
   dictationHistory?: DictationHistoryItem[];
   retryNonce?: number;
+  retryBanner?: { nonce: number; message: string } | null;
   onDictationSubmitted?: (submitted?: {
     subjectName: string;
     exerciseNumber: number;
@@ -210,9 +216,20 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
   onSelectSubjectExercise,
   dictationHistory = [],
   retryNonce = 0,
+  retryBanner = null,
   onDictationSubmitted,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
+
+  const translatePosLabel = (rawLabel?: string): string => {
+    const clean = (rawLabel || '').trim();
+    if (!clean) return '';
+    if (clean === 'مفرد') return tr('dictation_pos_isolated', 'مفرد');
+    if (clean === 'بداية') return tr('dictation_pos_initial', 'بداية');
+    if (clean === 'وسط') return tr('dictation_pos_medial', 'وسط');
+    if (clean === 'نهاية') return tr('dictation_pos_final', 'نهاية');
+    return clean;
+  };
 
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>(
     propSubjectId || subjects[0]?.id || ''
@@ -449,9 +466,30 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     });
   };
 
+  const [hasActiveRetryPass, setHasActiveRetryPass] = useState(false);
+  const [retryBannerMessage, setRetryBannerMessage] = useState<string | null>(null);
+  const lastHandledRetryNonceRef = useRef<number>(0);
+  const prevExerciseKeyRef = useRef<string>('');
+
   useEffect(() => {
+    const currentExKey =
+      activeSubject && activeExercise
+        ? `${activeSubject.subjectName.trim()}::ex-${activeExercise.exerciseNumber}`
+        : '';
+    if (currentExKey !== prevExerciseKeyRef.current) {
+      prevExerciseKeyRef.current = currentExKey;
+      setHasActiveRetryPass(false);
+      setRetryBannerMessage(null);
+    }
+    if (retryNonce > 0 && retryNonce !== lastHandledRetryNonceRef.current) {
+      lastHandledRetryNonceRef.current = retryNonce;
+      setHasActiveRetryPass(true);
+      setRetryBannerMessage(
+        retryBanner && retryBanner.nonce === retryNonce ? retryBanner.message : null
+      );
+    }
     initExercise();
-  }, [activeExercise, retryNonce]);
+  }, [activeExercise, retryNonce, retryBanner]);
 
   useEffect(() => {
     return () => {
@@ -469,12 +507,40 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     return rec.exercises.find((e) => e.exerciseNumber === activeExercise.exerciseNumber) || null;
   }, [activeSubject, activeExercise, dictationHistory]);
 
+  const dictationRetryKey =
+    activeSubject && activeExercise
+      ? `${(activeSubject.subjectName || '').trim()}::ex-${activeExercise.exerciseNumber}`
+      : '';
+  const dictationRetryStatus = getRetryStatus(
+    'dictation',
+    currentStudent,
+    dictationRetryKey,
+    activeExercise || undefined
+  );
+
   const isRetryLockedSubmitted = Boolean(
     activeExercise &&
-      activeExercise.allowRetry === false &&
+      !isCompleted &&
+      !hasActiveRetryPass &&
       recordedExerciseEntry &&
-      retryNonce === 0
+      !dictationRetryStatus.canRetry
   );
+
+  const handleTriggerRetryInArena = () => {
+    if (!activeExercise) return;
+    const status = getRetryStatus('dictation', currentStudent, dictationRetryKey, activeExercise);
+    if (!status.canRetry) return;
+    const outcome = recordStudentRetryAttempt(
+      'dictation',
+      currentStudent,
+      dictationRetryKey,
+      activeExercise,
+      webhookUrl
+    );
+    setRetryBannerMessage(formatStudentRetryBannerMessage(outcome, currentStudent, tr));
+    setHasActiveRetryPass(true);
+    initExercise();
+  };
 
   // Set of tile IDs currently placed in composition box or blanks
   const usedTileIds = useMemo(() => {
@@ -685,6 +751,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
   }) => {
     if (!activeExercise || !activeSubject) return;
     setIsCompleted(true);
+    setHasActiveRetryPass(false);
     setLastSubmittedAnswer(params.lastAnswerDisplay);
     setFinalScore(params.score);
     setWrongAttempts(params.nextWrongAttempts);
@@ -944,7 +1011,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
 
       if (choice.tile) {
         handleSelectTile(choice.tile, true);
-        const posLbl = choice.tile.label || inferPositionalLabel(choice.tile.text);
+        const posLbl = translatePosLabel(choice.tile.label || inferPositionalLabel(choice.tile.text));
         setGuidanceBox({
           type: 'success',
           message: `✓ ${choice.tile.text} (${posLbl}) — ${tr(
@@ -1580,6 +1647,12 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
           </div>
         )}
 
+        {!isCompleted && !isRetryLockedSubmitted && retryBannerMessage && (
+          <div className="w-full max-w-xl mb-3 p-3 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 text-xs sm:text-sm font-bold text-center shadow-2xs animate-in fade-in duration-200">
+            {retryBannerMessage}
+          </div>
+        )}
+
         {/* 3. Locked View OR Interactive Playable Exercise */}
         {isRetryLockedSubmitted && recordedExerciseEntry ? (
           <div className="w-full max-w-lg my-5 p-6 bg-slate-50 rounded-3xl border border-slate-200 text-center space-y-4">
@@ -1591,7 +1664,14 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                 {tr('dictation_already_submitted_title', 'تم تسجيل إجابتك في هذا التمرين')}
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                {tr('dictation_retry_disabled_desc', 'الإعادة غير مفعلة لهذا التمرين.')}
+                {dictationRetryStatus.maxRetries === 0
+                  ? tr('dictation_retry_disabled_desc', 'الإعادة غير مفعلة لهذا التمرين.')
+                  : tr(
+                      'retry_limit_reached_notice',
+                      '🔒 وصلت للحد الأقصى لمحاولات الإعادة المسموح بها ({used} من {max}) وتوقفت الإعادة لك في هذا التمرين.'
+                    )
+                      .replace('{used}', String(dictationRetryStatus.usedRetries))
+                      .replace('{max}', String(dictationRetryStatus.maxRetries))}
               </p>
             </div>
             <div className="bg-white p-3 rounded-2xl border border-slate-200 font-mono text-sm font-black text-emerald-700">
@@ -1678,7 +1758,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                                 : 'bg-slate-100 text-slate-600'
                             }`}
                           >
-                            {tile.label}
+                            {translatePosLabel(tile.label)}
                           </span>
                         )}
                       </button>
@@ -2142,15 +2222,40 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                   </div>
                 ) : null}
 
+                {!dictationRetryStatus.canRetry && (
+                  <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-bold">
+                    {dictationRetryStatus.maxRetries === 0
+                      ? tr('dictation_retry_disabled_desc', 'الإعادة غير مفعلة لهذا التمرين.')
+                      : tr(
+                          'retry_limit_reached_notice',
+                          '🔒 وصلت للحد الأقصى لمحاولات الإعادة المسموح بها ({used} من {max}) وتوقفت الإعادة لك في هذا التمرين.'
+                        )
+                          .replace('{used}', String(dictationRetryStatus.usedRetries))
+                          .replace('{max}', String(dictationRetryStatus.maxRetries))}
+                  </div>
+                )}
+
                 <div className="flex flex-wrap items-center justify-center gap-2.5 pt-1">
-                  {activeExercise.allowRetry !== false && (
+                  {dictationRetryStatus.canRetry && (
                     <button
                       type="button"
-                      onClick={initExercise}
+                      onClick={handleTriggerRetryInArena}
+                      title={
+                        dictationRetryStatus.isUnlimited
+                          ? tr('dictation_retry_btn', 'إعادة التمرين')
+                          : tr('retry_remaining_badge', 'متبقٍ {remaining} من {max}')
+                              .replace('{remaining}', String(dictationRetryStatus.remainingRetries))
+                              .replace('{max}', String(dictationRetryStatus.maxRetries))
+                      }
                       className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
-                      <span>{tr('dictation_retry_btn', 'إعادة التمرين')}</span>
+                      <span>
+                        {tr('dictation_retry_btn', 'إعادة التمرين')}
+                        {!dictationRetryStatus.isUnlimited
+                          ? ` (${dictationRetryStatus.remainingRetries}/${dictationRetryStatus.maxRetries})`
+                          : ''}
+                      </span>
                     </button>
                   )}
 

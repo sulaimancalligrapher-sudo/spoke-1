@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { DictationHistoryItem, DictationLessonSubject } from '../types';
+import { DictationHistoryItem, DictationLessonSubject, StudentRegistrant } from '../types';
+import { getRetryStatus } from '../utils/retryLimit';
 import {
   X,
   Sparkles,
@@ -29,6 +30,7 @@ interface DictationLessonsModalProps {
   onSelectSubjectExercise: (subjectId: string, exerciseIndex: number, isRetry?: boolean) => void;
   onOpenAdminDictation?: () => void;
   dictationHistory?: DictationHistoryItem[];
+  currentStudent?: StudentRegistrant | null;
   currentLang?: SupportedLang;
   translations?: TranslationItem[];
   t?: (id: string, fallback?: string) => string;
@@ -43,6 +45,7 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
   onSelectSubjectExercise,
   onOpenAdminDictation,
   dictationHistory = [],
+  currentStudent,
   currentLang = 'ar',
   translations = [],
   t,
@@ -186,7 +189,9 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
                 `${tr('matching_modal_exercise_word', 'تمرين')} ${ex.exerciseNumber}`;
               const score = subjectScoresMap[ex.exerciseNumber];
               const isCompleted = score !== undefined;
-              const canRetry = ex.allowRetry !== false;
+              const retryKey = `${(currentSubject.subjectName || '').trim()}::ex-${ex.exerciseNumber}`;
+              const retryStatus = getRetryStatus('dictation', currentStudent, retryKey, ex);
+              const canRetry = retryStatus.canRetry;
 
               return (
                 <div
@@ -237,6 +242,31 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
                         >
                           {score}%
                         </span>
+                        {!retryStatus.isUnlimited && retryStatus.maxRetries > 0 && (
+                          <span
+                            className={`px-1.5 py-0.5 rounded-lg text-[10px] font-mono font-bold border ${
+                              canRetry
+                                ? 'bg-slate-50 text-slate-600 border-slate-200'
+                                : 'bg-rose-50 text-rose-700 border-rose-200'
+                            }`}
+                            title={
+                              canRetry
+                                ? tr('retry_remaining_badge', 'متبقٍ {remaining} من {max}')
+                                    .replace('{remaining}', String(retryStatus.remainingRetries))
+                                    .replace('{max}', String(retryStatus.maxRetries))
+                                : tr(
+                                    'retry_limit_reached_notice',
+                                    '🔒 وصلت للحد الأقصى لمحاولات الإعادة المسموح بها ({used} من {max}) وتوقفت الإعادة لك في هذا التمرين.'
+                                  )
+                                    .replace('{used}', String(retryStatus.usedRetries))
+                                    .replace('{max}', String(retryStatus.maxRetries))
+                            }
+                          >
+                            {canRetry
+                              ? `${retryStatus.remainingRetries}/${retryStatus.maxRetries}`
+                              : `${retryStatus.usedRetries}/${retryStatus.maxRetries}`}
+                          </span>
+                        )}
                         {canRetry ? (
                           <button
                             type="button"
@@ -244,7 +274,16 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
                               onSelectSubjectExercise(currentSubject.id, exIdx, true);
                               onClose();
                             }}
-                            title={tr('matching_retry_short', 'إعادة التمرين')}
+                            title={
+                              retryStatus.isUnlimited
+                                ? tr('matching_retry_short', 'إعادة التمرين')
+                                : `${tr('matching_retry_short', 'إعادة التمرين')} (${tr(
+                                    'retry_remaining_badge',
+                                    'متبقٍ {remaining} من {max}'
+                                  )
+                                    .replace('{remaining}', String(retryStatus.remainingRetries))
+                                    .replace('{max}', String(retryStatus.maxRetries))})`
+                            }
                             aria-label={tr('matching_retry_short', 'إعادة التمرين')}
                             className="w-8 h-8 rounded-xl bg-white hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-300 flex items-center justify-center transition-all cursor-pointer shadow-2xs"
                           >
@@ -252,7 +291,16 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
                           </button>
                         ) : (
                           <span
-                            title={tr('lessons_retry_locked', 'الإعادة مغلقة')}
+                            title={
+                              retryStatus.maxRetries > 0
+                                ? tr(
+                                    'retry_limit_reached_notice',
+                                    '🔒 وصلت للحد الأقصى لمحاولات الإعادة المسموح بها ({used} من {max}) وتوقفت الإعادة لك في هذا التمرين.'
+                                  )
+                                    .replace('{used}', String(retryStatus.usedRetries))
+                                    .replace('{max}', String(retryStatus.maxRetries))
+                                : tr('lessons_retry_locked', 'الإعادة مغلقة')
+                            }
                             aria-label={tr('lessons_retry_locked', 'الإعادة مغلقة')}
                             className="w-8 h-8 rounded-xl bg-slate-100 text-slate-500 border border-slate-200 flex items-center justify-center"
                           >

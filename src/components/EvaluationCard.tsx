@@ -33,6 +33,7 @@ import {
 import { submitStudentAnswerToSheet, STUDENT_AUDIO_DRIVE_FOLDER_ID } from '../utils/googleSheets';
 import { FrequencySpectrumComparison } from './FrequencySpectrumComparison';
 import { translateEvaluationFeedback, SupportedLang, TranslationItem } from '../utils/translations';
+import { getRetryStatus } from '../utils/retryLimit';
 
 interface EvaluationCardProps {
   evaluation: PronunciationEvaluation;
@@ -754,24 +755,55 @@ export const EvaluationCard: React.FC<EvaluationCardProps> = ({
 
       {/* 6. BOTTOM ACTIONS: 3 HARMONIOUS AND BALANCED BUTTONS */}
       <div className="grid grid-cols-3 gap-2 sm:gap-2.5 pt-4 border-t border-slate-100">
-        {/* Button 1: إعادة التسجيل (Amber / Gold) - Locked if submitted & allowRetry === false */}
-        {submissionSuccess && targetWordItem.allowRetry === false ? (
-          <div
-            className="w-full flex items-center justify-center gap-1 px-2 sm:px-3 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed text-center"
-            title={tr('lessons_retry_locked', 'مغلق')}
-          >
-            <Lock className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">{tr('lessons_retry_locked', 'مغلق')}</span>
-          </div>
-        ) : (
-          <button
-            onClick={onRetry}
-            className="w-full flex items-center justify-center px-2 sm:px-3 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition-all cursor-pointer active:scale-98 text-center"
-            title={tr('practice_re_record_btn', 'إعادة التسجيل')}
-          >
-            <span className="truncate">{tr('practice_re_record_btn', 'إعادة التسجيل')}</span>
-          </button>
-        )}
+        {/* Button 1: إعادة التسجيل (Amber / Gold) - Locked if submitted & student exhausted retries */}
+        {(() => {
+          const retryKey = `${(lessonSubject || targetWordItem.lessonSubject || '').trim()}::${targetWordItem.word.trim()}`;
+          const retryStatus = getRetryStatus('pronunciation', currentStudent, retryKey, targetWordItem);
+          const isLockedAfterSubmit = submissionSuccess && !retryStatus.canRetry;
+          if (isLockedAfterSubmit) {
+            return (
+              <div
+                className="w-full flex items-center justify-center gap-1 px-2 sm:px-3 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed text-center"
+                title={
+                  retryStatus.maxRetries > 0
+                    ? tr(
+                        'retry_limit_reached_notice',
+                        '🔒 وصلت للحد الأقصى لمحاولات الإعادة المسموح بها ({used} من {max}) وتوقفت الإعادة لك في هذا التمرين.'
+                      )
+                        .replace('{used}', String(retryStatus.usedRetries))
+                        .replace('{max}', String(retryStatus.maxRetries))
+                    : tr('lessons_retry_locked', 'مغلق')
+                }
+              >
+                <Lock className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">
+                  {tr('lessons_retry_locked', 'مغلق')}
+                  {retryStatus.maxRetries > 0 ? ` (${retryStatus.usedRetries}/${retryStatus.maxRetries})` : ''}
+                </span>
+              </div>
+            );
+          }
+          return (
+            <button
+              onClick={onRetry}
+              className="w-full flex items-center justify-center px-2 sm:px-3 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition-all cursor-pointer active:scale-98 text-center"
+              title={
+                submissionSuccess && !retryStatus.isUnlimited
+                  ? tr('retry_remaining_badge', 'متبقٍ {remaining} من {max}')
+                      .replace('{remaining}', String(retryStatus.remainingRetries))
+                      .replace('{max}', String(retryStatus.maxRetries))
+                  : tr('practice_re_record_btn', 'إعادة التسجيل')
+              }
+            >
+              <span className="truncate">
+                {tr('practice_re_record_btn', 'إعادة التسجيل')}
+                {submissionSuccess && !retryStatus.isUnlimited
+                  ? ` (${retryStatus.remainingRetries}/${retryStatus.maxRetries})`
+                  : ''}
+              </span>
+            </button>
+          );
+        })()}
 
         {/* Button 2: فتح الدروس (Indigo / Royal Blue) - Pure text, no icon, no parentheses */}
         {onOpenLessons ? (

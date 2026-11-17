@@ -1,4 +1,5 @@
 import { DictationQuestionType } from '../types';
+import { formatRetrySettingToken, parseRetryCountFromSettingsText } from './retryLimit';
 import { ARABIC_LETTER_NAMES, removeTashkeel } from './arabicMatcher';
 
 export interface DictationTile {
@@ -554,18 +555,15 @@ export function parseDictationSettingsString(str?: string): {
   lockOnMistake: boolean;
   durationSeconds: number;
   allowRetry: boolean;
+  maxRetries: number;
 } {
   const s = String(str || '').trim();
   const inputMode: 'voice_only' | 'both' = s.includes('صوت فقط') ? 'voice_only' : 'both';
   const lockOnMistake = s.includes('لا تراجع') || s.includes('لا يمكن التراجع') || s.includes('قفل');
-  const allowRetry = !(
-    s.includes('منع الإعادة') ||
-    s.includes('لا إعادة') ||
-    s.includes('no_retry')
-  );
+  const { allowRetry, maxRetries } = parseRetryCountFromSettingsText(s);
   const durMatch = s.match(/(\d+)\s*ثوان/);
   const durationSeconds = durMatch ? parseInt(durMatch[1], 10) : 5;
-  return { inputMode, lockOnMistake, durationSeconds, allowRetry };
+  return { inputMode, lockOnMistake, durationSeconds, allowRetry, maxRetries };
 }
 
 export function formatDictationSettingsString(exercise: {
@@ -573,10 +571,11 @@ export function formatDictationSettingsString(exercise: {
   lockOnMistake?: boolean;
   durationSeconds?: number;
   allowRetry?: boolean;
+  maxRetries?: number;
 }): string {
   const modeStr = exercise.inputMode === 'voice_only' ? 'صوت فقط' : 'فأرة وصوت';
   const lockStr = exercise.lockOnMistake ? 'لا تراجع' : 'إتاحة المحاولة';
-  const retryStr = exercise.allowRetry === false ? 'منع الإعادة' : 'السماح بالإعادة';
+  const retryStr = formatRetrySettingToken(exercise.maxRetries, exercise.allowRetry);
   const dur =
     typeof exercise.durationSeconds === 'number' && exercise.durationSeconds > 0
       ? exercise.durationSeconds

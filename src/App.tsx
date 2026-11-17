@@ -64,6 +64,12 @@ import {
   getTranslatedDictationSubject,
 } from './utils/translations';
 import {
+  formatStudentRetryBannerMessage,
+  getRetryStatus,
+  recordStudentRetryAttempt,
+  syncStudentRetriesFromSheets,
+} from './utils/retryLimit';
+import {
   Sparkles,
   ChevronRight,
   ChevronLeft,
@@ -228,6 +234,9 @@ export default function App() {
   const [pronunciationRetryNonce, setPronunciationRetryNonce] = useState(0);
   const [matchingRetryNonce, setMatchingRetryNonce] = useState(0);
   const [dictationRetryNonce, setDictationRetryNonce] = useState(0);
+  const [pronunciationRetryBanner, setPronunciationRetryBanner] = useState<{ nonce: number; message: string } | null>(null);
+  const [matchingRetryBanner, setMatchingRetryBanner] = useState<{ nonce: number; message: string } | null>(null);
+  const [dictationRetryBanner, setDictationRetryBanner] = useState<{ nonce: number; message: string } | null>(null);
 
   // Google Sheets Config (Defaulted to verified Webhook URL for seamless cross-device sync)
   const [sheetsConfig, setSheetsConfig] = useState<GoogleSheetsConfig>({
@@ -779,6 +788,7 @@ export default function App() {
                 if (dh && dh.length > 0) setDictationHistory(dh);
               })
               .catch(() => {});
+            syncStudentRetriesFromSheets(activeConfig.webhookUrl, parsed).catch(() => {});
           }
         } catch (e) {}
       } else {
@@ -857,6 +867,8 @@ export default function App() {
         })
         .catch(() => {})
         .finally(() => setIsSyncingDictation(false));
+
+      syncStudentRetriesFromSheets(sheetsConfig.webhookUrl, student).catch(() => {});
     }
   };
 
@@ -1152,7 +1164,25 @@ export default function App() {
     setRecordedAudioUrl(null);
     setIsCurrentAnswerSubmitted(false);
     if (isRetry) {
-      setPronunciationRetryNonce((n) => n + 1);
+      const wordKey = `${(item.lessonSubject || studentSubject || '').trim()}::${item.word.trim()}`;
+      const status = getRetryStatus('pronunciation', currentStudent, wordKey, item);
+      if (status.canRetry) {
+        const outcome = recordStudentRetryAttempt(
+          'pronunciation',
+          currentStudent,
+          wordKey,
+          item,
+          sheetsConfig.webhookUrl
+        );
+        const nextNonce = pronunciationRetryNonce + 1;
+        setPronunciationRetryNonce(nextNonce);
+        setPronunciationRetryBanner({
+          nonce: nextNonce,
+          message: formatStudentRetryBannerMessage(outcome, currentStudent, t),
+        });
+      }
+    } else {
+      setPronunciationRetryBanner(null);
     }
     setAppMode('pronunciation');
     setCurrentView('practice');
@@ -1753,6 +1783,7 @@ export default function App() {
               onRequestLogin={() => setIsLoginModalOpen(true)}
               matchingHistory={matchingHistory}
               retryNonce={matchingRetryNonce}
+              retryBanner={matchingRetryBanner}
               onMatchingSubmitted={(submitted) => {
                 if (!submitted) return;
                 const ts = new Date().toLocaleString('ar-SA');
@@ -1929,6 +1960,7 @@ export default function App() {
               onRequestLogin={() => setIsLoginModalOpen(true)}
               dictationHistory={dictationHistory}
               retryNonce={dictationRetryNonce}
+              retryBanner={dictationRetryBanner}
               onDictationSubmitted={(submitted) => {
                 if (!submitted) return;
                 const ts = new Date().toLocaleString('ar-SA');
@@ -2055,6 +2087,8 @@ export default function App() {
                   setRecordedAudioUrl(null);
                 }}
                 retryNonce={pronunciationRetryNonce}
+                retryBanner={pronunciationRetryBanner}
+                webhookUrl={sheetsConfig.webhookUrl}
                 recordedHistoryItem={(() => {
                   if (!currentStudent || !studentHistory.length) return null;
                   const cleanSel = selectedItem.word.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').trim();
@@ -2078,6 +2112,26 @@ export default function App() {
                   targetWordItem={selectedItem}
                   recordedAudioUrl={recordedAudioUrl}
                   onRetry={() => {
+                    if (isCurrentAnswerSubmitted) {
+                      const wordKey = `${(selectedItem.lessonSubject || studentSubject || '').trim()}::${selectedItem.word.trim()}`;
+                      const status = getRetryStatus('pronunciation', currentStudent, wordKey, selectedItem);
+                      if (!status.canRetry) return;
+                      const outcome = recordStudentRetryAttempt(
+                        'pronunciation',
+                        currentStudent,
+                        wordKey,
+                        selectedItem,
+                        sheetsConfig.webhookUrl
+                      );
+                      const nextNonce = pronunciationRetryNonce + 1;
+                      setPronunciationRetryNonce(nextNonce);
+                      setPronunciationRetryBanner({
+                        nonce: nextNonce,
+                        message: formatStudentRetryBannerMessage(outcome, currentStudent, t),
+                      });
+                    } else {
+                      setPronunciationRetryBanner(null);
+                    }
                     setIsCurrentAnswerSubmitted(false);
                     setEvaluation(null);
                     setRecordedAudioUrl(null);
@@ -2225,6 +2279,7 @@ export default function App() {
         selectedSubject={studentSubject}
         onSelectSubject={setStudentSubject}
         scoresMap={studentScoresMap}
+        currentStudent={currentStudent}
         t={t}
       />
 
@@ -2239,7 +2294,29 @@ export default function App() {
           setActiveMatchingSubjectId(subjId);
           setActiveMatchingExerciseIdx(exIdx);
           if (isRetry) {
-            setMatchingRetryNonce((n) => n + 1);
+            const subj = matchingSubjects.find((s) => s.id === subjId);
+            const ex = subj?.exercises[exIdx];
+            if (subj && ex) {
+              const rKey = `${subj.subjectName.trim()}::ex-${ex.exerciseNumber}`;
+              const status = getRetryStatus('matching', currentStudent, rKey, ex);
+              if (status.canRetry) {
+                const outcome = recordStudentRetryAttempt(
+                  'matching',
+                  currentStudent,
+                  rKey,
+                  ex,
+                  sheetsConfig.webhookUrl
+                );
+                const nextNonce = matchingRetryNonce + 1;
+                setMatchingRetryNonce(nextNonce);
+                setMatchingRetryBanner({
+                  nonce: nextNonce,
+                  message: formatStudentRetryBannerMessage(outcome, currentStudent, t),
+                });
+              }
+            }
+          } else {
+            setMatchingRetryBanner(null);
           }
           setAppMode('matching');
           setCurrentView('practice');
@@ -2249,6 +2326,7 @@ export default function App() {
           handleOpenAdmin();
         }}
         matchingHistory={matchingHistory}
+        currentStudent={currentStudent}
         currentLang={currentLang}
         translations={translations}
         t={t}
@@ -2265,7 +2343,29 @@ export default function App() {
           setActiveDictationSubjectId(subjId);
           setActiveDictationExerciseIdx(exIdx);
           if (isRetry) {
-            setDictationRetryNonce((n) => n + 1);
+            const subj = dictationSubjects.find((s) => s.id === subjId);
+            const ex = subj?.exercises[exIdx];
+            if (subj && ex) {
+              const rKey = `${subj.subjectName.trim()}::ex-${ex.exerciseNumber}`;
+              const status = getRetryStatus('dictation', currentStudent, rKey, ex);
+              if (status.canRetry) {
+                const outcome = recordStudentRetryAttempt(
+                  'dictation',
+                  currentStudent,
+                  rKey,
+                  ex,
+                  sheetsConfig.webhookUrl
+                );
+                const nextNonce = dictationRetryNonce + 1;
+                setDictationRetryNonce(nextNonce);
+                setDictationRetryBanner({
+                  nonce: nextNonce,
+                  message: formatStudentRetryBannerMessage(outcome, currentStudent, t),
+                });
+              }
+            }
+          } else {
+            setDictationRetryBanner(null);
           }
           setAppMode('dictation');
           setCurrentView('practice');
@@ -2275,6 +2375,7 @@ export default function App() {
           handleOpenAdmin();
         }}
         dictationHistory={dictationHistory}
+        currentStudent={currentStudent}
         currentLang={currentLang}
         translations={translations}
         t={t}

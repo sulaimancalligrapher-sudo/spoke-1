@@ -21,6 +21,7 @@ import {
   getDirectImageUrl,
 } from '../utils/matchingMedia';
 import { getAlternativeAudioUrls } from '../utils/mediaUrl';
+import { DEFAULT_MAX_RETRIES, resolveEffectiveMaxRetries } from '../utils/retryLimit';
 import {
   Plus,
   Trash2,
@@ -127,7 +128,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
   const [lockOnMistake, setLockOnMistake] = useState<boolean>(false);
   const [showMistakeFeedback, setShowMistakeFeedback] = useState<boolean>(true);
   const [allowSmartReassign, setAllowSmartReassign] = useState<boolean>(false);
-  const [allowRetry, setAllowRetry] = useState<boolean>(true);
+  const [maxRetries, setMaxRetries] = useState<number>(DEFAULT_MAX_RETRIES);
 
   const [statusMessage, setStatusMessage] = useState<{
     success: boolean;
@@ -420,7 +421,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
     setLockOnMistake(false);
     setShowMistakeFeedback(true);
     setAllowSmartReassign(false);
-    setAllowRetry(true);
+    setMaxRetries(DEFAULT_MAX_RETRIES);
   };
 
   // Start Editing an existing exercise
@@ -471,7 +472,7 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
     setLockOnMistake(!!ex.lockOnMistake);
     setShowMistakeFeedback(ex.showMistakeFeedback !== false);
     setAllowSmartReassign(!!ex.allowSmartReassign);
-    setAllowRetry(ex.allowRetry !== false);
+    setMaxRetries(resolveEffectiveMaxRetries(ex));
     setEditingInfo({
       subjectId: subj.id,
       exerciseId: ex.id,
@@ -566,7 +567,8 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                   lockOnMistake,
                   showMistakeFeedback,
                   allowSmartReassign: lockOnMistake ? false : allowSmartReassign,
-                  allowRetry,
+                  allowRetry: maxRetries !== 0,
+                  maxRetries,
                 };
               }
               return ex;
@@ -589,7 +591,8 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
         lockOnMistake,
         showMistakeFeedback,
         allowSmartReassign: lockOnMistake ? false : allowSmartReassign,
-        allowRetry,
+        allowRetry: maxRetries !== 0,
+        maxRetries,
       };
 
       if (subjectItem) {
@@ -631,7 +634,8 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
           lockOnMistake,
           showMistakeFeedback,
           allowSmartReassign: lockOnMistake ? false : allowSmartReassign,
-          allowRetry,
+          allowRetry: maxRetries !== 0,
+          maxRetries,
         });
 
         if (sheetRes.success) {
@@ -1530,38 +1534,94 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
               </div>
 
               {/* Control 6 */}
-              <div className="sm:col-span-2 p-3 bg-white rounded-xl border border-purple-200 shadow-2xs space-y-2">
-                <span className="text-[11px] font-extrabold text-slate-800 block">
-                  6. السماح بإعادة التمرين بعد تسجيل الدرجة:
-                </span>
-                <div className="flex items-center gap-1.5">
+              <div className="sm:col-span-2 p-3 bg-white rounded-xl border border-purple-200 shadow-2xs space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-extrabold text-slate-800 block">
+                    6. عدد محاولات إعادة التمرين بعد تسجيل الدرجة (افتراضياً 3):
+                  </span>
+                  <span className="text-[11px] font-bold text-purple-800">
+                    {maxRetries === 0
+                      ? '🔒 منع الإعادة'
+                      : maxRetries < 0
+                      ? '♾️ غير محدود'
+                      : `🔄 ${maxRetries} محاولات لكل طالب`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
                   <button
                     type="button"
-                    onClick={() => setAllowRetry(true)}
-                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
-                      allowRetry
+                    onClick={() => setMaxRetries((n) => (n > 0 ? n : DEFAULT_MAX_RETRIES))}
+                    className={`py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      maxRetries > 0
                         ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
                         : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    🔄 السماح بالإعادة (افتراضي)
+                    🔢 عدد محدد (افتراضي 3)
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAllowRetry(false)}
-                    className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
-                      !allowRetry
+                    onClick={() => setMaxRetries(-1)}
+                    className={`py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      maxRetries < 0
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    ♾️ غير محدود
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMaxRetries(0)}
+                    className={`py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      maxRetries === 0
                         ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
                         : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    🔒 منع الإعادة (محاولة واحدة)
+                    🔒 منع الإعادة (0)
                   </button>
                 </div>
+
+                {maxRetries > 0 && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 bg-purple-50/70 px-3 py-1.5 rounded-xl border border-purple-100">
+                    <span className="text-[11px] font-bold text-slate-700">تعديل العدد:</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setMaxRetries((n) => Math.max(1, n - 1))}
+                        className="w-7 h-7 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-800 font-black flex items-center justify-center cursor-pointer"
+                      >
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        min={1}
+                        max={99}
+                        value={maxRetries}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value, 10);
+                          setMaxRetries(isNaN(v) ? 1 : Math.min(99, Math.max(1, v)));
+                        }}
+                        className="w-14 text-center py-0.5 rounded-lg border border-slate-300 bg-white font-black text-xs text-purple-900"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setMaxRetries((n) => Math.min(99, n + 1))}
+                        className="w-7 h-7 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-black flex items-center justify-center cursor-pointer"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <p className="text-[10px] text-slate-500 leading-relaxed">
-                  {allowRetry
-                    ? 'الافتراضي: يختفي التمرين من القائمة فور حله، ويمكن للطالب إظهاره عبر أيقونة العين والنقر على «إعادة» لتحديث درجته.'
-                    : '✓ مقفول: بعد تسجيل الإجابة يختفي التمرين ولا يُسمح للطالب بإعادته مجدداً حتى عند إظهاره بأيقونة العين.'}
+                  {maxRetries === 0
+                    ? '✓ مقفول: بعد تسجيل الإجابة يختفي التمرين ولا يُسمح للطالب بإعادته مجدداً.'
+                    : maxRetries < 0
+                    ? '✓ مفتوح: يمكن للطالب إعادة التمرين دون حد أقصى عبر أيقونة العين أو شاشة النتيجة.'
+                    : `✓ محدد (${maxRetries}): يُحسب عدد محاولات الإعادة لكل طالب بشكل مستقل، وتتوقف الإعادة للطالب الذي يستنفد ${maxRetries} محاولات.`}
                 </p>
               </div>
             </div>
@@ -1680,11 +1740,28 @@ export const MatchingAdminManager: React.FC<MatchingAdminManagerProps> = ({
                                 🧠 تصحيح ذكي
                               </span>
                             )}
-                            {ex.allowRetry === false && (
-                              <span className="px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-800 text-[9px] font-bold" title="منع إعادة التمرين بعد التسجيل">
-                                🔒 منع الإعادة
-                              </span>
-                            )}
+                            {(() => {
+                              const mr = resolveEffectiveMaxRetries(ex);
+                              if (mr === 0) {
+                                return (
+                                  <span className="px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-800 text-[9px] font-bold" title="منع إعادة التمرين بعد التسجيل">
+                                    🔒 منع الإعادة
+                                  </span>
+                                );
+                              }
+                              if (mr < 0) {
+                                return (
+                                  <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-800 text-[9px] font-bold" title="إعادة غير محدودة">
+                                    ♾️ إعادة مفتوحة
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[9px] font-bold" title={`الحد الأقصى للإعادة: ${mr}`}>
+                                  🔄 إعادة {mr}×
+                                </span>
+                              );
+                            })()}
                             <span className="font-amiri text-base font-bold text-slate-800 truncate">
                               {getQuestionPlainText(ex.questionText)}
                             </span>

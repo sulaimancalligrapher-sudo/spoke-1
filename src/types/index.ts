@@ -30,6 +30,7 @@ export interface WordItem {
   difficultyLevel?: DifficultyLevel; // مستوى تدقيق النطق: 'easy' (سهل) | 'medium' (متوسط) | 'hard' (متقدم)
   recordingDuration?: number; // مدة التسجيل المخصصة بالثواني (افتراضي 5 ثوانٍ)
   allowRetry?: boolean; // السماح بإعادة التمرين بعد تسجيل الإجابة (افتراضي true)
+  maxRetries?: number; // الحد الأقصى لعدد محاولات الإعادة بعد تسجيل الإجابة (افتراضي 3، 0 = منع الإعادة، -1 = غير محدود)
 }
 
 export interface LetterPhoneme {
@@ -187,6 +188,7 @@ export interface MatchingExercise {
   showMistakeFeedback?: boolean; // إظهار الخطأ فوراً (افتراضياً true) أو إخفاؤه حتى النهاية (false)
   allowSmartReassign?: boolean; // فك وتصحيح الخطأ الذكي (السماح بتبديل الإجابة وفك الربط السابق تلقائياً)
   allowRetry?: boolean; // السماح بإعادة التمرين بعد تسجيل الإجابة (افتراضي true)
+  maxRetries?: number; // الحد الأقصى لعدد محاولات الإعادة بعد تسجيل الإجابة (افتراضي 3، 0 = منع الإعادة، -1 = غير محدود)
 }
 
 export interface MatchingLessonSubject {
@@ -238,6 +240,7 @@ export interface DictationExercise {
   lockOnMistake?: boolean; // لا يمكن التراجع (true) أو إتاحة المحاولة (false)
   durationSeconds?: number; // مدة تسجيل الصوت بالثواني (افتراضياً 5)
   allowRetry?: boolean; // السماح بإعادة التمرين بعد التسجيل (افتراضي true)
+  maxRetries?: number; // الحد الأقصى لعدد محاولات الإعادة بعد التسجيل (افتراضي 3، 0 = منع الإعادة، -1 = غير محدود)
 }
 
 export interface DictationLessonSubject {

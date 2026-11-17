@@ -21,11 +21,16 @@ import { removeTashkeel } from './arabicMatcher';
 import { INITIAL_MATCHING_SUBJECTS } from '../data/matchingCurriculum';
 import { INITIAL_DICTATION_SUBJECTS } from '../data/dictationCurriculum';
 import { formatDictationSettingsString, parseDictationSettingsString } from './dictationUtils';
+import {
+  formatRetrySettingToken,
+  parseRetryCountFromSettingsText,
+  resolveEffectiveMaxRetries,
+} from './retryLimit';
 
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbzEeTOdI7vI7ISya739KsbXQ_wFvzh6W5c1VGZGng0QTLYsPzB7NqXOyL-BmcZKyVRqmA/exec';
+  'https://script.google.com/macros/s/AKfycbxlYR9nhzBvTc63xCSsU-elY-TzF6WDwKNCWWqKlYlXbnshUFfWOR-nHVmU-J9AOzIh/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -256,14 +261,20 @@ export async function fetchCurriculumFromSheets(webhookUrl: string): Promise<{
         return 5;
       })(),
       allowRetry: (() => {
+        if (typeof item.maxRetries === 'number') return item.maxRetries !== 0;
         if (typeof item.allowRetry === 'boolean') {
           return item.allowRetry;
         }
-        const raw = String(item.repeatCount || '').trim().toLowerCase();
-        if (raw.includes('منع') || raw.includes('لا إعادة') || raw.includes('no_retry') || raw.includes('false')) {
-          return false;
+        return parseRetryCountFromSettingsText(String(item.repeatCount || '')).allowRetry;
+      })(),
+      maxRetries: (() => {
+        if (typeof item.maxRetries === 'number' && !isNaN(item.maxRetries)) {
+          return item.maxRetries < 0 ? -1 : Math.max(0, Math.floor(item.maxRetries));
         }
-        return true;
+        if (typeof item.allowRetry === 'boolean' && !item.allowRetry) {
+          return 0;
+        }
+        return parseRetryCountFromSettingsText(String(item.repeatCount || '')).maxRetries;
       })(),
     }))
     .filter((w: WordItem) => Boolean(w.word));
@@ -311,7 +322,8 @@ export async function saveWordToGoogleSheets(
       repeatCount: wordItem.repeatCount || 1,
       difficultyLevel: wordItem.difficultyLevel || 'medium',
       recordingDuration: wordItem.recordingDuration || 5,
-      allowRetry: wordItem.allowRetry !== false,
+      allowRetry: resolveEffectiveMaxRetries(wordItem) !== 0,
+      maxRetries: resolveEffectiveMaxRetries(wordItem),
     },
     audioBase64: audioBase64 || undefined,
   };
@@ -416,7 +428,8 @@ export async function syncAllCurriculumToSheets(
       repeatCount: item.repeatCount || 1,
       difficultyLevel: item.difficultyLevel || 'medium',
       recordingDuration: item.recordingDuration || 5,
-      allowRetry: item.allowRetry !== false,
+      allowRetry: resolveEffectiveMaxRetries(item) !== 0,
+      maxRetries: resolveEffectiveMaxRetries(item),
     })),
   };
 
@@ -1248,18 +1261,28 @@ export async function fetchMatchingExercisesFromSheets(
         id: s.id || `subj-${sIdx + 1}`,
         subjectName: String(s.subjectName || s.subject || `الموضوع ${sIdx + 1}`).trim(),
         exercises: Array.isArray(s.exercises)
-          ? s.exercises.map((ex: any, eIdx: number) => ({
-              id: ex.id || `ex-${eIdx + 1}`,
-              exerciseNumber: ex.exerciseNumber || eIdx + 1,
-              questionText: ex.questionText || `صل الكلمات المناسبة ${eIdx + 1}`,
-              pairs: Array.isArray(ex.pairs) ? ex.pairs : [],
-              inputMode: ex.inputMode || 'both',
-              durationSeconds: typeof ex.durationSeconds === 'number' ? ex.durationSeconds : 4,
-              lockOnMistake: Boolean(ex.lockOnMistake),
-              showMistakeFeedback: ex.showMistakeFeedback !== false,
-              allowSmartReassign: Boolean(ex.allowSmartReassign),
-              allowRetry: ex.allowRetry !== false,
-            }))
+          ? s.exercises.map((ex: any, eIdx: number) => {
+              const rawSettings = String(ex.settingsString || ex.settings || '').trim();
+              const resolvedMaxRetries =
+                typeof ex.maxRetries === 'number' && !isNaN(ex.maxRetries)
+                  ? resolveEffectiveMaxRetries({ maxRetries: ex.maxRetries })
+                  : rawSettings
+                  ? parseRetryCountFromSettingsText(rawSettings).maxRetries
+                  : resolveEffectiveMaxRetries({ allowRetry: ex.allowRetry });
+              return {
+                id: ex.id || `ex-${eIdx + 1}`,
+                exerciseNumber: ex.exerciseNumber || eIdx + 1,
+                questionText: ex.questionText || `صل الكلمات المناسبة ${eIdx + 1}`,
+                pairs: Array.isArray(ex.pairs) ? ex.pairs : [],
+                inputMode: ex.inputMode || 'both',
+                durationSeconds: typeof ex.durationSeconds === 'number' ? ex.durationSeconds : 4,
+                lockOnMistake: Boolean(ex.lockOnMistake),
+                showMistakeFeedback: ex.showMistakeFeedback !== false,
+                allowSmartReassign: Boolean(ex.allowSmartReassign),
+                allowRetry: resolvedMaxRetries !== 0,
+                maxRetries: resolvedMaxRetries,
+              };
+            })
           : [],
       }));
 
@@ -1297,12 +1320,13 @@ export function formatExerciseSettingsString(exercise: {
   showMistakeFeedback?: boolean;
   allowSmartReassign?: boolean;
   allowRetry?: boolean;
+  maxRetries?: number;
 }): string {
   const modeStr = exercise.inputMode === 'voice_only' ? 'صوت فقط' : 'فأرة وصوت';
   const lockStr = exercise.lockOnMistake ? 'لا تراجع' : 'إتاحة المحاولة';
   const feedbackStr = exercise.showMistakeFeedback === false ? 'إخفاء الخطأ' : 'إظهار الخطأ';
   const smartStr = exercise.allowSmartReassign ? 'تصحيح ذكي' : 'بدون تصحيح ذكي';
-  const retryStr = exercise.allowRetry === false ? 'منع الإعادة' : 'السماح بالإعادة';
+  const retryStr = formatRetrySettingToken(exercise.maxRetries, exercise.allowRetry);
   const dur = typeof exercise.durationSeconds === 'number' && exercise.durationSeconds > 0 ? exercise.durationSeconds : 4;
   return `${modeStr} | ${lockStr} | ${feedbackStr} | ${smartStr} | ${retryStr} | ${dur} ثواني`;
 }
@@ -1317,6 +1341,7 @@ export function parseExerciseSettingsString(str?: string): {
   showMistakeFeedback: boolean;
   allowSmartReassign: boolean;
   allowRetry: boolean;
+  maxRetries: number;
 } {
   const s = String(str || '').trim();
   const inputMode: 'voice_only' | 'both' = s.includes('صوت فقط') ? 'voice_only' : 'both';
@@ -1326,10 +1351,10 @@ export function parseExerciseSettingsString(str?: string): {
     (s.includes('تصحيح ذكي') && !s.includes('بدون تصحيح ذكي')) ||
     s.includes('فك ذكي') ||
     s.includes('تبديل الإجابة');
-  const allowRetry = !(s.includes('منع الإعادة') || s.includes('لا إعادة') || s.includes('no_retry'));
+  const { allowRetry, maxRetries } = parseRetryCountFromSettingsText(s);
   const durMatch = s.match(/(\d+)\s*ثوان/);
   const durationSeconds = durMatch ? parseInt(durMatch[1], 10) : 4;
-  return { inputMode, durationSeconds, lockOnMistake, showMistakeFeedback, allowSmartReassign, allowRetry };
+  return { inputMode, durationSeconds, lockOnMistake, showMistakeFeedback, allowSmartReassign, allowRetry, maxRetries };
 }
 
 /**
@@ -1348,6 +1373,7 @@ export async function saveMatchingExerciseToSheets(
     showMistakeFeedback?: boolean;
     allowSmartReassign?: boolean;
     allowRetry?: boolean;
+    maxRetries?: number;
   }
 ): Promise<{ success: boolean; error?: string; message?: string }> {
   if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
@@ -1541,6 +1567,7 @@ export async function exportAllMatchingCurriculumToSheets(
         showMistakeFeedback: ex.showMistakeFeedback,
         allowSmartReassign: ex.allowSmartReassign,
         allowRetry: ex.allowRetry,
+        maxRetries: ex.maxRetries,
       });
       savedCount++;
     }
@@ -1622,7 +1649,20 @@ export async function fetchDictationExercisesFromSheets(
                 lockOnMistake: ex.lockOnMistake !== undefined ? Boolean(ex.lockOnMistake) : parsedSet.lockOnMistake,
                 durationSeconds:
                   typeof ex.durationSeconds === 'number' ? ex.durationSeconds : parsedSet.durationSeconds,
-                allowRetry: ex.allowRetry !== undefined ? Boolean(ex.allowRetry) : parsedSet.allowRetry,
+                allowRetry:
+                  typeof ex.maxRetries === 'number'
+                    ? ex.maxRetries !== 0
+                    : ex.allowRetry !== undefined
+                    ? Boolean(ex.allowRetry)
+                    : parsedSet.allowRetry,
+                maxRetries:
+                  typeof ex.maxRetries === 'number' && !isNaN(ex.maxRetries)
+                    ? ex.maxRetries < 0
+                      ? -1
+                      : Math.max(0, Math.floor(ex.maxRetries))
+                    : ex.allowRetry === false
+                    ? 0
+                    : parsedSet.maxRetries,
               };
             })
           : [],
@@ -1665,6 +1705,7 @@ export async function saveDictationExerciseToSheets(
     lockOnMistake?: boolean;
     durationSeconds?: number;
     allowRetry?: boolean;
+    maxRetries?: number;
   }
 ): Promise<{ success: boolean; error?: string; message?: string }> {
   if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
@@ -1745,6 +1786,7 @@ export async function exportAllDictationCurriculumToSheets(
         lockOnMistake: ex.lockOnMistake,
         durationSeconds: ex.durationSeconds,
         allowRetry: ex.allowRetry,
+        maxRetries: ex.maxRetries,
       });
       savedCount++;
     }
@@ -2458,6 +2500,34 @@ function getAnswers3Sheet(ss) {
   return sheet;
 }
 
+// دالة مساعدة لإنشاء أو استرجاع ورقة سجل محاولات الإعادة "سجل_المحاولات"
+function getRetriesSheet(ss) {
+  var sheet = ss.getSheetByName("سجل_المحاولات");
+  if (!sheet) {
+    sheet = ss.insertSheet("سجل_المحاولات");
+    sheet.appendRow(["رقم المشترك", "اسم المشترك", "نوع التمرين", "معرف التمرين", "عدد الإعادات", "آخر تحديث"]);
+    sheet.getRange(1, 1, 1, 6).setFontWeight("bold").setBackground("#ede9fe");
+  }
+  return sheet;
+}
+
+function parseRetryLimitSettingGS(rawStr) {
+  var s = String(rawStr || "").trim().toLowerCase();
+  if (!s) return { allowRetry: true, maxRetries: 3 };
+  if (s.indexOf("منع الإعادة") !== -1 || s.indexOf("منع الاعادة") !== -1 || s.indexOf("لا إعادة") !== -1 || s.indexOf("no_retry") !== -1 || s === "false" || s.indexOf(",منع") !== -1) {
+    return { allowRetry: false, maxRetries: 0 };
+  }
+  if (s.indexOf("غير محدود") !== -1 || s.indexOf("مفتوح") !== -1 || s.indexOf("unlimited") !== -1) {
+    return { allowRetry: true, maxRetries: -1 };
+  }
+  var m = s.match(/(?:إعادة|اعادة|محاولات|retry)\s*[:=]?\s*(\d+)/);
+  if (m) {
+    var n = parseInt(m[1], 10);
+    if (!isNaN(n)) return { allowRetry: n > 0, maxRetries: Math.max(0, n) };
+  }
+  return { allowRetry: true, maxRetries: 3 };
+}
+
 // 1. GET: جلب الدروس، أو بيانات ورقة الرئيسية، أو المشتركين، أو سجل إجابات الطالب من answers 1
 function doGet(e) {
   try {
@@ -2646,6 +2716,34 @@ function doGet(e) {
         dictationHistory: dictList
       })).setMimeType(ContentService.MimeType.JSON);
     }
+
+    // (ب-4) جلب سجل عدد محاولات الإعادة لطالب معين من ورقة "سجل_المحاولات"
+    if (e && e.parameter && e.parameter.action === "get_student_retries") {
+      var rSheet = getRetriesSheet(ss);
+      var qId = String(e.parameter.studentId || "").trim();
+      var qName = String(e.parameter.studentName || "").trim();
+      var lastR = rSheet.getLastRow();
+      var retriesList = [];
+      if (lastR > 1) {
+        var rRows = rSheet.getRange(2, 1, lastR - 1, 6).getValues();
+        for (var i = 0; i < rRows.length; i++) {
+          var rowId = String(rRows[i][0] || "").trim();
+          var rowName = String(rRows[i][1] || "").trim();
+          var matched = (qId && rowId === qId) || ((!qId || !rowId) && qName && rowName === qName);
+          if (matched) {
+            retriesList.push({
+              mode: String(rRows[i][2] || "").trim(),
+              exerciseKey: String(rRows[i][3] || "").trim(),
+              retryCount: parseInt(rRows[i][4], 10) || 0
+            });
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        retries: retriesList
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
     
     // (ج) إذا كان الطلب جلب قائمة المشتركين من ورقة "ID registrants"
     if (e && e.parameter && e.parameter.action === "get_registrants") {
@@ -2763,7 +2861,7 @@ function doGet(e) {
                 var lockOnMistake = sStr.indexOf("لا تراجع") !== -1 || sStr.indexOf("قفل") !== -1;
                 var showMistakeFeedback = sStr.indexOf("إخفاء") === -1;
                 var allowSmartReassign = (sStr.indexOf("تصحيح ذكي") !== -1 && sStr.indexOf("بدون تصحيح ذكي") === -1) || sStr.indexOf("فك ذكي") !== -1 || sStr.indexOf("تبديل الإجابة") !== -1;
-                var allowRetry = sStr.indexOf("منع الإعادة") === -1 && sStr.indexOf("لا إعادة") === -1 && sStr.indexOf("no_retry") === -1;
+                var parsedR = parseRetryLimitSettingGS(sStr);
                 var durMatch = sStr.match(/(\d+)\s*ثوان/);
                 var durationSeconds = durMatch ? parseInt(durMatch[1]) : 4;
                 exercises.push({
@@ -2776,7 +2874,8 @@ function doGet(e) {
                   lockOnMistake: lockOnMistake,
                   showMistakeFeedback: showMistakeFeedback,
                   allowSmartReassign: allowSmartReassign,
-                  allowRetry: allowRetry
+                  allowRetry: parsedR.allowRetry,
+                  maxRetries: parsedR.maxRetries
                 });
                 exNum++;
               }
@@ -2816,7 +2915,7 @@ function doGet(e) {
               var ansStr = String(row[c + 2] || "").trim();
               var setStr = String(row[c + 3] || "").trim();
               if (qText || poolStr || ansStr || setStr) {
-                var allowRetry = setStr.indexOf("منع الإعادة") === -1 && setStr.indexOf("لا إعادة") === -1 && setStr.indexOf("no_retry") === -1;
+                var parsedDictR = parseRetryLimitSettingGS(setStr);
                 var durMatch = setStr.match(/(\\d+)\\s*ثوان/);
                 var durationSeconds = durMatch ? parseInt(durMatch[1]) : 5;
                 exercises.push({
@@ -2827,7 +2926,8 @@ function doGet(e) {
                   correctAnswer: ansStr,
                   settingsString: setStr,
                   durationSeconds: durationSeconds,
-                  allowRetry: allowRetry
+                  allowRetry: parsedDictR.allowRetry,
+                  maxRetries: parsedDictR.maxRetries
                 });
                 exNum++;
               }
@@ -2883,12 +2983,10 @@ function doGet(e) {
         var repeatCount = 1;
         var difficultyLevel = "medium";
         var recordingDuration = 5;
-        var allowRetry = true;
+        var parsedLessonRetry = parseRetryLimitSettingGS(repeatRaw);
+        var allowRetry = parsedLessonRetry.allowRetry;
+        var maxRetries = parsedLessonRetry.maxRetries;
         if (repeatRaw) {
-          var repeatLower = repeatRaw.toLowerCase();
-          if (repeatLower.indexOf("منع") !== -1 || repeatLower.indexOf("لا إعادة") !== -1 || repeatLower.indexOf("no_retry") !== -1 || repeatLower.indexOf("false") !== -1) {
-            allowRetry = false;
-          }
           var parts = repeatRaw.split(/[,|]/).map(function(s) { return s.trim(); });
           if (parts.length >= 1) {
             var p1 = parseInt(parts[0]);
@@ -2919,7 +3017,8 @@ function doGet(e) {
           repeatCount: repeatCount,
           difficultyLevel: difficultyLevel,
           recordingDuration: recordingDuration,
-          allowRetry: allowRetry
+          allowRetry: allowRetry,
+          maxRetries: maxRetries
         });
       }
     }
@@ -3323,6 +3422,39 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // (0-ح) تسجيل عدد محاولات الإعادة لطالب معين في ورقة "سجل_المحاولات"
+    if (data.action === "record_retry") {
+      var rSheet = getRetriesSheet(ss);
+      var rSid = String(data.studentId || "").trim();
+      var rSname = String(data.studentName || "").trim();
+      var rMode = String(data.mode || "").trim();
+      var rExKey = String(data.exerciseKey || "").trim();
+      var rCount = parseInt(data.retryCount, 10) || 1;
+      var rTime = String(data.timestamp || new Date().toLocaleString("ar-SA")).trim();
+      var lastR = rSheet.getLastRow();
+      var foundRow = -1;
+      if (lastR > 1) {
+        var rows = rSheet.getRange(2, 1, lastR - 1, 5).getValues();
+        for (var i = 0; i < rows.length; i++) {
+          var idMatch = rSid && String(rows[i][0] || "").trim() === rSid;
+          var nameMatch = (!rSid || !String(rows[i][0] || "").trim()) && rSname && String(rows[i][1] || "").trim() === rSname;
+          if ((idMatch || nameMatch) && String(rows[i][2] || "").trim() === rMode && String(rows[i][3] || "").trim() === rExKey) {
+            foundRow = i + 2;
+            var existingCnt = parseInt(rows[i][4], 10) || 0;
+            if (existingCnt > rCount) rCount = existingCnt;
+            break;
+          }
+        }
+      }
+      if (foundRow > 0) {
+        rSheet.getRange(foundRow, 5, 1, 2).setValues([[rCount, rTime]]);
+      } else {
+        rSheet.appendRow([rSid, rSname, rMode, rExKey, rCount, rTime]);
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, retryCount: rCount }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // (أ) حفظ صوت المعلم في مجلد الإدارة والشرح (1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t)
     if (data.action === "upload_audio" && data.audioBase64) {
       var teacherFolder = getOrCreateAudioFolder(data.driveFolderId || "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t");
@@ -3610,7 +3742,8 @@ function doPost(e) {
           var diff = item.difficultyLevel || "medium";
           var diffArabic = diff === "easy" ? "سهل" : (diff === "hard" ? "متقدم" : "متوسط");
           var dur = parseInt(item.recordingDuration) || 5;
-          var retryArabic = item.allowRetry === false ? "منع الإعادة" : "السماح بالإعادة";
+          var mr = (item.maxRetries !== undefined && item.maxRetries !== null) ? parseInt(item.maxRetries) : (item.allowRetry === false ? 0 : 3);
+          var retryArabic = mr === 0 ? "منع الإعادة" : (mr < 0 ? "إعادة غير محدودة" : ("إعادة " + mr));
           return rep + "," + diffArabic + "," + dur + "," + retryArabic;
         })()
       ]];
@@ -3747,7 +3880,8 @@ function doPost(e) {
                 var diff = curItem.difficultyLevel || "medium";
                 var diffArabic = diff === "easy" ? "سهل" : (diff === "hard" ? "متقدم" : "متوسط");
                 var dur = parseInt(curItem.recordingDuration) || 5;
-                var retryArabic = curItem.allowRetry === false ? "منع الإعادة" : "السماح بالإعادة";
+                var mr = (curItem.maxRetries !== undefined && curItem.maxRetries !== null) ? parseInt(curItem.maxRetries) : (curItem.allowRetry === false ? 0 : 3);
+                var retryArabic = mr === 0 ? "منع الإعادة" : (mr < 0 ? "إعادة غير محدودة" : ("إعادة " + mr));
                 return rep + "," + diffArabic + "," + dur + "," + retryArabic;
               })()
             );

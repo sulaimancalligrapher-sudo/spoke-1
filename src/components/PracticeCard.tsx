@@ -57,6 +57,12 @@ import {
 } from '../utils/whisperEngine';
 import { AudioWaveform } from './AudioWaveform';
 import { SupportedLang, TranslationItem, translateEvaluationFeedback } from '../utils/translations';
+import {
+  formatStudentRetryBannerMessage,
+  getRetryStatus,
+  recordStudentRetryAttempt,
+  resolveEffectiveMaxRetries,
+} from '../utils/retryLimit';
 
 interface PracticeCardProps {
   wordItem: WordItem;
@@ -76,6 +82,8 @@ interface PracticeCardProps {
   isSubmitted?: boolean;
   onReRecord?: () => void;
   retryNonce?: number;
+  retryBanner?: { nonce: number; message: string } | null;
+  webhookUrl?: string;
   recordedHistoryItem?: {
     score: number;
     grade: string;
@@ -102,6 +110,8 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
   isSubmitted = false,
   onReRecord,
   retryNonce = 0,
+  retryBanner = null,
+  webhookUrl,
   recordedHistoryItem = null,
   currentLang = 'ar',
   translations = [],
@@ -128,6 +138,7 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
 
   // Re-recording toggle: when user clicks "إعادة التسجيل 🔄" on a previously submitted exercise
   const [isReRecording, setIsReRecording] = useState(false);
+  const [activeRetryBanner, setActiveRetryBanner] = useState<string | null>(null);
   const [isPlayingSubmittedAudio, setIsPlayingSubmittedAudio] = useState(false);
   const submittedAudioRef = useRef<HTMLAudioElement | null>(null);
   const lastHandledRetryNonceRef = useRef<number>(0);
@@ -137,13 +148,28 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
     if (submittedAudioRef.current) {
       submittedAudioRef.current.pause();
     }
-    if (retryNonce > 0 && retryNonce !== lastHandledRetryNonceRef.current && wordItem?.allowRetry !== false) {
+    if (
+      retryNonce > 0 &&
+      retryNonce !== lastHandledRetryNonceRef.current &&
+      resolveEffectiveMaxRetries(wordItem) !== 0
+    ) {
       lastHandledRetryNonceRef.current = retryNonce;
       setIsReRecording(true);
+      setActiveRetryBanner(
+        retryBanner && retryBanner.nonce === retryNonce ? retryBanner.message : null
+      );
     } else {
       setIsReRecording(false);
+      setActiveRetryBanner(null);
     }
-  }, [wordItem?.id, currentStudent?.id, retryNonce, wordItem?.allowRetry]);
+  }, [wordItem?.id, currentStudent?.id, retryNonce, wordItem?.allowRetry, wordItem?.maxRetries, retryBanner]);
+
+  useEffect(() => {
+    if (isSubmitted) {
+      setIsReRecording(false);
+      setActiveRetryBanner(null);
+    }
+  }, [isSubmitted]);
 
   const handlePlaySubmittedVoice = (url: string) => {
     if (isPlayingSubmittedAudio && submittedAudioRef.current) {
@@ -987,28 +1013,65 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
         </div>
 
         {/* Bottom Action: زر إعادة التسجيل 🔄 أو تنبيه قفل الإعادة */}
-        <div className="mt-8 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
-          {wordItem.allowRetry !== false ? (
-            <>
-              <div className="text-xs text-slate-500 text-center sm:text-right">
-                {tr('practice_retry_prompt', 'هل ترغب في إعادة المحاولة وتوثيق تسجيل ودرجة جديدة؟')}
-              </div>
+        {(() => {
+          const retryKey = `${(wordItem.lessonSubject || '').trim()}::${wordItem.word.trim()}`;
+          const retryStatus = getRetryStatus('pronunciation', currentStudent, retryKey, wordItem);
+          return (
+            <div className="mt-8 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+              {retryStatus.canRetry ? (
+                <>
+                  <div className="text-xs text-slate-500 text-center sm:text-right">
+                    <span>{tr('practice_retry_prompt', 'هل ترغب في إعادة المحاولة وتوثيق تسجيل ودرجة جديدة؟')}</span>
+                    {!retryStatus.isUnlimited && (
+                      <span className="inline-block mr-1.5 px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-800 border border-indigo-200 font-bold text-[11px]">
+                        {tr('retry_remaining_badge', 'متبقٍ {remaining} من {max}')
+                          .replace('{remaining}', String(retryStatus.remainingRetries))
+                          .replace('{max}', String(retryStatus.maxRetries))}
+                      </span>
+                    )}
+                  </div>
 
-              <button
-                type="button"
-                onClick={() => setIsReRecording(true)}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-2xl text-sm transition-all shadow-md shadow-indigo-600/20 cursor-pointer hover:scale-102 active:scale-98"
-              >
-                <RotateCcw className="w-4 h-4" />
-                <span>{tr('practice_re_record_btn', 'إعادة التسجيل')}</span>
-              </button>
-            </>
-          ) : (
-            <div className="w-full p-3 rounded-2xl bg-slate-100 border border-slate-200 text-slate-700 text-xs sm:text-sm font-bold text-center">
-              {tr('practice_retry_disabled_notice', '🔒 تم تسجيل درجتك مسبقاً، وإعادة المحاولة مغلقة من المعلم.')}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const outcome = recordStudentRetryAttempt(
+                        'pronunciation',
+                        currentStudent,
+                        retryKey,
+                        wordItem,
+                        webhookUrl
+                      );
+                      setActiveRetryBanner(
+                        formatStudentRetryBannerMessage(outcome, currentStudent, tr)
+                      );
+                      setIsReRecording(true);
+                    }}
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-2xl text-sm transition-all shadow-md shadow-indigo-600/20 cursor-pointer hover:scale-102 active:scale-98"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>{tr('practice_re_record_btn', 'إعادة التسجيل')}</span>
+                    {!retryStatus.isUnlimited && (
+                      <span className="text-xs font-mono opacity-90">
+                        ({retryStatus.remainingRetries}/{retryStatus.maxRetries})
+                      </span>
+                    )}
+                  </button>
+                </>
+              ) : (
+                <div className="w-full p-3.5 rounded-2xl bg-slate-100 border border-slate-200 text-slate-700 text-xs sm:text-sm font-bold text-center">
+                  {retryStatus.maxRetries === 0
+                    ? tr('practice_retry_disabled_notice', '🔒 تم تسجيل درجتك مسبقاً، وإعادة المحاولة مغلقة من المعلم.')
+                    : tr(
+                        'retry_limit_reached_notice',
+                        '🔒 وصلت للحد الأقصى لمحاولات الإعادة المسموح بها ({used} من {max}) وتوقفت الإعادة لك في هذا التمرين.'
+                      )
+                        .replace('{used}', String(retryStatus.usedRetries))
+                        .replace('{max}', String(retryStatus.maxRetries))}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          );
+        })()}
       </div>
     );
   }
@@ -1018,6 +1081,13 @@ export const PracticeCard: React.FC<PracticeCardProps> = ({
       {/* Background soft glow */}
       <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-50/60 rounded-full blur-3xl -z-10 pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-80 h-80 bg-sky-50/60 rounded-full blur-3xl -z-10 pointer-events-none" />
+
+      {/* Personalized Student Retry Notice Banner */}
+      {activeRetryBanner && (
+        <div className="mb-4 p-3 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 text-xs sm:text-sm font-bold text-center shadow-2xs animate-in fade-in duration-200">
+          {activeRetryBanner}
+        </div>
+      )}
 
       {/* Main Arabic Display Stage with Optional Image */}
       <div className="text-center py-4 sm:py-6 border-b border-slate-100">

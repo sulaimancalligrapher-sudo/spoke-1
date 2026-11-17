@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { WordItem } from '../types';
+import { WordItem, StudentRegistrant } from '../types';
+import { getRetryStatus } from '../utils/retryLimit';
 import {
   BookOpen,
   Search,
@@ -24,6 +25,7 @@ interface LessonsModalProps {
   selectedSubject: string;
   onSelectSubject: (subject: string) => void;
   scoresMap: Record<string, number>;
+  currentStudent?: StudentRegistrant | null;
   t?: (id: string, fallback?: string) => string;
 }
 
@@ -37,6 +39,7 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
   selectedSubject,
   onSelectSubject,
   scoresMap,
+  currentStudent,
   t,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
@@ -238,7 +241,9 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
                 const isSelected = item.id === selectedItem.id;
                 const score = getItemScore(item);
                 const isCompleted = score !== undefined;
-                const canRetry = item.allowRetry !== false;
+                const retryKey = `${(item.lessonSubject || selectedSubject || '').trim()}::${item.word.trim()}`;
+                const retryStatus = getRetryStatus('pronunciation', currentStudent, retryKey, item);
+                const canRetry = retryStatus.canRetry;
 
                 return (
                   <div
@@ -319,15 +324,44 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
                             <button
                               type="button"
                               onClick={() => handlePickItem(item, true)}
+                              title={
+                                retryStatus.isUnlimited
+                                  ? tr('lessons_retry_btn', 'إعادة')
+                                  : tr('retry_remaining_badge', 'متبقٍ {remaining} من {max}')
+                                      .replace('{remaining}', String(retryStatus.remainingRetries))
+                                      .replace('{max}', String(retryStatus.maxRetries))
+                              }
                               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-300 text-[11px] font-bold transition-all cursor-pointer shadow-2xs"
                             >
                               <RotateCcw className="w-3 h-3" />
                               <span>{tr('lessons_retry_btn', 'إعادة')}</span>
+                              {!retryStatus.isUnlimited && (
+                                <span className="text-[10px] opacity-80 font-mono">
+                                  ({retryStatus.remainingRetries}/{retryStatus.maxRetries})
+                                </span>
+                              )}
                             </button>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-xl bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-bold">
+                            <span
+                              title={
+                                retryStatus.maxRetries > 0
+                                  ? tr(
+                                      'retry_limit_reached_notice',
+                                      '🔒 وصلت للحد الأقصى لمحاولات الإعادة المسموح بها ({used} من {max}) وتوقفت الإعادة لك في هذا التمرين.'
+                                    )
+                                      .replace('{used}', String(retryStatus.usedRetries))
+                                      .replace('{max}', String(retryStatus.maxRetries))
+                                  : tr('lessons_retry_locked', 'مغلق')
+                              }
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-xl bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-bold"
+                            >
                               <Lock className="w-3 h-3" />
                               <span>{tr('lessons_retry_locked', 'مغلق')}</span>
+                              {retryStatus.maxRetries > 0 && (
+                                <span className="font-mono text-[9px] opacity-80">
+                                  ({retryStatus.usedRetries}/{retryStatus.maxRetries})
+                                </span>
+                              )}
                             </span>
                           )}
                         </>

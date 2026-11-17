@@ -12,6 +12,7 @@ import {
   INITIAL_LESSON_SUBJECTS,
   INITIAL_CATEGORIES,
 } from '../data/arabicCurriculum';
+import { DEFAULT_MAX_RETRIES, resolveEffectiveMaxRetries } from '../utils/retryLimit';
 import QRCode from 'qrcode';
 import {
   BookOpen,
@@ -265,7 +266,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [repeatCount, setRepeatCount] = useState<number>(1);
   const [difficultyLevel, setDifficultyLevel] = useState<DifficultyLevel>('medium');
   const [recordingDuration, setRecordingDuration] = useState<number>(5);
-  const [allowRetry, setAllowRetry] = useState<boolean>(true);
+  const [maxRetries, setMaxRetries] = useState<number>(DEFAULT_MAX_RETRIES);
 
   // Teacher Voice Recording State (Inline quick recording)
   const [isRecordingTeacher, setIsRecordingTeacher] = useState(false);
@@ -320,7 +321,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setRepeatCount(item.repeatCount || 1);
     setDifficultyLevel(item.difficultyLevel || 'medium');
     setRecordingDuration(item.recordingDuration || 5);
-    setAllowRetry(item.allowRetry !== false);
+    setMaxRetries(resolveEffectiveMaxRetries(item));
     setLessonsSubTab('add');
 
     window.scrollTo({ top: 120, behavior: 'smooth' });
@@ -338,7 +339,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setRepeatCount(1);
     setDifficultyLevel('medium');
     setRecordingDuration(5);
-    setAllowRetry(true);
+    setMaxRetries(DEFAULT_MAX_RETRIES);
     setLessonsSubTab('list');
   };
 
@@ -537,7 +538,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       repeatCount: repeatCount > 1 ? repeatCount : 1,
       difficultyLevel: difficultyLevel,
       recordingDuration: recordingDuration >= 2 ? recordingDuration : 5,
-      allowRetry,
+      allowRetry: maxRetries !== 0,
+      maxRetries,
     };
 
     if (editingId) {
@@ -598,7 +600,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setRepeatCount(1);
     setDifficultyLevel('medium');
     setRecordingDuration(5);
-    setAllowRetry(true);
+    setMaxRetries(DEFAULT_MAX_RETRIES);
   };
 
   // Test play audio from field
@@ -1751,54 +1753,112 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                   </span>
                 </div>
 
-                {/* 12. السماح بإعادة التمرين بعد تسجيل الدرجة */}
-                <div className="p-3 bg-emerald-50/60 border border-emerald-200/80 rounded-2xl">
-                  <div className="flex items-center justify-between mb-2">
+                {/* 12. تحديد عدد محاولات إعادة التمرين بعد تسجيل الدرجة */}
+                <div className="p-3 bg-emerald-50/60 border border-emerald-200/80 rounded-2xl space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <label className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
                       <RotateCcw className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>12- السماح بإعادة التمرين بعد تسجيل الدرجة:</span>
+                      <span>12- عدد محاولات إعادة التمرين بعد تسجيل الإجابة (افتراضياً 3):</span>
                     </label>
                     <span className="text-[11px] font-bold text-emerald-800">
-                      {allowRetry ? '🔄 مسموح بالإعادة' : '🔒 محاولة واحدة فقط'}
+                      {maxRetries === 0
+                        ? '🔒 منع الإعادة'
+                        : maxRetries < 0
+                        ? '♾️ إعادة غير محدودة'
+                        : `🔄 حد أقصى ${maxRetries} محاولات`}
                     </span>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <button
                       type="button"
-                      onClick={() => setAllowRetry(true)}
+                      onClick={() => setMaxRetries((prev) => (prev > 0 ? prev : DEFAULT_MAX_RETRIES))}
                       className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
-                        allowRetry
+                        maxRetries > 0
                           ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
                           : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-300'
                       }`}
                     >
                       <div className="text-xs font-bold flex items-center justify-between">
-                        <span>السماح بالإعادة (افتراضي)</span>
-                        <span>🔄</span>
+                        <span>عدد محدد (افتراضي 3)</span>
+                        <span>🔢</span>
                       </div>
-                      <span className={`text-[10px] mt-1 ${allowRetry ? 'text-emerald-100' : 'text-slate-500'}`}>
-                        يمكن للطالب إعادة التمرين وتحديث درجته السابقة من أيقونة العين في قائمة الدروس
+                      <span className={`text-[10px] mt-1 ${maxRetries > 0 ? 'text-emerald-100' : 'text-slate-500'}`}>
+                        يتوقف الزر لكل طالب فور استنفاد الحد
                       </span>
                     </button>
 
                     <button
                       type="button"
-                      onClick={() => setAllowRetry(false)}
+                      onClick={() => setMaxRetries(-1)}
                       className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
-                        !allowRetry
+                        maxRetries < 0
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
+                      }`}
+                    >
+                      <div className="text-xs font-bold flex items-center justify-between">
+                        <span>غير محدود</span>
+                        <span>♾️</span>
+                      </div>
+                      <span className={`text-[10px] mt-1 ${maxRetries < 0 ? 'text-indigo-100' : 'text-slate-500'}`}>
+                        إعادة مفتوحة دون حد أقصى
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setMaxRetries(0)}
+                      className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col justify-between ${
+                        maxRetries === 0
                           ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
                           : 'bg-white text-slate-700 border-slate-200 hover:border-rose-300'
                       }`}
                     >
                       <div className="text-xs font-bold flex items-center justify-between">
-                        <span>منع الإعادة (مرة واحدة)</span>
+                        <span>منع الإعادة (0)</span>
                         <span>🔒</span>
                       </div>
-                      <span className={`text-[10px] mt-1 ${!allowRetry ? 'text-rose-100' : 'text-slate-500'}`}>
-                        يُغلق التمرين نهائياً للطالب فور تسجيل درجته ولا يظهر له زر الإعادة
+                      <span className={`text-[10px] mt-1 ${maxRetries === 0 ? 'text-rose-100' : 'text-slate-500'}`}>
+                        تُغلق الإعادة فور تسجيل أول إجابة
                       </span>
                     </button>
                   </div>
+
+                  {maxRetries > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-white px-3 py-2 rounded-xl border border-emerald-200">
+                      <span className="text-xs font-bold text-slate-700">تحديد عدد المحاولات لكل طالب:</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setMaxRetries((n) => Math.max(1, n - 1))}
+                          className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-black text-base flex items-center justify-center cursor-pointer"
+                          title="إنقاص"
+                        >
+                          −
+                        </button>
+                        <input
+                          type="number"
+                          min={1}
+                          max={99}
+                          value={maxRetries}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            setMaxRetries(isNaN(val) ? 1 : Math.min(99, Math.max(1, val)));
+                          }}
+                          className="w-16 text-center px-2 py-1 rounded-lg border border-slate-300 font-black text-sm text-emerald-900"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setMaxRetries((n) => Math.min(99, n + 1))}
+                          className="w-8 h-8 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-black text-base flex items-center justify-center cursor-pointer"
+                          title="زيادة"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Submit button */}
@@ -1992,11 +2052,28 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                                 🟡 متوسط
                               </span>
                             )}
-                            {item.allowRetry === false && (
-                              <span className="text-[10px] text-rose-800 bg-rose-100 border border-rose-300 px-1.5 py-0.5 rounded-md font-bold" title="ممنوع إعادة التمرين بعد التسجيل">
-                                🔒 بدون إعادة
-                              </span>
-                            )}
+                            {(() => {
+                              const mr = resolveEffectiveMaxRetries(item);
+                              if (mr === 0) {
+                                return (
+                                  <span className="text-[10px] text-rose-800 bg-rose-100 border border-rose-300 px-1.5 py-0.5 rounded-md font-bold" title="ممنوع إعادة التمرين بعد التسجيل">
+                                    🔒 بدون إعادة
+                                  </span>
+                                );
+                              }
+                              if (mr < 0) {
+                                return (
+                                  <span className="text-[10px] text-indigo-800 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-md font-bold" title="إعادة غير محدودة">
+                                    ♾️ إعادة مفتوحة
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className="text-[10px] text-teal-800 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-md font-bold" title={`عدد محاولات الإعادة المسموحة لكل طالب: ${mr}`}>
+                                  🔄 إعادة {mr}×
+                                </span>
+                              );
+                            })()}
                           </div>
                           <div className="text-[11px] text-slate-500 truncate max-w-[260px] mt-0.5">
                             {item.meaning}
