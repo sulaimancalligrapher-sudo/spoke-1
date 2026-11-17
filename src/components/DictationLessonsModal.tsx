@@ -12,7 +12,12 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { getQuestionPlainText } from '../utils/matchingMedia';
-import { SupportedLang } from '../utils/translations';
+import {
+  SupportedLang,
+  TranslationItem,
+  getTranslatedDictationSubject,
+  getTranslatedDictationQuestionText,
+} from '../utils/translations';
 import { extractPercentageFromMatchingText } from '../utils/googleSheets';
 
 interface DictationLessonsModalProps {
@@ -25,6 +30,7 @@ interface DictationLessonsModalProps {
   onOpenAdminDictation?: () => void;
   dictationHistory?: DictationHistoryItem[];
   currentLang?: SupportedLang;
+  translations?: TranslationItem[];
   t?: (id: string, fallback?: string) => string;
 }
 
@@ -38,6 +44,7 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
   onOpenAdminDictation,
   dictationHistory = [],
   currentLang = 'ar',
+  translations = [],
   t,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
@@ -129,7 +136,7 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
             >
               {subjects.map((subj) => (
                 <option key={subj.id} value={subj.id}>
-                  {subj.subjectName} ({subj.exercises.length} {tr('matching_modal_exercises_word', 'تمارين')})
+                  {getTranslatedDictationSubject(subj.subjectName, currentLang, translations)} ({subj.exercises.length} {tr('matching_modal_exercises_word', 'تمارين')})
                 </option>
               ))}
             </select>
@@ -164,8 +171,18 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
             indexedExercises.map(({ ex, exIdx }) => {
               const isCurrent =
                 currentSubject.id === activeSubjectId && exIdx === activeExerciseIndex;
+              const rawPlainQ = getQuestionPlainText(ex.questionText).trim();
+              const translatedQ = rawPlainQ
+                ? getTranslatedDictationQuestionText(
+                    currentSubject.subjectName,
+                    ex.exerciseNumber,
+                    rawPlainQ,
+                    currentLang,
+                    translations
+                  )
+                : '';
               const plainQ =
-                getQuestionPlainText(ex.questionText).trim() ||
+                translatedQ ||
                 `${tr('matching_modal_exercise_word', 'تمرين')} ${ex.exerciseNumber}`;
               const score = subjectScoresMap[ex.exerciseNumber];
               const isCompleted = score !== undefined;
@@ -290,7 +307,7 @@ export const DictationLessonsModal: React.FC<DictationLessonsModalProps> = ({
               className="text-xs text-teal-700 hover:text-teal-900 font-bold flex items-center gap-1 cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>إدارة وإضافة تمارين الإملاء في لوحة التحكم</span>
+              <span>{tr('dictation_admin_manage_link', 'إدارة وإضافة تمارين الإملاء في لوحة التحكم')}</span>
             </button>
           )}
 

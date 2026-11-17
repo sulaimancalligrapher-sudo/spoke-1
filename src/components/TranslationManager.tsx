@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import {
   TranslationItem,
-  SupportedLang,
+  DEFAULT_TRANSLATIONS,
   translateSingleWithAI,
   translateBatchWithAI,
+  getDictationSubjectTranslationId,
+  getDictationQuestionTranslationId,
 } from '../utils/translations';
-import { WordItem } from '../types';
+import { DictationLessonSubject, WordItem } from '../types';
+import { getQuestionPlainText, parseQuestionBlocks } from '../utils/matchingMedia';
 import {
   Languages,
   Sparkles,
@@ -31,6 +34,7 @@ interface TranslationManagerProps {
   geminiApiKey?: string;
   webhookUrl?: string;
   curriculum?: WordItem[];
+  dictationSubjects?: DictationLessonSubject[];
   onRefreshFromSheets?: () => Promise<void>;
 }
 
@@ -41,12 +45,35 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
   geminiApiKey,
   webhookUrl,
   curriculum = [],
+  dictationSubjects = [],
   onRefreshFromSheets,
 }) => {
-  // Build initial items merging translations with curriculum exercises (Columns 6 & 7)
-  const buildMergedItems = (baseList: TranslationItem[], words: WordItem[]) => {
+  // Build initial items merging DEFAULT_TRANSLATIONS, saved translations, curriculum (Cols 6 & 7), and dictation (Exercise 3)
+  const buildMergedItems = (
+    baseList: TranslationItem[],
+    words: WordItem[],
+    dictSubjects: DictationLessonSubject[]
+  ) => {
     const map = new Map<string, TranslationItem>();
-    baseList.forEach((item) => map.set(item.id, item));
+
+    // Ensure all latest default keys exist (including newly added dictation keys)
+    DEFAULT_TRANSLATIONS.forEach((d) => {
+      map.set(d.id, d);
+    });
+
+    baseList.forEach((item) => {
+      const def = map.get(item.id);
+      if (def) {
+        map.set(item.id, {
+          ...def,
+          ar: item.ar !== undefined ? item.ar : def.ar,
+          th: item.th !== undefined ? item.th : def.th,
+          en: item.en !== undefined ? item.en : def.en,
+        });
+      } else {
+        map.set(item.id, item);
+      }
+    });
 
     // Dynamic items for each word in curriculum (Columns 6 & 7)
     if (words && words.length > 0) {
@@ -105,29 +132,100 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
       });
     }
 
+    // Dynamic Subject names & Question texts from sheet "كلمات" (تمرين الإملاء 3)
+    if (dictSubjects && dictSubjects.length > 0) {
+      dictSubjects.forEach((subj) => {
+        const cleanName = (subj.subjectName || '').trim();
+        if (!cleanName) return;
+
+        const subjId = getDictationSubjectTranslationId(cleanName);
+        const existingSubj = map.get(subjId);
+        const subjNote = `موضوع درس إملاء (${subj.exercises.length} تمارين)`;
+        if (!existingSubj) {
+          map.set(subjId, {
+            id: subjId,
+            category: 'dictation',
+            categoryLabel: 'أسماء مواضيع دروس الإملاء (3)',
+            ar: cleanName,
+            th: '',
+            en: '',
+            isSheetLinked: true,
+            sheetSourceNote: subjNote,
+          });
+        } else {
+          map.set(subjId, {
+            ...existingSubj,
+            category: 'dictation',
+            categoryLabel: 'أسماء مواضيع دروس الإملاء (3)',
+            isSheetLinked: true,
+            sheetSourceNote: subjNote,
+            ar: existingSubj.ar?.trim() ? existingSubj.ar : cleanName,
+          });
+        }
+
+        subj.exercises.forEach((ex) => {
+          const plainQ = getQuestionPlainText(ex.questionText);
+          const hasTextBlock = parseQuestionBlocks(ex.questionText).some(
+            (b) => b.type === 'text' && b.value.trim()
+          );
+          if (!hasTextBlock || !plainQ) return;
+
+          const qId = getDictationQuestionTranslationId(cleanName, ex.exerciseNumber);
+          const existingQ = map.get(qId);
+          const qNote = `[${cleanName}] تمرين ${ex.exerciseNumber}`;
+          if (!existingQ) {
+            map.set(qId, {
+              id: qId,
+              category: 'dictation',
+              categoryLabel: 'نصوص أسئلة تمرين الإملاء (3)',
+              ar: plainQ,
+              th: '',
+              en: '',
+              isSheetLinked: true,
+              sheetSourceNote: qNote,
+            });
+          } else {
+            map.set(qId, {
+              ...existingQ,
+              category: 'dictation',
+              categoryLabel: 'نصوص أسئلة تمرين الإملاء (3)',
+              isSheetLinked: true,
+              sheetSourceNote: qNote,
+              ar: existingQ.ar?.trim() ? existingQ.ar : plainQ,
+            });
+          }
+        });
+      });
+    }
+
     return Array.from(map.values());
   };
 
   const [items, setItems] = useState<TranslationItem[]>(() =>
-    buildMergedItems(translations, curriculum)
+    buildMergedItems(translations, curriculum, dictationSubjects)
   );
-  const [activeTab, setActiveTab] = useState<'home' | 'lessons' | 'practice' | 'curriculum_sheet'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'lessons' | 'practice' | 'dictation' | 'curriculum_sheet'>('home');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSubjectFilter, setSelectedSubjectFilter] = useState<string>('all');
+  const [selectedDictationFilter, setSelectedDictationFilter] = useState<string>('all');
 
   const availableSubjects = React.useMemo(() => {
     return Array.from(new Set(curriculum.map((w) => w.lessonSubject).filter(Boolean)));
   }, [curriculum]);
+
+  const availableDictationSubjects = React.useMemo(() => {
+    return Array.from(new Set(dictationSubjects.map((s) => (s.subjectName || '').trim()).filter(Boolean)));
+  }, [dictationSubjects]);
   const [translatingId, setTranslatingId] = useState<string | null>(null);
   const [isBatchTranslating, setIsBatchTranslating] = useState(false);
   const [isRefreshingFromSheets, setIsRefreshingFromSheets] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // Sync state if external translations or curriculum changes
+  // Sync state if external translations, curriculum, or dictationSubjects change
   React.useEffect(() => {
     setItems((prev) => {
-      const merged = buildMergedItems(translations, curriculum);
+      const merged = buildMergedItems(translations, curriculum, dictationSubjects);
       const prevMap = new Map<string, TranslationItem>();
       prev.forEach((p) => prevMap.set(p.id, p));
 
@@ -144,7 +242,7 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
         return m;
       });
     });
-  }, [translations, curriculum]);
+  }, [translations, curriculum, dictationSubjects]);
 
   const handleRefreshFromSheets = async () => {
     if (!onRefreshFromSheets) return;
@@ -171,6 +269,25 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
       } else {
         const matchesSubject = item.sheetSourceNote && item.sheetSourceNote.includes(`[${selectedSubjectFilter}]`);
         if (!matchesSubject) {
+          return false;
+        }
+      }
+    }
+    if (activeTab === 'dictation' && selectedDictationFilter !== 'all') {
+      if (selectedDictationFilter === 'general_ui') {
+        if (item.id.startsWith('dictation_subj_') || item.id.startsWith('dictation_q_')) {
+          return false;
+        }
+      } else if (selectedDictationFilter === 'subjects_only') {
+        if (!item.id.startsWith('dictation_subj_')) {
+          return false;
+        }
+      } else {
+        const subjId = getDictationSubjectTranslationId(selectedDictationFilter);
+        const matchesSubj =
+          item.id === subjId ||
+          (item.sheetSourceNote && item.sheetSourceNote.includes(`[${selectedDictationFilter}]`));
+        if (!matchesSubj) {
           return false;
         }
       }
@@ -480,6 +597,18 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
 
         <button
           type="button"
+          onClick={() => setActiveTab('dictation')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'dictation'
+              ? 'bg-teal-600 text-white shadow-xs'
+              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+          }`}
+        >
+          تمرين الإملاء 3 ({items.filter((i) => i.category === 'dictation').length})
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('curriculum_sheet')}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
             activeTab === 'curriculum_sheet'
@@ -495,7 +624,7 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
       {/* Filter & Search Bar - Positioned under the sub-tabs */}
       {activeTab !== 'curriculum_sheet' && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-slate-50/80 rounded-2xl border border-slate-200/80">
-          {/* Lesson Filter (shown for lessons tab) */}
+          {/* Lesson Filter (shown for lessons & dictation tabs) */}
           <div className="flex flex-wrap items-center gap-2">
             {activeTab === 'lessons' ? (
               <div className="flex items-center gap-2">
@@ -516,6 +645,34 @@ export const TranslationManager: React.FC<TranslationManagerProps> = ({
                     return (
                       <option key={sub} value={sub}>
                         درس: {sub} ({count} نصوص)
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            ) : activeTab === 'dictation' ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-600 whitespace-nowrap">
+                  ✍️ تصفية الإملاء:
+                </span>
+                <select
+                  value={selectedDictationFilter}
+                  onChange={(e) => setSelectedDictationFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-hidden focus:border-teal-500 cursor-pointer shadow-2xs"
+                >
+                  <option value="all">كل نصوص الإملاء ({items.filter((i) => i.category === 'dictation').length})</option>
+                  <option value="general_ui">نصوص واجهة تمرين الإملاء فقط</option>
+                  <option value="subjects_only">أسماء مواضيع دروس الإملاء فقط</option>
+                  {availableDictationSubjects.map((sub) => {
+                    const subjId = getDictationSubjectTranslationId(sub);
+                    const count = items.filter(
+                      (i) =>
+                        i.category === 'dictation' &&
+                        (i.id === subjId || (i.sheetSourceNote && i.sheetSourceNote.includes(`[${sub}]`)))
+                    ).length;
+                    return (
+                      <option key={sub} value={sub}>
+                        موضوع: {sub} ({count})
                       </option>
                     );
                   })}

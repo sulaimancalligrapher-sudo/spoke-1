@@ -208,6 +208,15 @@ export function parseAnswerWithBlanks(correctAnswer: string): ParsedAnswerBlanks
 }
 
 /**
+ * Returns true when scrambledPool is empty, enabling Direct Keyboard Dictation mode.
+ */
+export function isDirectDictationExercise(scrambledPool?: string): boolean {
+  const clean = String(scrambledPool || '').trim();
+  if (!clean) return true;
+  return parsePoolEntries(clean).length === 0;
+}
+
+/**
  * Automatically classify the exercise into one of the 5 dictation types.
  */
 export function detectDictationType(
@@ -352,6 +361,7 @@ export function formatAssembledPreview(
 
 /**
  * Evaluate the student's answer when clicking "تحقق".
+ * Supports both tile-based mode and Direct Keyboard Dictation mode (empty scrambledPool).
  */
 export function verifyDictationAnswer(params: {
   type: DictationQuestionType;
@@ -359,14 +369,84 @@ export function verifyDictationAnswer(params: {
   scrambledPool?: string;
   selectedTiles: DictationTile[];
   blankAssignments: Record<number, DictationTile | null>;
+  directText?: string;
+  directBlanks?: Record<number, string>;
 }): { isCorrect: boolean; assembledAnswer: string; expectedDisplay: string } {
-  const { type, correctAnswer, scrambledPool, selectedTiles, blankAssignments } = params;
+  const {
+    type,
+    correctAnswer,
+    scrambledPool,
+    selectedTiles,
+    blankAssignments,
+    directText,
+    directBlanks,
+  } = params;
+  const isDirectMode = isDirectDictationExercise(scrambledPool);
   const parsedBlanks = parseAnswerWithBlanks(correctAnswer);
   const expectedDisplay = correctAnswer
     .replace(/\|/g, '')
     .replace(TATWEEL_REGEX, '')
     .replace(/\s+/g, ' ')
     .trim();
+
+  if (isDirectMode) {
+    if (parsedBlanks.hasBlanks) {
+      const allFilled = parsedBlanks.expectedBlanks.every(
+        (_, idx) => Boolean((directBlanks?.[idx] || '').trim())
+      );
+      if (!allFilled) {
+        return { isCorrect: false, assembledAnswer: '', expectedDisplay };
+      }
+
+      const everyBlankMatches = parsedBlanks.expectedBlanks.every((expected, idx) => {
+        const typed = directBlanks?.[idx] || '';
+        const normExpected = normalizeForDictationCompare(expected, { stripSpaces: true });
+        const normTyped = normalizeForDictationCompare(typed, { stripSpaces: true });
+        return Boolean(normTyped) && normExpected === normTyped;
+      });
+
+      const assembledAnswer = parsedBlanks.segments
+        .map((seg) => {
+          if (seg.kind === 'fixed') return seg.text;
+          const typed = seg.blankIndex !== undefined ? directBlanks?.[seg.blankIndex] || '' : '';
+          return typed.trim();
+        })
+        .join('')
+        .replace(TATWEEL_REGEX, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (everyBlankMatches) {
+        return { isCorrect: true, assembledAnswer, expectedDisplay };
+      }
+
+      const fullNormStudent = normalizeForDictationCompare(assembledAnswer, {
+        stripSpaces: type === 'fill_letter',
+      });
+      const fullNormExpected = normalizeForDictationCompare(expectedDisplay, {
+        stripSpaces: type === 'fill_letter',
+      });
+      return {
+        isCorrect: Boolean(fullNormStudent) && fullNormStudent === fullNormExpected,
+        assembledAnswer,
+        expectedDisplay,
+      };
+    }
+
+    // Direct full word or full sentence keyboard dictation
+    const typedClean = String(directText || '').replace(TATWEEL_REGEX, '').replace(/\s+/g, ' ').trim();
+    if (!typedClean) {
+      return { isCorrect: false, assembledAnswer: '', expectedDisplay };
+    }
+    const stripSpaces = !expectedDisplay.includes(' ');
+    const normStudent = normalizeForDictationCompare(typedClean, { stripSpaces });
+    const normExpected = normalizeForDictationCompare(expectedDisplay, { stripSpaces });
+    return {
+      isCorrect: Boolean(normStudent) && normStudent === normExpected,
+      assembledAnswer: typedClean,
+      expectedDisplay,
+    };
+  }
 
   if (parsedBlanks.hasBlanks) {
     const allFilled = parsedBlanks.expectedBlanks.every((_, idx) => Boolean(blankAssignments[idx]));
@@ -924,4 +1004,69 @@ export function matchDisambiguationChoice(
 
   return { tile: null, isCancel: false, heardText };
 }
+
+/**
+ * Resolve spoken input in Direct Keyboard Dictation mode (when scrambledPool is empty).
+ * If expecting a single Arabic letter (e.g. a single-letter |...| blank), maps spoken letter names
+ * like "سين" or "باء" back to the single Arabic letter character; otherwise returns the clean transcript.
+ */
+export function resolveDirectVoiceTranscript(
+  alternatives: string[],
+  correctAnswer: string,
+  activeBlankIdx: number
+): string {
+  const cleanAlts = alternatives
+    .map((a) => String(a || '').trim().replace(/[.,،!؟?;:«»"']/g, ''))
+    .filter(Boolean);
+  if (cleanAlts.length === 0) return '';
+
+  const parsedBlanks = parseAnswerWithBlanks(correctAnswer);
+  const expectedTarget = parsedBlanks.hasBlanks
+    ? parsedBlanks.expectedBlanks[activeBlankIdx] || ''
+    : correctAnswer;
+
+  const bareExpected = expectedTarget
+    .replace(ARABIC_DIACRITICS_ONLY, '')
+    .replace(TATWEEL_REGEX, '')
+    .trim();
+
+  // If expecting a single character (letter blank or single-letter answer), try mapping letter names
+  if (bareExpected.length === 1) {
+    for (const alt of cleanAlts) {
+      const cleanSpoken = normalizeSpokenForDictation(alt);
+      const rawSpoken = stripRawMarksKeepShape(alt);
+      const spokenTokens = cleanSpoken.split(/\s+/).filter(Boolean);
+      const rawTokens = rawSpoken.split(/\s+/).filter(Boolean);
+
+      for (const [letterKey, aliases] of Object.entries(DICTATION_LETTER_PRIMARY_NAMES)) {
+        if (
+          tokenMatchesAliasList(rawSpoken, rawTokens, aliases) ||
+          tokenMatchesAliasList(cleanSpoken, spokenTokens, aliases)
+        ) {
+          return letterKey;
+        }
+      }
+      for (const [letterKey, aliases] of Object.entries(DICTATION_LETTER_EXTENDED_ALIASES)) {
+        if (
+          tokenMatchesAliasList(rawSpoken, rawTokens, aliases) ||
+          tokenMatchesAliasList(cleanSpoken, spokenTokens, aliases)
+        ) {
+          return letterKey;
+        }
+      }
+    }
+  }
+
+  // If multiple alternatives exist and one matches expected normalized text, prefer that alternative
+  const normExpected = normalizeForDictationCompare(bareExpected, { stripSpaces: !bareExpected.includes(' ') });
+  for (const alt of cleanAlts) {
+    const normAlt = normalizeForDictationCompare(alt, { stripSpaces: !bareExpected.includes(' ') });
+    if (normAlt && normAlt === normExpected) {
+      return alt;
+    }
+  }
+
+  return cleanAlts[0];
+}
+
 

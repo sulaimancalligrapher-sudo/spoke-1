@@ -1564,7 +1564,7 @@ interface ConnectedAttempt {
                             setLightboxImageUrl(imgSrc);
                           }}
                           className="p-1.5 rounded-lg bg-slate-900/75 hover:bg-slate-900 text-white shadow-xs cursor-pointer shrink-0 mr-1"
-                          title="تكبير الصورة"
+                          title={tr('matching_zoom_image', 'تكبير الصورة')}
                         >
                           <ZoomIn className="w-3.5 h-3.5" />
                         </button>
@@ -1588,12 +1588,12 @@ interface ConnectedAttempt {
                           {isCardPlaying ? (
                             <>
                               <Pause className="w-4 h-4 fill-current" />
-                              <span>إيقاف</span>
+                              <span>{tr('matching_stop_audio', 'إيقاف')}</span>
                             </>
                           ) : (
                             <>
                               <Play className="w-4 h-4 fill-current" />
-                              <span>استمع 🔊</span>
+                              <span>{tr('matching_listen_card', 'استمع 🔊')}</span>
                             </>
                           )}
                         </button>
@@ -1687,7 +1687,7 @@ interface ConnectedAttempt {
                             setLightboxImageUrl(imgSrc);
                           }}
                           className="p-1.5 rounded-lg bg-slate-900/75 hover:bg-slate-900 text-white shadow-xs cursor-pointer shrink-0 mr-1"
-                          title="تكبير الصورة"
+                          title={tr('matching_zoom_image', 'تكبير الصورة')}
                         >
                           <ZoomIn className="w-3.5 h-3.5" />
                         </button>
@@ -1711,12 +1711,12 @@ interface ConnectedAttempt {
                           {isCardPlaying ? (
                             <>
                               <Pause className="w-4 h-4 fill-current" />
-                              <span>إيقاف</span>
+                              <span>{tr('matching_stop_audio', 'إيقاف')}</span>
                             </>
                           ) : (
                             <>
                               <Play className="w-4 h-4 fill-current" />
-                              <span>استمع 🔊</span>
+                              <span>{tr('matching_listen_card', 'استمع 🔊')}</span>
                             </>
                           )}
                         </button>

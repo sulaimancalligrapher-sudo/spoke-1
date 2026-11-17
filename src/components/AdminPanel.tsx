@@ -2563,6 +2563,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             geminiApiKey={geminiApiKey}
             webhookUrl={sheetsConfig.webhookUrl}
             curriculum={curriculum}
+            dictationSubjects={dictationSubjects}
             onRefreshFromSheets={onRefreshFromSheets}
           />
         )}

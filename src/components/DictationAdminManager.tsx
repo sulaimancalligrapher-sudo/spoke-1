@@ -19,6 +19,7 @@ import {
 import {
   detectDictationType,
   getDictationTypeLabel,
+  isDirectDictationExercise,
   parsePoolEntries,
   parseAnswerWithBlanks,
   generateScrambledFromAnswer,
@@ -472,11 +473,6 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
       return;
     }
 
-    if (!scrambledPool.trim()) {
-      alert('يرجى إدخال الحروف أو الكلمات المشتتة (أو الضغط على زر التفكيك التلقائي).');
-      return;
-    }
-
     setIsSaving(true);
     setStatusMessage(null);
 
@@ -790,6 +786,7 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
                 <div className="space-y-2">
                   {subj.exercises.map((ex) => {
                     const qType = detectDictationType(ex.scrambledPool, ex.correctAnswer);
+                    const isDirect = isDirectDictationExercise(ex.scrambledPool);
                     return (
                       <div
                         key={ex.id}
@@ -803,6 +800,11 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
                             <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-bold text-[10px]">
                               {getDictationTypeLabel(qType)}
                             </span>
+                            {isDirect && (
+                              <span className="px-2 py-0.5 rounded-lg bg-sky-50 text-sky-800 border border-sky-200 font-bold text-[10px]">
+                                ⌨️ كتابة مباشرة
+                              </span>
+                            )}
                             {ex.inputMode === 'voice_only' && (
                               <span className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-800 border border-indigo-200 font-bold text-[10px]">
                                 🎙️ صوت فقط
@@ -827,7 +829,12 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
                           </div>
                           <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
                             <span>
-                              <strong className="text-slate-700">المشتت:</strong> {ex.scrambledPool}
+                              <strong className="text-slate-700">المشتت:</strong>{' '}
+                              {isDirect ? (
+                                <span className="text-sky-700 font-bold">فارغ (إملاء كتابي مباشر)</span>
+                              ) : (
+                                ex.scrambledPool
+                              )}
                             </span>
                             <span>•</span>
                             <span>
@@ -1073,11 +1080,11 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
             )}
           </div>
 
-          {/* 4. Scrambled Pool (Col 2) */}
+          {/* 4. Scrambled Pool (Col 2) — Leave empty for Direct Keyboard Dictation */}
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="text-xs font-extrabold text-slate-800">
-                4. الحروف أو الكلمات المشتتة (العمود الثاني — يدعم المواضع مثل ( ـس ) نهاية ( ـسـ ) وسط):
+                4. الحروف أو الكلمات المشتتة (العمود الثاني — اختياري، اتركه فارغاً للإملاء الكتابي المباشر):
               </label>
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
@@ -1103,11 +1110,18 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
               type="text"
               value={scrambledPool}
               onChange={(e) => setScrambledPool(e.target.value)}
-              placeholder="مثال: ( ـس ) نهاية ( ـسـ ) وسط ( ف ) مفرد ( سـ ) بداية  — أو: ب ا ب ف ر"
+              placeholder="مثال: ( ـس ) نهاية ( ـسـ ) وسط — أو اتركه فارغاً ليكتب الطالب مباشرة بلوحة المفاتيح"
               className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl font-amiri text-xl font-bold text-slate-900"
             />
 
-            {liveTilesPreview.length > 0 && (
+            {!scrambledPool.trim() ? (
+              <div className="p-2.5 rounded-xl bg-sky-50 border border-sky-200 text-[11px] font-bold text-sky-900 flex items-center gap-2">
+                <span>⌨️</span>
+                <span>
+                  الوضع الحالي: <strong>إملاء كتابي مباشر</strong> — سيختفي صندوق «خيارات مساعدة» ويظهر للطالب حقل كتابة مباشر بلوحة المفاتيح (أو خانة كتابة داخل الفراغ |...|).
+                </span>
+              </div>
+            ) : liveTilesPreview.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1.5 pt-1">
                 <span className="text-[11px] font-bold text-slate-500 ml-1">معاينة البطاقات:</span>
                 {liveTilesPreview.map((entry, i) => (
@@ -1126,7 +1140,7 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
                   </span>
                 ))}
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* 5. Student Behavior & Controls (Col 4) */}

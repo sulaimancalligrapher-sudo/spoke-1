@@ -61,6 +61,7 @@ import {
   saveStoredTranslations,
   getTranslatedString,
   getTranslatedMatchingSubject,
+  getTranslatedDictationSubject,
 } from './utils/translations';
 import {
   Sparkles,
@@ -1864,7 +1865,7 @@ export default function App() {
                         >
                           {dictationSubjects.map((subj) => (
                             <option key={subj.id} value={subj.id}>
-                              {getTranslatedMatchingSubject(subj.subjectName, currentLang, translations)} ({subj.exercises.length})
+                              {getTranslatedDictationSubject(subj.subjectName, currentLang, translations)} ({subj.exercises.length})
                             </option>
                           ))}
                         </select>
@@ -2275,6 +2276,7 @@ export default function App() {
         }}
         dictationHistory={dictationHistory}
         currentLang={currentLang}
+        translations={translations}
         t={t}
       />
 

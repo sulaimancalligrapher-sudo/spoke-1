@@ -11,6 +11,7 @@ import {
   TranslationItem,
   translateEvaluationFeedback,
   getTranslatedMatchingSubject,
+  getTranslatedDictationSubject,
   translateMatchingCompletionStatus,
   translateMatchingFormulaString,
 } from '../utils/translations';
@@ -583,7 +584,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                   </div>
                 ) : (
                   <div className="text-center py-12 text-slate-400 text-xs">
-                    {tr('stats_dictation_empty', 'لم تكمل أي تمرين إملاء بعد. أتمم تمريناً في «دروس الإملاء» لتظهر نتيجتك هنا!')}
+                    {tr('stats_dictation_empty', 'لم تكمل أي تمرين إملاء بعد. أتمم تمريناً في «تمرين الإملاء» لتظهر نتيجتك هنا!')}
                   </div>
                 )
               ) : (
@@ -601,7 +602,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                           </div>
                           <div className="min-w-0">
                             <h5 className="font-extrabold text-slate-900 text-sm truncate">
-                              {subjItem.lessonSubject}
+                              {getTranslatedDictationSubject(subjItem.lessonSubject, currentLang, translations)}
                             </h5>
                             {subjItem.timestamp && (
                               <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">

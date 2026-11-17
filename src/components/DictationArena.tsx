@@ -5,7 +5,11 @@ import {
   DictationHistoryItem,
   StudentRegistrant,
 } from '../types';
-import { SupportedLang, TranslationItem } from '../utils/translations';
+import {
+  SupportedLang,
+  TranslationItem,
+  getTranslatedDictationQuestionText,
+} from '../utils/translations';
 import {
   submitDictationAnswerToSheet,
   extractPercentageFromMatchingText,
@@ -19,6 +23,7 @@ import { getAlternativeAudioUrls } from '../utils/mediaUrl';
 import {
   DictationTile,
   detectDictationType,
+  isDirectDictationExercise,
   parseAnswerWithBlanks,
   buildShuffledTiles,
   formatAssembledPreview,
@@ -26,6 +31,7 @@ import {
   findAllSpokenMatchingTiles,
   matchDisambiguationChoice,
   inferPositionalLabel,
+  resolveDirectVoiceTranscript,
 } from '../utils/dictationUtils';
 import {
   Mic,
@@ -194,6 +200,8 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
   subjects,
   currentStudent,
   webhookUrl,
+  currentLang = 'ar',
+  translations = [],
   t,
   onRequestLogin,
   onBackToPronunciation,
@@ -229,6 +237,11 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     return activeSubject.exercises[safeIdx] || null;
   }, [activeSubject, exerciseIndex]);
 
+  const isDirectMode = useMemo(() => {
+    if (!activeExercise) return false;
+    return isDirectDictationExercise(activeExercise.scrambledPool);
+  }, [activeExercise]);
+
   const detectedType = useMemo(() => {
     if (!activeExercise) return 'letters_word';
     return detectDictationType(activeExercise.scrambledPool, activeExercise.correctAnswer);
@@ -244,6 +257,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
   const [selectedTiles, setSelectedTiles] = useState<DictationTile[]>([]);
   const [blankAssignments, setBlankAssignments] = useState<Record<number, DictationTile | null>>({});
   const [activeBlankIdx, setActiveBlankIdx] = useState<number>(0);
+
+  // Direct keyboard dictation state (when scrambledPool is empty)
+  const [directText, setDirectText] = useState<string>('');
+  const [directBlanks, setDirectBlanks] = useState<Record<number, string>>({});
 
   const [wrongAttempts, setWrongAttempts] = useState<number>(0);
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
@@ -365,16 +382,17 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     stopMediaAudio();
     if (!activeExercise) return;
 
+    const directMode = isDirectDictationExercise(activeExercise.scrambledPool);
     const exType = detectDictationType(activeExercise.scrambledPool, activeExercise.correctAnswer);
-    const tiles = buildShuffledTiles(
-      activeExercise.scrambledPool,
-      activeExercise.correctAnswer,
-      exType
-    );
+    const tiles = directMode
+      ? []
+      : buildShuffledTiles(activeExercise.scrambledPool, activeExercise.correctAnswer, exType);
 
     setShuffledTiles(tiles);
     setSelectedTiles([]);
     setBlankAssignments({});
+    setDirectText('');
+    setDirectBlanks({});
     setActiveBlankIdx(0);
     updatePendingDisambiguation(null);
     setWrongAttempts(0);
@@ -386,15 +404,44 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     const blanks = parseAnswerWithBlanks(activeExercise.correctAnswer);
     const voiceOnly = activeExercise.inputMode === 'voice_only';
     const locked = Boolean(activeExercise.lockOnMistake);
-    let initMsg = blanks.hasBlanks
-      ? 'اختر الحرف أو الكلمة المناسبة لإكمال الفراغ، ثم اضغط زر «تحقق».'
-      : 'رتب البطاقات بالترتيب الصحيح في مربع التكوين، ثم اضغط زر «تحقق».';
-    if (voiceOnly && locked) {
-      initMsg = '🎙️ الإجابة بالصوت فقط | 🔒 لا يمكن التراجع بعد الاختيار، ثم اضغط «تحقق».';
-    } else if (voiceOnly) {
-      initMsg = '🎙️ الإجابة بالصوت فقط: اضغط زر الميكروفون وانطق الحرف أو الكلمة، ثم اضغط «تحقق».';
-    } else if (locked) {
-      initMsg = '🔒 لا يمكن التراجع بعد وضع الإجابة — اختر بدقة ثم اضغط «تحقق».';
+    let initMsg = '';
+    if (directMode) {
+      if (voiceOnly) {
+        initMsg = tr(
+          'dictation_init_direct_voice',
+          '🎙️ إملاء بالصوت فقط: اضغط زر الميكروفون وانطق الإجابة ثم اضغط «تحقق».'
+        );
+      } else if (blanks.hasBlanks) {
+        initMsg = tr(
+          'dictation_init_direct_fill',
+          '⌨️ إملاء كتابي مباشر: اكتب الحرف أو الكلمة الناقصة داخل الفراغ، ثم اضغط زر «تحقق».'
+        );
+      } else {
+        initMsg = tr(
+          'dictation_init_direct',
+          '⌨️ إملاء كتابي مباشر: اكتب الإجابة بلوحة المفاتيح أو انطقها بالصوت، ثم اضغط زر «تحقق».'
+        );
+      }
+    } else {
+      initMsg = blanks.hasBlanks
+        ? tr('dictation_init_fill', 'اختر الحرف أو الكلمة المناسبة لإكمال الفراغ، ثم اضغط زر «تحقق».')
+        : tr('dictation_init_order', 'رتب البطاقات بالترتيب الصحيح في مربع التكوين، ثم اضغط زر «تحقق».');
+      if (voiceOnly && locked) {
+        initMsg = tr(
+          'dictation_init_voice_locked',
+          '🎙️ الإجابة بالصوت فقط | 🔒 لا يمكن التراجع بعد الاختيار، ثم اضغط «تحقق».'
+        );
+      } else if (voiceOnly) {
+        initMsg = tr(
+          'dictation_init_voice',
+          '🎙️ الإجابة بالصوت فقط: اضغط زر الميكروفون وانطق الحرف أو الكلمة، ثم اضغط «تحقق».'
+        );
+      } else if (locked) {
+        initMsg = tr(
+          'dictation_init_locked',
+          '🔒 لا يمكن التراجع بعد وضع الإجابة — اختر بدقة ثم اضغط «تحقق».'
+        );
+      }
     }
     setGuidanceBox({
       type: 'info',
@@ -482,7 +529,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       playAudioChime('error');
       setGuidanceBox({
         type: 'error',
-        message: '🎙️ هذا التمرين بالصوت فقط! اضغط على زر الميكروفون وانطق الحرف أو الكلمة.',
+        message: tr(
+          'dictation_err_voice_only',
+          '🎙️ هذا التمرين بالصوت فقط! اضغط على زر الميكروفون وانطق الإجابة.'
+        ),
       });
       return;
     }
@@ -512,7 +562,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       }
       setGuidanceBox({
         type: 'info',
-        message: 'عند الانتهاء من اختيار الإجابة، اضغط على زر «تحقق».',
+        message: tr(
+          'dictation_msg_ready_check',
+          'عند الانتهاء من اختيار الإجابة، اضغط على زر «تحقق».'
+        ),
       });
       return;
     }
@@ -521,7 +574,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     setSelectedTiles((prev) => [...prev, tile]);
     setGuidanceBox({
       type: 'info',
-      message: 'تابع الترتيب أو اضغط «تحقق» لفحص إجابتك.',
+      message: tr('dictation_msg_continue_order', 'تابع الترتيب أو اضغط «تحقق» لفحص إجابتك.'),
     });
   };
 
@@ -533,7 +586,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       playAudioChime('error');
       setGuidanceBox({
         type: 'error',
-        message: '🔒 لا يمكن التراجع أو تعديل الاختيار في هذا التمرين.',
+        message: tr(
+          'dictation_err_no_undo_locked',
+          '🔒 لا يمكن التراجع أو تعديل الاختيار في هذا التمرين.'
+        ),
       });
       return;
     }
@@ -551,7 +607,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
         playAudioChime('error');
         setGuidanceBox({
           type: 'error',
-          message: '🔒 لا يمكن التراجع أو إزالة الحرف بعد وضعه في هذا التمرين.',
+          message: tr(
+            'dictation_err_no_undo_locked',
+            '🔒 لا يمكن التراجع أو تعديل الاختيار في هذا التمرين.'
+          ),
         });
         return;
       }
@@ -569,7 +628,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     setActiveBlankIdx(blankIdx);
   };
 
-  // Undo last placed item
+  // Undo last placed item or clear direct typing input
   const handleUndo = () => {
     unlockAudioEngine();
     if (isCompleted) return;
@@ -577,12 +636,30 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       playAudioChime('error');
       setGuidanceBox({
         type: 'error',
-        message: '🔒 خيار التراجع مغلق في هذا التمرين.',
+        message: tr(
+          'dictation_err_no_undo_locked',
+          '🔒 لا يمكن التراجع أو تعديل الاختيار في هذا التمرين.'
+        ),
       });
       return;
     }
     playAudioChime('tap');
     updatePendingDisambiguation(null);
+
+    if (isDirectMode) {
+      if (parsedBlanks.hasBlanks) {
+        for (let i = parsedBlanks.expectedBlanks.length - 1; i >= 0; i--) {
+          if ((directBlanks[i] || '').trim()) {
+            setDirectBlanks((prev) => ({ ...prev, [i]: '' }));
+            setActiveBlankIdx(i);
+            break;
+          }
+        }
+      } else {
+        setDirectText('');
+      }
+      return;
+    }
 
     if (parsedBlanks.hasBlanks) {
       for (let i = parsedBlanks.expectedBlanks.length - 1; i >= 0; i--) {
@@ -659,7 +736,9 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
           summaryString: params.formulaString,
         });
         if (res.success) {
-          setSheetSyncSuccess('تم توثيق درجتك في ورقة answers 3 بنجاح ✓');
+          setSheetSyncSuccess(
+            tr('dictation_synced_success', 'تم توثيق درجتك في ورقة answers 3 بنجاح ✓')
+          );
         }
       } catch (err) {
         console.warn('Failed to submit dictation answer:', err);
@@ -669,20 +748,49 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     }
   };
 
-  // Handle explicit Check ("تحقق") button click — REQUIRED IN ALL 5 TYPES!
+  // Handle explicit Check ("تحقق") button click — REQUIRED IN ALL MODES (including Direct Keyboard)!
   const handleCheckAnswer = async () => {
     unlockAudioEngine();
     if (!activeExercise || !activeSubject || isCompleted) return;
     updatePendingDisambiguation(null);
 
-    // Ensure student placed at least something
-    if (parsedBlanks.hasBlanks) {
+    if (isDirectMode) {
+      if (parsedBlanks.hasBlanks) {
+        const anyMissing = parsedBlanks.expectedBlanks.some(
+          (_, idx) => !(directBlanks[idx] || '').trim()
+        );
+        if (anyMissing) {
+          playAudioChime('error');
+          setGuidanceBox({
+            type: 'error',
+            message: tr(
+              'dictation_err_empty_blanks',
+              '⚠️ يرجى إكمال الفراغ الناقص أولاً ثم الضغط على زر «تحقق».'
+            ),
+          });
+          return;
+        }
+      } else if (!directText.trim()) {
+        playAudioChime('error');
+        setGuidanceBox({
+          type: 'error',
+          message: tr(
+            'dictation_err_empty_direct',
+            '⚠️ حقل الإجابة فارغ! اكتب إجابتك أولاً ثم اضغط «تحقق».'
+          ),
+        });
+        return;
+      }
+    } else if (parsedBlanks.hasBlanks) {
       const anyMissing = parsedBlanks.expectedBlanks.some((_, idx) => !blankAssignments[idx]);
       if (anyMissing) {
         playAudioChime('error');
         setGuidanceBox({
           type: 'error',
-          message: '⚠️ يرجى إكمال الفراغ الناقص أولاً ثم الضغط على زر «تحقق».',
+          message: tr(
+            'dictation_err_empty_blanks',
+            '⚠️ يرجى إكمال الفراغ الناقص أولاً ثم الضغط على زر «تحقق».'
+          ),
         });
         return;
       }
@@ -690,7 +798,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       playAudioChime('error');
       setGuidanceBox({
         type: 'error',
-        message: '⚠️ مربع التكوين فارغ! اختر البطاقات أعلاه أولاً ثم اضغط «تحقق».',
+        message: tr(
+          'dictation_err_empty_box',
+          '⚠️ مربع التكوين فارغ! اختر البطاقات أعلاه أولاً ثم اضغط «تحقق».'
+        ),
       });
       return;
     }
@@ -701,6 +812,8 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       scrambledPool: activeExercise.scrambledPool,
       selectedTiles,
       blankAssignments,
+      directText,
+      directBlanks,
     });
 
     if (!result.isCorrect) {
@@ -714,7 +827,12 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
           formulaString: `(خطأ - لا يمكن التراجع = 0%)`,
           lastAnswerDisplay: result.assembledAnswer || '—',
           guidanceType: 'error',
-          guidanceMessage: `❌ الإجابة غير صحيحة (${result.assembledAnswer || '—'}). الإجابة الصحيحة: «${result.expectedDisplay}» (0%)`,
+          guidanceMessage: tr(
+            'dictation_msg_wrong_locked',
+            '❌ الإجابة غير صحيحة ({ans}). الإجابة الصحيحة: «{expected}» (0%)'
+          )
+            .replace('{ans}', result.assembledAnswer || '—')
+            .replace('{expected}', result.expectedDisplay),
         });
         return;
       }
@@ -722,7 +840,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       setWrongAttempts(nextWrong);
       setGuidanceBox({
         type: 'error',
-        message: `❌ الإجابة غير صحيحة (${result.assembledAnswer || '—'}). راجع الشكل أو الترتيب وحاول مجدداً ثم اضغط «تحقق».`,
+        message: tr(
+          'dictation_msg_wrong_retry',
+          '❌ الإجابة غير صحيحة ({ans}). راجع الشكل أو الترتيب وحاول مجدداً ثم اضغط «تحقق».'
+        ).replace('{ans}', result.assembledAnswer || '—'),
       });
       return;
     }
@@ -744,20 +865,65 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       formulaString,
       lastAnswerDisplay: result.assembledAnswer || result.expectedDisplay,
       guidanceType: 'success',
-      guidanceMessage: `✓ أحسنت! إجابة صحيحة ومتقنة: «${result.expectedDisplay}» (${score}%)`,
+      guidanceMessage: tr(
+        'dictation_msg_correct',
+        '✓ أحسنت! إجابة صحيحة ومتقنة: «{expected}» ({score}%)'
+      )
+        .replace('{expected}', result.expectedDisplay)
+        .replace('{score}', String(score)),
     });
   };
 
-  // Voice input matched handler (two-step disambiguation for multiple letter shapes)
+  // Voice input matched handler (direct keyboard mode OR two-step disambiguation for tile shapes)
   const handleVoiceRecognized = (spokenInput: string | string[], usedWhisper = false) => {
-    const availableTiles = shuffledTiles.filter((tile) => !usedTileIds.has(tile.id));
-    if (availableTiles.length === 0) return;
-
     const alternatives = (Array.isArray(spokenInput) ? spokenInput : [spokenInput])
       .map((s) => String(s || '').trim().replace(/[.,،!؟]/g, ''))
       .filter(Boolean);
 
     if (alternatives.length === 0) return;
+
+    if (isDirectMode && activeExercise) {
+      const resolved = resolveDirectVoiceTranscript(
+        alternatives,
+        activeExercise.correctAnswer,
+        activeBlankIdx
+      );
+      if (!resolved) {
+        playAudioChime('error');
+        setGuidanceBox({
+          type: 'error',
+          message: tr(
+            'dictation_msg_voice_unclear',
+            'لم يتم التقاط صوت واضح، حاول مجدداً أو استخدم الإدخال اليدوي.'
+          ),
+          canUseWhisper: supportsWebSpeech && !usedWhisper,
+        });
+        return;
+      }
+
+      playAudioChime('tap');
+      if (parsedBlanks.hasBlanks) {
+        const nextBlanks = { ...directBlanks, [activeBlankIdx]: resolved };
+        setDirectBlanks(nextBlanks);
+        const nextEmpty = parsedBlanks.expectedBlanks.findIndex(
+          (_, i) => !(nextBlanks[i] || '').trim()
+        );
+        if (nextEmpty !== -1) setActiveBlankIdx(nextEmpty);
+      } else {
+        setDirectText(resolved);
+      }
+      setGuidanceBox({
+        type: 'success',
+        message: `✓ «${resolved}» — ${tr(
+          'dictation_msg_ready_check',
+          'عند الانتهاء من اختيار الإجابة، اضغط على زر «تحقق».'
+        )}`,
+      });
+      return;
+    }
+
+    const availableTiles = shuffledTiles.filter((tile) => !usedTileIds.has(tile.id));
+    if (availableTiles.length === 0) return;
 
     // STEP 2: If student is currently selecting from numbered shapes (1, 2, 3...)
     const activeDisamb = pendingDisambiguationRef.current;
@@ -768,7 +934,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
         updatePendingDisambiguation(null);
         setGuidanceBox({
           type: 'info',
-          message: 'تم إلغاء التحديد وعادت جميع البطاقات. اختر حرفاً أو كلمة جديدة.',
+          message: tr(
+            'dictation_msg_ready_check',
+            'عند الانتهاء من اختيار الإجابة، اضغط على زر «تحقق».'
+          ),
         });
         return;
       }
@@ -778,7 +947,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
         const posLbl = choice.tile.label || inferPositionalLabel(choice.tile.text);
         setGuidanceBox({
           type: 'success',
-          message: `✓ تم اختيار «${choice.tile.text}» (${posLbl}) بنجاح. تابع أو اضغط «تحقق».`,
+          message: `✓ ${choice.tile.text} (${posLbl}) — ${tr(
+            'dictation_msg_ready_check',
+            'عند الانتهاء من اختيار الإجابة، اضغط على زر «تحقق».'
+          )}`,
         });
         return;
       }
@@ -786,7 +958,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       playAudioChime('error');
       setGuidanceBox({
         type: 'error',
-        message: `⚠️ سُمع: «${choice.heardText || alternatives[0]}» — انطق الرقم (من 1 إلى ${activeDisamb.items.length}) أو انقر على الشكل المطلوب.`,
+        message: `⚠️ ${choice.heardText || alternatives[0]} — ${tr(
+          'dictation_msg_voice_number_prompt',
+          'تحدث الآن... انطق الرقم المطلوب (1 - {max}) 🎙️'
+        ).replace('{max}', String(activeDisamb.items.length))}`,
         canUseWhisper: supportsWebSpeech && !usedWhisper,
       });
       return;
@@ -800,7 +975,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       playAudioChime('error');
       setGuidanceBox({
         type: 'error',
-        message: `⚠️ سُمع: «${matchedTranscript || alternatives[0]}» — لم يطابق أياً من البطاقات المتبقية. انطق اسم الحرف (مثل: باء، سين، ألف) أو الكلمة بوضوح، أو استخدم المحرك الدقيق.`,
+        message: `⚠️ ${matchedTranscript || alternatives[0]} — ${tr(
+          'dictation_msg_voice_unclear',
+          'لم يتم التقاط صوت واضح، حاول مجدداً أو استخدم الإدخال اليدوي.'
+        )}`,
         canUseWhisper: supportsWebSpeech && !usedWhisper,
       });
       return;
@@ -817,7 +995,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       playAudioChime('tap');
       setGuidanceBox({
         type: 'info',
-        message: `تم العثور على ${numbered.length} أشكال لحرف «${baseChar}» — اضغط زر الصوت مرة أخرى وانطق الرقم المطلوب (1 - ${numbered.length}) أو انقر على الشكل.`,
+        message: tr(
+          'dictation_msg_voice_number_prompt',
+          'تحدث الآن... انطق الرقم المطلوب (1 - {max}) 🎙️'
+        ).replace('{max}', String(numbered.length)),
       });
       return;
     }
@@ -827,7 +1008,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     handleSelectTile(chosen, true);
     setGuidanceBox({
       type: 'success',
-      message: `✓ تم اختيار «${chosen.text}» عبر الصوت. تابع الاختيار أو اضغط «تحقق».`,
+      message: `✓ «${chosen.text}» — ${tr(
+        'dictation_msg_ready_check',
+        'عند الانتهاء من اختيار الإجابة، اضغط على زر «تحقق».'
+      )}`,
     });
   };
 
@@ -876,7 +1060,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
         if (chunks.length === 0) {
           setGuidanceBox({
             type: 'error',
-            message: 'لم يتم التقاط صوت واضح، حاول مجدداً أو انقر على البطاقات.',
+            message: tr(
+              'dictation_msg_voice_unclear',
+              'لم يتم التقاط صوت واضح، حاول مجدداً أو استخدم الإدخال اليدوي.'
+            ),
           });
           return;
         }
@@ -884,7 +1071,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
         setIsTranscribing(true);
         setGuidanceBox({
           type: 'recording',
-          message: 'جاري التعرف على الحرف أو الكلمة المنطوقة بالذكاء الداخلي... ⏳',
+          message: tr(
+            'dictation_msg_whisper_analyzing',
+            'جاري التعرف على الحرف أو الكلمة المنطوقة بالذكاء الداخلي... ⏳'
+          ),
         });
 
         try {
@@ -903,6 +1093,11 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                 'وسط',
                 'نهاية',
               ]
+            : isDirectMode && activeExercise
+            ? [
+                activeExercise.correctAnswer.replace(/\|/g, '').replace(/\u0640/g, '').trim(),
+                ...parsedBlanks.expectedBlanks,
+              ].filter(Boolean)
             : shuffledTiles
                 .filter((tile) => !usedTileIds.has(tile.id))
                 .map((tile) => tile.text);
@@ -922,14 +1117,20 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
             playAudioChime('error');
             setGuidanceBox({
               type: 'error',
-              message: 'لم يتم التقاط صوت واضح، يمكنك إعادة المحاولة أو النقر مباشرة على البطاقات.',
+              message: tr(
+                'dictation_msg_voice_unclear',
+                'لم يتم التقاط صوت واضح، حاول مجدداً أو استخدم الإدخال اليدوي.'
+              ),
             });
           }
         } catch {
           setIsTranscribing(false);
           setGuidanceBox({
             type: 'error',
-            message: 'تعذر تحليل الصوت، يمكنك النقر مباشرة على البطاقات.',
+            message: tr(
+              'dictation_msg_voice_unclear',
+              'لم يتم التقاط صوت واضح، حاول مجدداً أو استخدم الإدخال اليدوي.'
+            ),
           });
         }
       };
@@ -944,7 +1145,12 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
 
       setGuidanceBox({
         type: 'recording',
-        message: 'تحدث الآن... انطق الحرف أو الكلمة (اضغط الزر مجدداً للإنهاء المبكر) 🎙️',
+        message: isDirectMode
+          ? tr('dictation_msg_voice_direct_prompt', 'تحدث الآن... انطق الإجابة بوضوح 🎙️')
+          : tr(
+              'dictation_msg_voice_prompt',
+              'تحدث الآن... انطق اسم الحرف (مثل: ألف / باء / سين) أو الكلمة المطلوبة 🎙️'
+            ),
       });
 
       recordingTimeoutRef.current = setTimeout(() => {
@@ -959,7 +1165,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       setIsTranscribing(false);
       setGuidanceBox({
         type: 'error',
-        message: 'تعذر الوصول للميكروفون. يمكنك الاختيار بالنقر أو اللمس مباشرة.',
+        message: tr(
+          'dictation_msg_mic_denied',
+          'تعذر الوصول للميكروفون. يمكنك استخدام الإدخال اليدوي.'
+        ),
       });
     }
   };
@@ -987,8 +1196,16 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
     setGuidanceBox({
       type: 'recording',
       message: pendingDisambiguationRef.current
-        ? `تحدث الآن... انطق الرقم المطلوب (1 - ${pendingDisambiguationRef.current.items.length}) 🎙️`
-        : 'تحدث الآن... انطق اسم الحرف (مثل: ألف / باء / سين) أو الكلمة المطلوبة 🎙️',
+        ? tr(
+            'dictation_msg_voice_number_prompt',
+            'تحدث الآن... انطق الرقم المطلوب (1 - {max}) 🎙️'
+          ).replace('{max}', String(pendingDisambiguationRef.current.items.length))
+        : isDirectMode
+        ? tr('dictation_msg_voice_direct_prompt', 'تحدث الآن... انطق الإجابة بوضوح 🎙️')
+        : tr(
+            'dictation_msg_voice_prompt',
+            'تحدث الآن... انطق اسم الحرف (مثل: ألف / باء / سين) أو الكلمة المطلوبة 🎙️'
+          ),
     });
 
     try {
@@ -1011,8 +1228,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
           playAudioChime('error');
           setGuidanceBox({
             type: 'error',
-            message:
-              'لم يلتقط المتصفح صوتاً واضحاً — انطق اسم الحرف بوضوح (مثل: باء، ألف، فاء، راء) أو جرّب المحرك الدقيق بالأسفل.',
+            message: tr(
+              'dictation_msg_voice_unclear',
+              'لم يتم التقاط صوت واضح، حاول مجدداً أو استخدم الإدخال اليدوي.'
+            ),
             canUseWhisper: true,
           });
         }
@@ -1059,7 +1278,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
           latestInterimAlts = collectedInterim;
           setGuidanceBox({
             type: 'recording',
-            message: `يستمع الآن: «${collectedInterim[0]}» 🎙️`,
+            message: `«${collectedInterim[0]}» 🎙️`,
           });
         }
 
@@ -1119,7 +1338,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       stopVoiceRecording();
       setGuidanceBox({
         type: 'info',
-        message: 'تم إيقاف الاستماع. انقر على البطاقات أو أعد التسجيل.',
+        message: tr('dictation_msg_voice_stopped', 'تم إيقاف الاستماع.'),
       });
       return;
     }
@@ -1142,17 +1361,17 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
       <div className="bg-white rounded-3xl p-8 border border-slate-200 text-center max-w-lg mx-auto my-12 shadow-sm">
         <Sparkles className="w-12 h-12 text-teal-500 mx-auto mb-3" />
         <h3 className="text-lg font-bold text-slate-800 mb-2">
-          لا توجد تمارين إملاء مضافة حالياً
+          {tr('dictation_empty_title', 'لا توجد تمارين إملاء مضافة حالياً')}
         </h3>
         <p className="text-xs text-slate-500 mb-4">
-          يمكن للمعلم إضافة تمارين جديدة من تبويب «تمرين الإملاء» في لوحة التحكم.
+          {tr('dictation_empty_desc', 'يمكن للمعلم إضافة تمارين جديدة من تبويب «تمرين الإملاء» في لوحة التحكم.')}
         </p>
         {onBackToPronunciation && (
           <button
             onClick={onBackToPronunciation}
             className="px-5 py-2.5 bg-teal-600 text-white rounded-xl text-xs font-bold cursor-pointer"
           >
-            العودة إلى تمرين النطق
+            {tr('dictation_back_pronunciation', 'العودة لتمرين النطق 🎙️')}
           </button>
         )}
       </div>
@@ -1160,9 +1379,110 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
   }
 
   const questionBlocks = parseQuestionBlocks(activeExercise.questionText);
-  const assembledPreview = !parsedBlanks.hasBlanks
+  const assembledPreview = !isDirectMode && !parsedBlanks.hasBlanks
     ? formatAssembledPreview(selectedTiles, detectedType, activeExercise.correctAnswer)
     : '';
+  const hasAnyAnswerInput = isDirectMode
+    ? parsedBlanks.hasBlanks
+      ? Object.values(directBlanks).some((v) => Boolean((v || '').trim()))
+      : Boolean(directText.trim())
+    : usedTileIds.size > 0;
+  const isSentenceDirect = activeExercise.correctAnswer.trim().includes(' ');
+
+  const renderVoiceControls = () => (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {supportsWebSpeech && (
+        <button
+          type="button"
+          disabled={isCompleted || isListening || isTranscribing}
+          onClick={() => setPreferWhisperInChrome((prev) => !prev)}
+          title={
+            preferWhisperInChrome
+              ? 'Whisper'
+              : 'Speech'
+          }
+          aria-label={preferWhisperInChrome ? 'Whisper' : 'Speech'}
+          className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-all cursor-pointer disabled:opacity-50 ${
+            preferWhisperInChrome
+              ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+              : 'bg-white hover:bg-slate-100 text-amber-500 border-slate-300'
+          }`}
+        >
+          {preferWhisperInChrome ? <Brain className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
+        </button>
+      )}
+
+      {!isDirectMode && pendingDisambiguation && (
+        <button
+          type="button"
+          onClick={() => {
+            updatePendingDisambiguation(null);
+            setGuidanceBox({
+              type: 'info',
+              message: tr(
+                'dictation_msg_ready_check',
+                'عند الانتهاء من اختيار الإجابة، اضغط على زر «تحقق».'
+              ),
+            });
+          }}
+          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-[11px] font-extrabold cursor-pointer transition-all"
+        >
+          <X className="w-3 h-3" />
+          <span>{tr('dictation_cancel_selection', 'إلغاء التحديد')}</span>
+        </button>
+      )}
+
+      <button
+        type="button"
+        onClick={handleToggleVoiceInput}
+        disabled={isCompleted || isTranscribing}
+        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer disabled:opacity-50 ${
+          isListening
+            ? 'bg-rose-600 text-white border-rose-600 animate-pulse ring-2 ring-rose-200'
+            : isTranscribing
+            ? 'bg-amber-600 text-white border-amber-600'
+            : !isDirectMode && pendingDisambiguation
+            ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-sm'
+            : isVoiceOnlyMode
+            ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-600 shadow-sm'
+            : 'bg-white hover:bg-rose-50 text-slate-700 border-slate-300 hover:border-rose-300'
+        }`}
+      >
+        {isListening ? (
+          <>
+            <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+            <span className="font-mono">
+              {tr('dictation_listening_countdown', 'جاري الاستماع ({sec}) 🎙️').replace(
+                '{sec}',
+                String(countdown)
+              )}
+            </span>
+          </>
+        ) : isTranscribing ? (
+          <>
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <span>{tr('dictation_analyzing_speech', 'جاري التحليل...')}</span>
+          </>
+        ) : !isDirectMode && pendingDisambiguation ? (
+          <>
+            <Mic className="w-3.5 h-3.5 text-white" />
+            <span>
+              {tr('dictation_speak_number', 'انطق الرقم')} (1 - {pendingDisambiguation.items.length}) 🎙️
+            </span>
+          </>
+        ) : (
+          <>
+            <Mic className={`w-3.5 h-3.5 ${isVoiceOnlyMode ? 'text-white' : 'text-rose-500'}`} />
+            <span>
+              {isVoiceOnlyMode || isDirectMode
+                ? tr('dictation_speak_answer_btn', 'انطق الإجابة 🎙️')
+                : tr('dictation_voice_select_btn', 'اختيار بالصوت 🎙️')}
+            </span>
+          </>
+        )}
+      </button>
+    </div>
+  );
 
   return (
     <div className="max-w-3xl mx-auto w-full flex flex-col gap-4 animate-in fade-in duration-300">
@@ -1176,12 +1496,19 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
         <div className="w-full flex flex-col items-center gap-3 mb-4 text-center">
           {questionBlocks.map((block, bIdx) => {
             if (block.type === 'text') {
+              const translatedQ = getTranslatedDictationQuestionText(
+                activeSubject.subjectName,
+                activeExercise.exerciseNumber,
+                block.value,
+                currentLang,
+                translations
+              );
               return (
                 <h2
                   key={`dq-txt-${bIdx}`}
                   className="text-xl sm:text-2xl font-extrabold text-slate-900 font-cairo leading-relaxed"
                 >
-                  {block.value}
+                  {translatedQ}
                 </h2>
               );
             }
@@ -1192,7 +1519,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                 <div key={`dq-img-${bIdx}`} className="relative group inline-block">
                   <img
                     src={directImg}
-                    alt="صورة السؤال"
+                    alt={tr('dictation_zoom_image', 'تكبير الصورة')}
                     onClick={() => setLightboxImageUrl(directImg)}
                     className="max-h-44 sm:max-h-52 rounded-2xl border-2 border-slate-200 shadow-sm object-contain bg-white cursor-zoom-in transition-transform hover:scale-[1.02]"
                   />
@@ -1200,7 +1527,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                     type="button"
                     onClick={() => setLightboxImageUrl(directImg)}
                     className="absolute bottom-2 left-2 p-1.5 rounded-xl bg-slate-900/75 hover:bg-slate-900 text-white shadow-sm cursor-pointer flex items-center gap-1 text-[10px] font-bold"
-                    title="تكبير الصورة"
+                    title={tr('dictation_zoom_image', 'تكبير الصورة')}
                   >
                     <ZoomIn className="w-3.5 h-3.5" />
                   </button>
@@ -1224,12 +1551,12 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                 {isQPlaying ? (
                   <>
                     <Pause className="w-4 h-4 fill-current" />
-                    <span>إيقاف ⏸️</span>
+                    <span>{tr('dictation_stop_audio', 'إيقاف ⏸️')}</span>
                   </>
                 ) : (
                   <>
                     <Volume2 className="w-4 h-4" />
-                    <span>استمع لصوت السؤال 🔊</span>
+                    <span>{tr('dictation_listen_question', 'استمع لصوت السؤال 🔊')}</span>
                   </>
                 )}
               </button>
@@ -1240,14 +1567,14 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
         {/* Student Login Warning if Guest */}
         {!currentStudent && (
           <div className="mb-3 w-full max-w-md py-2 px-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-2 text-xs text-amber-900 font-bold">
-            <span>سجّل دخولك لتوثيق درجاتك في ورقة answers 3</span>
+            <span>{tr('dictation_login_prompt', 'سجّل دخولك لتوثيق درجاتك في ورقة answers 3')}</span>
             {onRequestLogin && (
               <button
                 type="button"
                 onClick={onRequestLogin}
                 className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold cursor-pointer shrink-0"
               >
-                دخول المشترك
+                {tr('nav_student_login', 'دخول المشترك')}
               </button>
             )}
           </div>
@@ -1261,10 +1588,10 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
             </div>
             <div>
               <h3 className="text-base sm:text-lg font-black text-slate-900">
-                تم تسجيل إجابتك في هذا التمرين
+                {tr('dictation_already_submitted_title', 'تم تسجيل إجابتك في هذا التمرين')}
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                الإعادة غير مفعلة لهذا التمرين.
+                {tr('dictation_retry_disabled_desc', 'الإعادة غير مفعلة لهذا التمرين.')}
               </p>
             </div>
             <div className="bg-white p-3 rounded-2xl border border-slate-200 font-mono text-sm font-black text-emerald-700">
@@ -1280,169 +1607,88 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                 onClick={handleNextExercise}
                 className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold cursor-pointer"
               >
-                <span>التمرين التالي</span>
+                <span>{tr('dictation_next_btn', 'التمرين التالي')}</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
         ) : (
           <div className="w-full flex flex-col gap-4">
-            {/* AREA A: HELPING OPTIONS BOX + Voice Mic */}
-            <div className="w-full p-3.5 sm:p-4 bg-slate-50/90 border border-slate-200 rounded-2xl space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs font-extrabold text-slate-600">
-                  {tr('dictation_helping_options', 'خيارات مساعدة:')}
-                </span>
+            {/* AREA A: HELPING OPTIONS BOX (Hidden automatically in Direct Keyboard Dictation mode) */}
+            {!isDirectMode && (
+              <div className="w-full p-3.5 sm:p-4 bg-slate-50/90 border border-slate-200 rounded-2xl space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-extrabold text-slate-600">
+                    {tr('dictation_helping_options', 'خيارات مساعدة:')}
+                  </span>
 
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {supportsWebSpeech && (
-                    <button
-                      type="button"
-                      disabled={isCompleted || isListening || isTranscribing}
-                      onClick={() => setPreferWhisperInChrome((prev) => !prev)}
-                      title={
-                        preferWhisperInChrome
-                          ? 'محرك Whisper الدقيق للحروف المفردة (انقر للتبديل إلى صوت المتصفح السريع)'
-                          : 'صوت المتصفح السريع (انقر للتبديل إلى محرك Whisper الدقيق للحروف)'
-                      }
-                      aria-label={
-                        preferWhisperInChrome ? 'محرك Whisper الدقيق' : 'صوت المتصفح السريع'
-                      }
-                      className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-all cursor-pointer disabled:opacity-50 ${
-                        preferWhisperInChrome
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                          : 'bg-white hover:bg-slate-100 text-amber-500 border-slate-300'
-                      }`}
-                    >
-                      {preferWhisperInChrome ? (
-                        <Brain className="w-4 h-4" />
-                      ) : (
-                        <Zap className="w-4 h-4" />
-                      )}
-                    </button>
-                  )}
+                  {renderVoiceControls()}
+                </div>
 
-                  {pendingDisambiguation && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        updatePendingDisambiguation(null);
-                        setGuidanceBox({
-                          type: 'info',
-                          message: 'تم إلغاء التحديد وعادت جميع البطاقات. اختر أي حرف أو كلمة.',
-                        });
-                      }}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-[11px] font-extrabold cursor-pointer transition-all"
-                    >
-                      <X className="w-3 h-3" />
-                      <span>إلغاء التحديد</span>
-                    </button>
-                  )}
+                {/* Compact Low-Margin Tiles (with optional Positional Labels + Voice Number Badges) */}
+                <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 pt-1.5">
+                  {shuffledTiles.map((tile) => {
+                    const isUsed = usedTileIds.has(tile.id);
+                    const disambMatch = pendingDisambiguation?.items.find(
+                      (it) => it.tile.id === tile.id
+                    );
+                    const isDimmedByDisambiguation = Boolean(pendingDisambiguation && !disambMatch);
+                    const isHighlightedByDisambiguation = Boolean(pendingDisambiguation && disambMatch);
 
-                  <button
-                    type="button"
-                    onClick={handleToggleVoiceInput}
-                    disabled={isCompleted || isTranscribing}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer disabled:opacity-50 ${
-                      isListening
-                        ? 'bg-rose-600 text-white border-rose-600 animate-pulse ring-2 ring-rose-200'
-                        : isTranscribing
-                        ? 'bg-amber-600 text-white border-amber-600'
-                        : pendingDisambiguation
-                        ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-sm'
-                        : isVoiceOnlyMode
-                        ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-600 shadow-sm'
-                        : 'bg-white hover:bg-rose-50 text-slate-700 border-slate-300 hover:border-rose-300'
-                    }`}
-                  >
-                    {isListening ? (
-                      <>
-                        <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-                        <span className="font-mono">جاري الاستماع ({countdown}) 🎙️</span>
-                      </>
-                    ) : isTranscribing ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>جاري التحليل...</span>
-                      </>
-                    ) : pendingDisambiguation ? (
-                      <>
-                        <Mic className="w-3.5 h-3.5 text-white" />
-                        <span>انطق الرقم (1 - {pendingDisambiguation.items.length}) 🎙️</span>
-                      </>
-                    ) : (
-                      <>
-                        <Mic className={`w-3.5 h-3.5 ${isVoiceOnlyMode ? 'text-white' : 'text-rose-500'}`} />
-                        <span>{isVoiceOnlyMode ? 'انطق الإجابة 🎙️' : 'اختيار بالصوت 🎙️'}</span>
-                      </>
-                    )}
-                  </button>
+                    return (
+                      <button
+                        key={tile.id}
+                        type="button"
+                        disabled={isUsed || isCompleted || isDimmedByDisambiguation}
+                        onClick={() => handleSelectTile(tile, false)}
+                        title={
+                          isVoiceOnlyMode && !isUsed
+                            ? tr('dictation_err_voice_only', '🎙️ هذا التمرين بالصوت فقط! اضغط على زر الميكروفون وانطق الإجابة.')
+                            : undefined
+                        }
+                        className={`relative px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border-2 flex flex-col items-center justify-center transition-all select-none ${
+                          isUsed
+                            ? 'bg-slate-100 border-slate-200 text-slate-300 cursor-default scale-95'
+                            : isDimmedByDisambiguation
+                            ? 'bg-slate-100 border-slate-200 text-slate-400 opacity-30 grayscale cursor-not-allowed scale-95'
+                            : isHighlightedByDisambiguation
+                            ? isVoiceOnlyMode
+                              ? 'bg-amber-50 border-amber-500 text-slate-950 ring-2 ring-amber-300 shadow-md scale-105 cursor-not-allowed'
+                              : 'bg-amber-50 hover:bg-amber-100 border-amber-500 text-slate-950 ring-2 ring-amber-300 shadow-md scale-105 cursor-pointer active:scale-95'
+                            : isVoiceOnlyMode
+                            ? 'bg-white border-slate-300 text-slate-900 shadow-2xs cursor-not-allowed opacity-90'
+                            : 'bg-white hover:bg-teal-50 border-slate-300 hover:border-teal-500 text-slate-900 shadow-2xs cursor-pointer active:scale-95'
+                        }`}
+                      >
+                        {disambMatch && (
+                          <span className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-amber-600 text-white text-xs font-black flex items-center justify-center shadow-sm border-2 border-white">
+                            {disambMatch.number}
+                          </span>
+                        )}
+                        <span className="font-amiri text-xl sm:text-2xl font-bold leading-none">
+                          {tile.text}
+                        </span>
+                        {tile.label && (
+                          <span
+                            className={`mt-1 px-1.5 py-0.5 rounded-md text-[10px] font-extrabold leading-none ${
+                              isUsed
+                                ? 'bg-slate-100 text-slate-300'
+                                : isHighlightedByDisambiguation
+                                ? 'bg-amber-200/80 text-amber-950'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {tile.label}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
+            )}
 
-              {/* Compact Low-Margin Tiles (with optional Positional Labels + Voice Number Badges) */}
-              <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 pt-1.5">
-                {shuffledTiles.map((tile) => {
-                  const isUsed = usedTileIds.has(tile.id);
-                  const disambMatch = pendingDisambiguation?.items.find(
-                    (it) => it.tile.id === tile.id
-                  );
-                  const isDimmedByDisambiguation = Boolean(pendingDisambiguation && !disambMatch);
-                  const isHighlightedByDisambiguation = Boolean(pendingDisambiguation && disambMatch);
-
-                  return (
-                    <button
-                      key={tile.id}
-                      type="button"
-                      disabled={isUsed || isCompleted || isDimmedByDisambiguation}
-                      onClick={() => handleSelectTile(tile, false)}
-                      title={
-                        isVoiceOnlyMode && !isUsed
-                          ? 'هذا التمرين بالصوت فقط — اضغط زر الميكروفون'
-                          : undefined
-                      }
-                      className={`relative px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border-2 flex flex-col items-center justify-center transition-all select-none ${
-                        isUsed
-                          ? 'bg-slate-100 border-slate-200 text-slate-300 cursor-default scale-95'
-                          : isDimmedByDisambiguation
-                          ? 'bg-slate-100 border-slate-200 text-slate-400 opacity-30 grayscale cursor-not-allowed scale-95'
-                          : isHighlightedByDisambiguation
-                          ? isVoiceOnlyMode
-                            ? 'bg-amber-50 border-amber-500 text-slate-950 ring-2 ring-amber-300 shadow-md scale-105 cursor-not-allowed'
-                            : 'bg-amber-50 hover:bg-amber-100 border-amber-500 text-slate-950 ring-2 ring-amber-300 shadow-md scale-105 cursor-pointer active:scale-95'
-                          : isVoiceOnlyMode
-                          ? 'bg-white border-slate-300 text-slate-900 shadow-2xs cursor-not-allowed opacity-90'
-                          : 'bg-white hover:bg-teal-50 border-slate-300 hover:border-teal-500 text-slate-900 shadow-2xs cursor-pointer active:scale-95'
-                      }`}
-                    >
-                      {disambMatch && (
-                        <span className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-amber-600 text-white text-xs font-black flex items-center justify-center shadow-sm border-2 border-white">
-                          {disambMatch.number}
-                        </span>
-                      )}
-                      <span className="font-amiri text-xl sm:text-2xl font-bold leading-none">
-                        {tile.text}
-                      </span>
-                      {tile.label && (
-                        <span
-                          className={`mt-1 px-1.5 py-0.5 rounded-md text-[10px] font-extrabold leading-none ${
-                            isUsed
-                              ? 'bg-slate-100 text-slate-300'
-                              : isHighlightedByDisambiguation
-                              ? 'bg-amber-200/80 text-amber-950'
-                              : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          {tile.label}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* AREA B (Relocated): Unified Guidance & Feedback Box directly under options for quick reading */}
+            {/* AREA B: Unified Guidance & Feedback Box */}
             {guidanceBox && (
               <div
                 className={`w-full p-3.5 rounded-2xl border text-xs sm:text-sm font-bold flex flex-wrap items-center justify-center gap-2 text-center animate-in fade-in duration-200 ${
@@ -1477,26 +1723,213 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                     }}
                     className="inline-flex items-center gap-1 px-3 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-extrabold shadow-xs cursor-pointer transition-all"
                   >
-                    <span>🧠 التسجيل بمحرك Whisper الدقيق</span>
+                    <span>{tr('dictation_use_whisper_btn', '🧠 التسجيل بمحرك Whisper الدقيق')}</span>
                   </button>
                 )}
               </div>
             )}
 
-            {/* AREA C: COMPOSITION / ORDERING BOX (Below Options & Feedback Box) */}
+            {/* AREA C: COMPOSITION / DIRECT TYPING ANSWER BOX */}
             <div className="w-full p-4 sm:p-5 bg-teal-50/40 border-2 border-dashed border-teal-300/90 rounded-2xl space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-extrabold text-teal-900">
-                  {tr('dictation_box_title', 'مربع التكوين والترتيب:')}
+                  {isDirectMode
+                    ? tr('dictation_direct_typing_title', 'الإملاء الكتابي المباشر:')
+                    : tr('dictation_box_title', 'مربع التكوين والترتيب:')}
                 </span>
-                {wrongAttempts > 0 && !isCompleted && (
-                  <span className="px-2 py-0.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-bold">
-                    محاولات خاطئة: {wrongAttempts}
-                  </span>
-                )}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {wrongAttempts > 0 && !isCompleted && (
+                    <span className="px-2 py-0.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-bold">
+                      {tr('dictation_wrong_attempts_label', 'محاولات خاطئة:')} {wrongAttempts}
+                    </span>
+                  )}
+                  {isDirectMode && renderVoiceControls()}
+                </div>
               </div>
 
-              {parsedBlanks.hasBlanks ? (
+              {isDirectMode ? (
+                parsedBlanks.hasBlanks ? (
+                  /* Direct Keyboard Mode with |...| blanks inside word/sentence */
+                  <div
+                    dir="rtl"
+                    className={`min-h-[72px] flex flex-wrap items-center justify-center rounded-xl bg-white border border-teal-200/80 px-4 py-3 font-amiri text-2xl sm:text-3xl font-bold text-slate-900 ${
+                      detectedType === 'fill_letter' ? 'gap-0.5' : 'gap-2'
+                    }`}
+                  >
+                    {parsedBlanks.segments.map((seg, sIdx) => {
+                      if (seg.kind === 'fixed') {
+                        return (
+                          <span key={`dseg-${sIdx}`} className="leading-relaxed">
+                            {seg.text}
+                          </span>
+                        );
+                      }
+                      const bIdx = seg.blankIndex ?? 0;
+                      const expectedClean = (parsedBlanks.expectedBlanks[bIdx] || '')
+                        .replace(/\u0640/g, '')
+                        .trim();
+                      const isShortLetterBlank = expectedClean.length <= 2;
+                      return (
+                        <input
+                          key={`dblank-${bIdx}`}
+                          type="text"
+                          dir="rtl"
+                          lang="ar"
+                          autoComplete="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                          disabled={isCompleted}
+                          readOnly={isVoiceOnlyMode}
+                          value={directBlanks[bIdx] || ''}
+                          onFocus={() => setActiveBlankIdx(bIdx)}
+                          onClick={() => {
+                            if (isVoiceOnlyMode && !isCompleted) {
+                              playAudioChime('error');
+                              setGuidanceBox({
+                                type: 'error',
+                                message: tr(
+                                  'dictation_err_voice_only',
+                                  '🎙️ هذا التمرين بالصوت فقط! اضغط على زر الميكروفون وانطق الإجابة.'
+                                ),
+                              });
+                            }
+                          }}
+                          onChange={(e) => {
+                            if (isVoiceOnlyMode || isCompleted) return;
+                            const val = e.target.value;
+                            setDirectBlanks((prev) => ({ ...prev, [bIdx]: val }));
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !isCompleted) {
+                              e.preventDefault();
+                              handleCheckAnswer();
+                            }
+                          }}
+                          placeholder="..."
+                          className={`px-2 py-0.5 mx-0.5 rounded-xl border-2 text-center font-amiri text-2xl sm:text-3xl font-bold focus:outline-hidden transition-all ${
+                            isShortLetterBlank ? 'w-14 sm:w-16' : 'w-28 sm:w-36'
+                          } ${
+                            isCompleted
+                              ? finalScore === 0
+                                ? 'bg-rose-50 border-rose-400 text-rose-800'
+                                : 'bg-emerald-50 border-emerald-500 text-emerald-800'
+                              : isVoiceOnlyMode
+                              ? 'bg-slate-50 border-slate-300 text-slate-800 cursor-not-allowed'
+                              : activeBlankIdx === bIdx
+                              ? 'bg-amber-50/60 border-teal-600 text-slate-900 ring-2 ring-teal-200'
+                              : 'bg-slate-50 border-teal-300 text-slate-900 focus:border-teal-600 focus:bg-white'
+                          }`}
+                        />
+                      );
+                    })}
+                  </div>
+                ) : (
+                  /* Direct Keyboard Mode for Full Word or Sentence */
+                  <div className="space-y-2">
+                    {isSentenceDirect ? (
+                      <textarea
+                        rows={2}
+                        dir="rtl"
+                        lang="ar"
+                        autoComplete="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        disabled={isCompleted}
+                        readOnly={isVoiceOnlyMode}
+                        value={directText}
+                        onClick={() => {
+                          if (isVoiceOnlyMode && !isCompleted) {
+                            playAudioChime('error');
+                            setGuidanceBox({
+                              type: 'error',
+                              message: tr(
+                                'dictation_err_voice_only',
+                                '🎙️ هذا التمرين بالصوت فقط! اضغط على زر الميكروفون وانطق الإجابة.'
+                              ),
+                            });
+                          }
+                        }}
+                        onChange={(e) => {
+                          if (isVoiceOnlyMode || isCompleted) return;
+                          setDirectText(e.target.value);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey && !isCompleted) {
+                            e.preventDefault();
+                            handleCheckAnswer();
+                          }
+                        }}
+                        placeholder={tr('dictation_direct_input_placeholder', 'اكتب الإجابة هنا...')}
+                        className={`w-full px-4 py-3 rounded-xl border-2 font-amiri text-xl sm:text-2xl font-bold text-center focus:outline-hidden transition-all resize-none ${
+                          isCompleted
+                            ? finalScore === 0
+                              ? 'bg-rose-50 border-rose-400 text-rose-800'
+                              : 'bg-emerald-50 border-emerald-500 text-emerald-800'
+                            : isVoiceOnlyMode
+                            ? 'bg-white border-slate-300 text-slate-800 cursor-not-allowed'
+                            : 'bg-white border-teal-300 focus:border-teal-600 focus:ring-2 focus:ring-teal-200 text-slate-900'
+                        }`}
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        dir="rtl"
+                        lang="ar"
+                        autoComplete="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        disabled={isCompleted}
+                        readOnly={isVoiceOnlyMode}
+                        value={directText}
+                        onClick={() => {
+                          if (isVoiceOnlyMode && !isCompleted) {
+                            playAudioChime('error');
+                            setGuidanceBox({
+                              type: 'error',
+                              message: tr(
+                                'dictation_err_voice_only',
+                                '🎙️ هذا التمرين بالصوت فقط! اضغط على زر الميكروفون وانطق الإجابة.'
+                              ),
+                            });
+                          }
+                        }}
+                        onChange={(e) => {
+                          if (isVoiceOnlyMode || isCompleted) return;
+                          setDirectText(e.target.value);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !isCompleted) {
+                            e.preventDefault();
+                            handleCheckAnswer();
+                          }
+                        }}
+                        placeholder={tr('dictation_direct_input_placeholder', 'اكتب الإجابة هنا...')}
+                        className={`w-full px-4 py-3 rounded-xl border-2 font-amiri text-2xl sm:text-3xl font-bold text-center focus:outline-hidden transition-all ${
+                          isCompleted
+                            ? finalScore === 0
+                              ? 'bg-rose-50 border-rose-400 text-rose-800'
+                              : 'bg-emerald-50 border-emerald-500 text-emerald-800'
+                            : isVoiceOnlyMode
+                            ? 'bg-white border-slate-300 text-slate-800 cursor-not-allowed'
+                            : 'bg-white border-teal-300 focus:border-teal-600 focus:ring-2 focus:ring-teal-200 text-slate-900'
+                        }`}
+                      />
+                    )}
+                    <p className="text-[11px] font-bold text-slate-500 text-center">
+                      {isVoiceOnlyMode
+                        ? tr(
+                            'dictation_direct_voice_only_hint',
+                            '🎙️ هذا التمرين بالصوت فقط: اضغط زر الميكروفون وانطق الكلمة أو الجملة'
+                          )
+                        : tr(
+                            'dictation_direct_typing_hint',
+                            'اكتب الإجابة بلوحة المفاتيح أو انطقها بالصوت ثم اضغط «تحقق»'
+                          )}
+                    </p>
+                  </div>
+                )
+              ) : parsedBlanks.hasBlanks ? (
                 /* Mode 4 & 5: Fill-in-the-blank inline display */
                 <div
                   dir="rtl"
@@ -1521,13 +1954,6 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                         type="button"
                         disabled={isCompleted}
                         onClick={() => handleBlankSlotClick(bIdx)}
-                        title={
-                          assigned
-                            ? effectiveLockOnMistake
-                              ? 'لا يمكن التراجع بعد الوضع'
-                              : 'انقر لإزالة الاختيار'
-                            : 'اختر من الخيارات أعلاه'
-                        }
                         className={`inline-flex items-center justify-center min-w-[46px] px-2.5 py-0.5 mx-0.5 rounded-xl border-2 font-amiri text-2xl sm:text-3xl font-bold transition-all ${
                           assigned
                             ? isCompleted
@@ -1562,7 +1988,6 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                           type="button"
                           disabled={isCompleted}
                           onClick={() => handleRemovePlacedTile(tile.id)}
-                          title={effectiveLockOnMistake ? 'لا يمكن التراجع بعد الوضع' : 'انقر لإرجاع البطاقة'}
                           className={`px-3 py-1 rounded-xl border-2 font-amiri text-xl sm:text-2xl font-bold transition-all ${
                             isCompleted
                               ? finalScore === 0
@@ -1582,7 +2007,9 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                   {/* Live Assembled Arabic Preview */}
                   {assembledPreview && (
                     <div className="flex items-center justify-center gap-2 px-3 py-2 bg-white/80 border border-slate-200 rounded-xl">
-                      <span className="text-[11px] font-bold text-slate-500">الشكل المتصل:</span>
+                      <span className="text-[11px] font-bold text-slate-500">
+                        {tr('dictation_connected_preview', 'الشكل المتصل:')}
+                      </span>
                       <span className="font-amiri text-2xl sm:text-3xl font-extrabold text-teal-900">
                         {assembledPreview}
                       </span>
@@ -1591,14 +2018,13 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                 </div>
               )}
 
-              {/* Action Buttons Row: Undo + Check side by side with equal height & compatible styling */}
+              {/* Action Buttons Row: Undo/Clear + Check side by side with equal height */}
               {!isCompleted && (
                 <div className="flex items-center justify-center gap-2.5 pt-1">
                   <button
                     type="button"
                     onClick={handleUndo}
-                    disabled={effectiveLockOnMistake || usedTileIds.size === 0}
-                    title={effectiveLockOnMistake ? 'لا يمكن التراجع في هذا التمرين' : undefined}
+                    disabled={effectiveLockOnMistake || !hasAnyAnswerInput}
                     className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-extrabold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
                   >
                     {effectiveLockOnMistake ? (
@@ -1606,7 +2032,11 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                     ) : (
                       <Delete className="w-4 h-4" />
                     )}
-                    <span>{tr('dictation_undo_btn', 'تراجع')}</span>
+                    <span>
+                      {isDirectMode
+                        ? tr('dictation_clear_input_btn', 'مسح')
+                        : tr('dictation_undo_btn', 'تراجع')}
+                    </span>
                   </button>
 
                   <button
@@ -1643,8 +2073,8 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                 <div>
                   <h3 className="text-lg font-extrabold text-slate-900">
                     {finalScore === 0
-                      ? 'انتهت المحاولة — تم تثبيت النتيجة'
-                      : 'أحسنت! تم التحقق من الإجابة بنجاح 🎉'}
+                      ? tr('dictation_result_locked_title', 'انتهت المحاولة — تم تثبيت النتيجة')
+                      : tr('dictation_result_success_title', 'أحسنت! تم التحقق من الإجابة بنجاح 🎉')}
                   </h3>
                   {lastSubmittedAnswer && (
                     <p
@@ -1657,7 +2087,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                   )}
                   {finalScore === 0 && (
                     <p className="text-sm font-bold text-emerald-800 mt-1">
-                      الإجابة الصحيحة:{' '}
+                      {tr('dictation_correct_answer_is', 'الإجابة الصحيحة:')}{' '}
                       <span className="font-amiri text-xl">
                         «{activeExercise.correctAnswer.replace(/\|/g, '').replace(/\u0640/g, '').trim()}»
                       </span>
@@ -1667,7 +2097,9 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
 
                 <div className="grid grid-cols-3 gap-2.5 max-w-md mx-auto">
                   <div className="bg-white p-2.5 rounded-2xl border border-emerald-100">
-                    <span className="text-[10px] text-slate-400 font-bold block">النتيجة</span>
+                    <span className="text-[10px] text-slate-400 font-bold block">
+                      {tr('dictation_stat_score', 'النتيجة')}
+                    </span>
                     <span
                       className={`text-xl font-black ${
                         finalScore === 0 ? 'text-rose-600' : 'text-emerald-700'
@@ -1677,13 +2109,23 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                     </span>
                   </div>
                   <div className="bg-white p-2.5 rounded-2xl border border-rose-100">
-                    <span className="text-[10px] text-slate-400 font-bold block">أخطاء التحقق</span>
+                    <span className="text-[10px] text-slate-400 font-bold block">
+                      {tr('dictation_stat_errors', 'أخطاء التحقق')}
+                    </span>
                     <span className="text-xl font-black text-rose-600">{wrongAttempts}</span>
                   </div>
                   <div className="bg-white p-2.5 rounded-2xl border border-slate-100">
-                    <span className="text-[10px] text-slate-400 font-bold block">نوع السؤال</span>
+                    <span className="text-[10px] text-slate-400 font-bold block">
+                      {tr('dictation_stat_type', 'نوع السؤال')}
+                    </span>
                     <span className="text-[11px] font-bold text-slate-700">
-                      {parsedBlanks.hasBlanks ? 'إكمال' : 'ترتيب'}
+                      {isDirectMode
+                        ? parsedBlanks.hasBlanks
+                          ? tr('dictation_type_fill_short', 'إكمال')
+                          : tr('dictation_type_direct_short', 'كتابة مباشرة')
+                        : parsedBlanks.hasBlanks
+                        ? tr('dictation_type_fill_short', 'إكمال')
+                        : tr('dictation_type_order_short', 'ترتيب')}
                     </span>
                   </div>
                 </div>
@@ -1691,7 +2133,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                 {isSubmitting ? (
                   <div className="inline-flex items-center gap-1.5 text-xs text-teal-700 font-bold">
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>جاري توثيق النتيجة في ورقة answers 3...</span>
+                    <span>{tr('dictation_syncing_answers3', 'جاري توثيق النتيجة في ورقة answers 3...')}</span>
                   </div>
                 ) : sheetSyncSuccess ? (
                   <div className="inline-flex items-center gap-1.5 text-xs text-emerald-700 font-bold bg-white px-3 py-1 rounded-full border border-emerald-200">
@@ -1708,7 +2150,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                       className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
-                      <span>إعادة التمرين</span>
+                      <span>{tr('dictation_retry_btn', 'إعادة التمرين')}</span>
                     </button>
                   )}
 
@@ -1718,7 +2160,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                       onClick={handleNextExercise}
                       className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-teal-600/20 cursor-pointer"
                     >
-                      <span>التمرين التالي</span>
+                      <span>{tr('dictation_next_btn', 'التمرين التالي')}</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   ) : onBackToPronunciation ? (
@@ -1727,7 +2169,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
                       onClick={onBackToPronunciation}
                       className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
                     >
-                      <span>العودة لتمرين النطق 🎙️</span>
+                      <span>{tr('dictation_back_pronunciation', 'العودة لتمرين النطق 🎙️')}</span>
                     </button>
                   ) : null}
                 </div>
@@ -1753,7 +2195,7 @@ export const DictationArena: React.FC<DictationArenaProps> = ({
             </button>
             <img
               src={lightboxImageUrl}
-              alt="تكبير الصورة"
+              alt={tr('dictation_zoom_image', 'تكبير الصورة')}
               className="max-h-[82vh] w-auto rounded-2xl shadow-2xl border-4 border-white bg-white object-contain"
               onClick={(e) => e.stopPropagation()}
             />
