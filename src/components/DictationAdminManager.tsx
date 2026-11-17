@@ -665,7 +665,29 @@ export const DictationAdminManager: React.FC<DictationAdminManagerProps> = ({
     setIsExporting(true);
     setStatusMessage(null);
     try {
-      const res = await exportAllDictationCurriculumToSheets(webhookUrl, subjects);
+      const normalizedSubjects = subjects.map((subj) => ({
+        ...subj,
+        exercises: subj.exercises.map((ex) => {
+          const effRetries = resolveEffectiveMaxRetries(ex);
+          const refreshedSettings = formatDictationSettingsString({
+            ...ex,
+            allowRetry: effRetries !== 0,
+            maxRetries: effRetries,
+          });
+          return {
+            ...ex,
+            allowRetry: effRetries !== 0,
+            maxRetries: effRetries,
+            settingsString: refreshedSettings,
+          };
+        }),
+      }));
+      onUpdateSubjects(normalizedSubjects);
+      try {
+        localStorage.setItem(STORAGE_KEY_DICTATION_CURRICULUM, JSON.stringify(normalizedSubjects));
+      } catch {}
+
+      const res = await exportAllDictationCurriculumToSheets(webhookUrl, normalizedSubjects);
       setStatusMessage({ success: res.success, text: res.message });
     } catch {
       setStatusMessage({ success: false, text: 'حدث خطأ أثناء التصدير إلى ورقة كلمات.' });

@@ -1748,13 +1748,40 @@ export async function exportAllDictationCurriculumToSheets(
 
   const formattedSubjects = subjects.map((subj) => ({
     subjectName: subj.subjectName,
-    exercises: subj.exercises.map((ex) => ({
-      exerciseNumber: ex.exerciseNumber,
-      questionText: ex.questionText,
-      scrambledPool: ex.scrambledPool,
-      correctAnswer: ex.correctAnswer,
-      settingsString: ex.settingsString || formatDictationSettingsString(ex),
-    })),
+    exercises: subj.exercises.map((ex) => {
+      const parsedFallback = parseDictationSettingsString(ex.settingsString || '');
+      const normalizedEx = {
+        inputMode:
+          ex.inputMode === 'voice_only' || ex.inputMode === 'both'
+            ? ex.inputMode
+            : parsedFallback.inputMode,
+        lockOnMistake:
+          ex.lockOnMistake !== undefined ? Boolean(ex.lockOnMistake) : parsedFallback.lockOnMistake,
+        durationSeconds:
+          typeof ex.durationSeconds === 'number' && ex.durationSeconds > 0
+            ? ex.durationSeconds
+            : parsedFallback.durationSeconds,
+        allowRetry:
+          typeof ex.maxRetries === 'number' && !isNaN(ex.maxRetries)
+            ? ex.maxRetries !== 0
+            : ex.allowRetry !== undefined
+            ? Boolean(ex.allowRetry)
+            : parsedFallback.allowRetry,
+        maxRetries:
+          typeof ex.maxRetries === 'number' && !isNaN(ex.maxRetries)
+            ? ex.maxRetries
+            : ex.allowRetry === false
+            ? 0
+            : parsedFallback.maxRetries,
+      };
+      return {
+        exerciseNumber: ex.exerciseNumber,
+        questionText: ex.questionText,
+        scrambledPool: ex.scrambledPool,
+        correctAnswer: ex.correctAnswer,
+        settingsString: formatDictationSettingsString(normalizedEx),
+      };
+    }),
   }));
 
   const totalExercises = subjects.reduce((sum, s) => sum + s.exercises.length, 0);
